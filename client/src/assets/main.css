@@ -1,0 +1,82 @@
+/*
+  Global styles + design tokens.
+  Change colours HERE (not in individual pages) so the whole app stays consistent.
+*/
+:root {
+  --hw-red: #d6001c; /* NDP red – primary actions */
+  --hw-red-dark: #a80016;
+  --hw-navy: #14213d; /* navbar, headings */
+  --hw-bg: #f6f7fb;
+  --hw-surface: #ffffff;
+  --hw-text: #1f2430;
+  --hw-muted: #6b7280;
+  --hw-success: #1a7f4b;
+  --hw-warning: #b7791f;
+  --hw-danger: #c81e1e;
+  --hw-radius: 0.75rem;
+  --hw-shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 4px 12px rgb(0 0 0 / 0.06);
+}
+
+body {
+  background: var(--hw-bg);
+  color: var(--hw-text);
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+#app {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.app-main {
+  flex: 1;
+}
+
+.app-footer {
+  color: var(--hw-muted);
+}
+
+/* ---- Reusable bits ---- */
+.btn-brand {
+  --bs-btn-color: #fff;
+  --bs-btn-bg: var(--hw-red);
+  --bs-btn-border-color: var(--hw-red);
+  --bs-btn-hover-color: #fff;
+  --bs-btn-hover-bg: var(--hw-red-dark);
+  --bs-btn-hover-border-color: var(--hw-red-dark);
+  --bs-btn-active-bg: var(--hw-red-dark);
+  --bs-btn-active-border-color: var(--hw-red-dark);
+  --bs-btn-active-color: #fff;
+}
+
+.card-hw {
+  background: var(--hw-surface);
+  border: 0;
+  border-radius: var(--hw-radius);
+  box-shadow: var(--hw-shadow);
+}
+
+.text-muted-hw {
+  color: var(--hw-muted);
+}
+
+/* Big tap targets for volunteers on phones (checkpoints, incident buttons) */
+.tap-target {
+  min-height: 56px;
+}
+
+/* Leaflet maps need a fixed height to show */
+.map-container {
+  height: 420px;
+  border-radius: var(--hw-radius);
+  overflow: hidden;
+}
+
+@media (max-width: 576px) {
+  .map-container {
+    height: 300px;
+  }
+}

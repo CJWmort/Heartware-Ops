@@ -1,0 +1,31 @@
+{
+  "name": "heartware-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Express + MongoDB API for Heartware NDP Volunteer Ops (IS216 G5T1)",
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": {
+    "dev": "nodemon server.js",
+    "start": "node server.js",
+    "seed:schools": "node scripts/seed-schools.js",
+    "seed:demo": "node scripts/seed-demo.js",
+    "simulate": "node scripts/simulate-pings.js",
+    "test": "node --test \"tests/**/*.test.js\""
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.19.2",
+    "socket.io": "^4.8.1"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

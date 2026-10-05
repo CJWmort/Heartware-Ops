@@ -1,0 +1,41 @@
+# Each file below auto-requests a review from its owner when a PR touches it.
+# TODO: replace @github-username placeholders with each member's real GitHub username.
+
+# Feature 1a – Registration + app shell (Kuah)
+/client/src/views/volunteer/RegisterView.vue   @kuah-github
+/client/src/router/                            @kuah-github
+/client/src/services/api.js                    @kuah-github
+/client/src/stores/auth.js                     @kuah-github
+/server/controllers/auth-controller.js         @kuah-github
+/server/controllers/volunteers-controller.js   @kuah-github
+/server/scripts/seed-schools.js                @kuah-github
+
+# Feature 1b – Smart Allocation (Fanny)
+/client/src/views/admin/AllocationBoardView.vue  @fanny-github
+/client/src/views/volunteer/MyAssignmentView.vue @fanny-github
+/server/controllers/allocations-controller.js    @fanny-github
+/server/utils/haversine.js                       @fanny-github
+
+# Feature 2 – Open Slot Replacement (Yap)
+/client/src/views/volunteer/OpenSlotsView.vue   @yap-github
+/client/src/views/admin/ReplacementView.vue     @yap-github
+/server/controllers/replacements-controller.js  @yap-github
+
+# Feature 3 – Live Movement Tracking (Chin)
+/client/src/views/volunteer/TrackingView.vue    @chin-github
+/client/src/views/admin/HqLiveBoardView.vue     @chin-github
+/server/controllers/tracking-controller.js      @chin-github
+/server/scripts/simulate-pings.js               @chin-github
+
+# Feature 4 – Incident Reporting & HQ Alerts (Wei Ming)
+/client/src/views/volunteer/ReportIncidentView.vue  @weiming-github
+/client/src/views/admin/IncidentQueueView.vue       @weiming-github
+/server/controllers/incidents-controller.js         @weiming-github
+/server/sockets/                                    @weiming-github
+
+# Feature 5 – Recognition & Badge Studio + deployment (Hanafi)
+/client/src/views/volunteer/BadgeStudioView.vue  @hanafi-github
+/client/src/views/volunteer/MyBadgesView.vue     @hanafi-github
+/client/src/views/admin/BadgeAwardsView.vue      @hanafi-github
+/server/controllers/badges-controller.js         @hanafi-github
+/client/vercel.json                              @hanafi-github

@@ -1,0 +1,6 @@
+[
+  { "type": "STUDENT_UNWELL", "label": "Student unwell", "icon": "bi-bandaid-fill", "defaultSeverity": "high" },
+  { "type": "BUS_DELAYED", "label": "Bus delayed", "icon": "bi-bus-front-fill", "defaultSeverity": "medium" },
+  { "type": "LOST_ITEM", "label": "Lost item", "icon": "bi-bag-x-fill", "defaultSeverity": "low" },
+  { "type": "OTHER", "label": "Something else", "icon": "bi-exclamation-circle-fill", "defaultSeverity": "medium" }
+]

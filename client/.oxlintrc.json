@@ -1,0 +1,11 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["eslint", "unicorn", "oxc", "vue", "vitest"],
+  "env": {
+    "browser": true
+  },
+  "ignorePatterns": ["dist", "playwright-report", "test-results"],
+  "categories": {
+    "correctness": "error"
+  }
+}
