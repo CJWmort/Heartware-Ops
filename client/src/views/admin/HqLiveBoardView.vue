@@ -56,5 +56,17 @@ onMounted(getRouting)
     <FeaturePlaceholder feature="Feature 3 – Live Movement Tracking (HQ map)" owner="Chin" :todos="todos" />
     <!-- Suggested layout: map 8 cols + list 4 cols on desktop; list under map on mobile -->
   </section>
-  <BaseMap />
+  <div class="row">
+    <div class="col-xl-2 col-lg-4">
+      <ul class="list-group">
+        <li class="list-group-item">School:</li>
+        <li class="list-group-item">Bus:</li>
+        <li class="list-group-item">Checkpoints: 4/6</li>
+        <li class="list-group-item">Last Updated: </li>
+      </ul>
+    </div>
+    <div class="col-xl-10 col-lg-8 col-md-12 col-sm-12">
+      <BaseMap />
+    </div>
+  </div>
 </template>
