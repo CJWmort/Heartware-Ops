@@ -57,7 +57,7 @@ onMounted(getRouting)
     <!-- Suggested layout: map 8 cols + list 4 cols on desktop; list under map on mobile -->
   </section>
   <div class="row">
-    <div class="col-xl-2 col-lg-4">
+    <div class="col-xl-4 col-lg-4 mb-3">
       <ul class="list-group">
         <li class="list-group-item">School:</li>
         <li class="list-group-item">Bus:</li>
@@ -65,7 +65,7 @@ onMounted(getRouting)
         <li class="list-group-item">Last Updated: </li>
       </ul>
     </div>
-    <div class="col-xl-10 col-lg-8 col-md-12 col-sm-12">
+    <div class="col-xl-8 col-lg-8 col-md-12 col-sm-12">
       <BaseMap />
     </div>
   </div>

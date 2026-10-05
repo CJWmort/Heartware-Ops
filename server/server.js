@@ -15,6 +15,10 @@ const PORT = process.env.PORT || 8000
 async function start() {
   await connectDB()
 
+  const mongoose = require('mongoose')
+  require('./models/user-model') // use the real filename in server/models/
+  await mongoose.models.User.createCollection()
+
   const httpServer = http.createServer(app)
   initSockets(httpServer) // F4 bonus – live updates
 
