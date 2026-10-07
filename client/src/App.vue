@@ -10,6 +10,6 @@ import AppNavbar from '@/components/AppNavbar.vue'
     </div>
   </main>
   <footer class="app-footer text-center small py-3">
-    IS216 G5T1 · Built for Heartware NDP volunteers
+    IS216 G5T1 · Built for Heartware NDP Volunteers
   </footer>
 </template>
