@@ -10,7 +10,15 @@ const AccountSchema = new mongoose.Schema({
     email: {
         type: String,
         required: true,
-        unique: true
+        unique: true,
+        lowercase: true,
+        trim: true
+    },
+    postalCode: {
+        type: String,
+        required: true,
+        trim: true,
+        match: [/^\d{6}$/, 'Please enter a valid 6-digit Singapore postal code']
     },
     address: {
         type: String,
@@ -43,3 +51,14 @@ exports.retrieveAll = function () {
     return Account.find().select('-password'); // ".select('-password')" hides password field
 };
 
+exports.create = function (data) {
+    return new Account(data).save();
+};
+
+exports.findByEmail = function (email) {
+    return Account.findOne({ email: email.toLowerCase().trim() });
+};
+
+exports.findById = function (id) {
+    return Account.findById(id).select('-password');
+};

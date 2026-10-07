@@ -1,5 +1,6 @@
 <script setup>
-import { computed } from 'vue'
+import { ref, onMounted, computed } from 'vue'
+import axios from 'axios'
 import { useAuthStore } from '@/stores/auth'
 import { NAV_LINKS } from '@/router/nav-links'
 
@@ -13,9 +14,23 @@ const features = [
   { icon: 'bi-bell', title: 'Incidents & alerts', text: 'One-tap reports and automatic missed-checkpoint alerts.' },
   { icon: 'bi-award', title: 'Badge Studio', text: 'Earn badges and design your own physical badge.' },
 ]
+
+const user = ref(null)
+
+onMounted(async () => {
+  try {
+    const res = await axios.get('/api/me') // Fetch current user data
+    user.value = res.data
+  } catch {
+    user.value = null
+  }
+})
+
 </script>
 
 <template>
+  <p v-if="user">Logged in as {{ user.name }} ({{ user.role }})</p>
+  <p v-else>Not logged in</p>
   <!-- Logged in: quick links for your role -->
   <section v-if="auth.isLoggedIn" data-testid="dashboard">
     <h1 class="h3 mb-1">Hi, {{ auth.user.name }} 👋</h1>
