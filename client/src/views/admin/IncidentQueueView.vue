@@ -1,9 +1,6 @@
 <script setup>
 import { ref } from 'vue'
 import PageHeader from '@/components/PageHeader.vue'
-import IncidentCard from '@/components/incidents/IncidentCard.vue'
-import AlertItem from '@/components/incidents/AlertItem.vue'
-import { mockIncidents, mockTemplates } from '@/mocks/incidents'
 import BaseMap from '@/components/BaseMap.vue'
 
 const incidents = ref(mockIncidents)
@@ -34,9 +31,6 @@ function onResolve(incident) {
     <!-- 1. Alerts strip -->
     <div class="mb-3" data-testid="alerts-panel">
       <!-- <AlertItem v-for="…" /> -->
-      <AlertItem v-for="alert in alerts">
-        :key="alert._id" :alert="alert" @acknowledge="onAcknowledgeAlert"
-      </AlertItem>
     </div>
 
     <div class="row g-3">
