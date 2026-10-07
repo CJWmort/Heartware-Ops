@@ -10,7 +10,9 @@ const AccountSchema = new mongoose.Schema({
     email: {
         type: String,
         required: true,
-        unique: true
+        unique: true,
+        lowercase: true,
+        trim: true
     },
     postalCode: {
         type: String,
@@ -51,4 +53,12 @@ exports.retrieveAll = function () {
 
 exports.create = function (data) {
     return new Account(data).save();
+};
+
+exports.findByEmail = function (email) {
+    return Account.findOne({ email: email.toLowerCase().trim() });
+};
+
+exports.findById = function (id) {
+    return Account.findById(id).select('-password');
 };

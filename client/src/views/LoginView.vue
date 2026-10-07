@@ -1,10 +1,10 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref } from 'vue'
 import axios from 'axios'
 import { useRoute, useRouter } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
+import { useAuthStore } from '@/stores/auth' //remove after can use session
 
-const auth = useAuthStore()
+const auth = useAuthStore() //remove after can use session
 const router = useRouter()
 const route = useRoute()
 
@@ -13,27 +13,45 @@ const password = ref('')
 const error = ref('')
 const loading = ref(false)
 
-const isDev = import.meta.env.DEV
+const isDev = import.meta.env.DEV //remove after can use session
 
 async function submit() {
   error.value = ''
+
+  if (!email.value && !password.value) {
+    error.value = 'Enter your email and password.'
+    return
+  }
+  if (!email.value) {
+    error.value = 'Enter your email.'
+    return
+  }
+  if (!password.value) {
+    error.value = 'Enter your password.'
+    return
+  }
+
   loading.value = true
   try {
-    await auth.login(email.value, password.value)
+    await axios.post('/api/login', {
+      email: email.value,
+      password: password.value
+    })
     router.push(route.query.redirect || '/')
   } catch (err) {
-    error.value = err.friendlyMessage || 'Login failed'
+    console.error(err) // shows the real error in DevTools while you build
+    error.value = err.response?.data?.message || 'Could not reach the server. Try again.'
   } finally {
     loading.value = false
   }
 }
 
+//remove after can use session
 // DEVELOPMENT ONLY – lets teammates open their pages before real login is finished.
 function devLogin(role) {
   auth.devLoginAs(role)
   router.push(route.query.redirect || '/')
 }
-
 </script>
 
 <template>
