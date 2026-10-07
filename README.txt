@@ -58,4 +58,5 @@ AI / LLM USAGE (required by course policy)
   mock data) was generated with Claude (Anthropic) as boilerplate.
 - All feature business logic, backend endpoint logic and interactive features were written by
   the team.
+- F4 (Wei Ming): mock incidents/alerts (client/src/mocks/incidents.js), timeAgo helper (client/src/utils/time.js), display-only card layouts (client/src/components/incidents/IncidentCard.vue, AlertItem.vue) and IncidentCard wiring/placeholder handlers in IncidentQueueView.vue generated with Claude. Queue logic and status changes written by Wei Ming.
 - TODO: each member adds any further AI usage here (what + which file).
