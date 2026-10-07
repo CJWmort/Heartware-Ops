@@ -85,3 +85,23 @@ body {
 .map-container.leaflet-container {
   background: var(--hw-sea);
 }
+
+.leaflet-marker-icon.incident-pin {
+  display: grid;
+  place-items: center;
+  background: white;
+  border-radius: 50%;
+  border: 2px solid var(--severity, var(--bs-secondary));
+  color: var(--severity, var(--bs-secondary));
+  font-size: 1rem;
+}
+
+.incident-pin.sev-high {
+  --severity: var(--bs-danger);
+}
+.incident-pin.sev-medium {
+  --severit: var(--bs-warning);
+}
+.incident-pin.sev-low {
+  --severity: var(--bs-secondary);
+}

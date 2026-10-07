@@ -1,8 +1,9 @@
-const Incident = require("../models/incidents-model");
-const TEMPLATES = require("../data/incident-templates.json");
+const Incident = require("../models/incidents-model"); //access the database
+const TEMPLATES = require("../data/incident-templates.json"); //gets the templates declared inside data
 
 const SEVERITY_ORDER = { high: 0, medium: 1, low: 2 };
 const NEXT_STATUS = { new: "acknowledged", acknowledged: "resolved" };
+const { emit } = require("../sockets"); // emit is declared here to use sockets
 
 // GET /api/incidents/templates
 exports.listTemplates = (req, res) => res.json(TEMPLATES);
@@ -10,16 +11,19 @@ exports.listTemplates = (req, res) => res.json(TEMPLATES);
 // POST /api/incidents
 exports.createIncident = async (req, res) => {
   try {
-    const { slotId, type, severity, note, lat, lng } = req.body;
+    const { slotId, school, busNo, type, severity, note, lat, lng } = req.body;
     const incident = await Incident.create({
       slotId,
+      school,
+      busNo,
       type,
       severity,
       note,
       location: lat != null ? { lat, lng } : undefined,
-      reporter: req.session.user?._id,
+      volunteer: req.session.user?._id,
       history: [{ status: "new" }],
     });
+    emit("incident:new", incident); //new incident alert
     res.status(201).json(incident);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -52,6 +56,7 @@ exports.updateIncidentStatus = async (req, res) => {
     incident.status = status;
     incident.history.push({ status, note });
     await incident.save();
+    emit("incident:updated", incident); // this will be removed from the alert
     res.json(incident);
   } catch (error) {
     res.status(500).json({ message: error.message });
