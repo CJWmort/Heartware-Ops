@@ -1,5 +1,6 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
+import axios from 'axios'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 
@@ -32,6 +33,7 @@ function devLogin(role) {
   auth.devLoginAs(role)
   router.push(route.query.redirect || '/')
 }
+
 </script>
 
 <template>
