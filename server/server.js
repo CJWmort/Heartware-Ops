@@ -1,7 +1,9 @@
-const express = require('express');
-const dotenv = require('dotenv');
-const mongoose = require('mongoose');
-const session = require('express-session');
+const express = require("express");
+const dotenv = require("dotenv");
+const mongoose = require("mongoose");
+const session = require("express-session");
+const http = require("http"); // added for sockets to work by weiming
+const { initSockets } = require("./sockets"); // added for sockets to work by weiming
 
 const server = express();
 
@@ -11,22 +13,25 @@ server.use(express.urlencoded({ extended: true }));
 // express.json() is a middleware
 server.use(express.json());
 
-// if running locally, “http://localhost:8000/index.html” 
+// if running locally, “http://localhost:8000/index.html”
 // should load the home page of your application
-server.use('/', express.static('public'));
+server.use("/", express.static("public"));
 
 // Specify the path to the environment variablef file 'config.env'
-dotenv.config({ path: './config.env' });
+dotenv.config({ path: "./config.env" });
 
 // Allow session storage while server is running
-server.use(session({
+server.use(
+  session({
     secret: process.env.SECRET,
     resave: false,
-    saveUninitialized: false
-}));
+    saveUninitialized: false,
+  }),
+);
 
 // Routing
-server.use('/api', require('./routes/accounts-routes'));
+server.use("/api", require("./routes/accounts-routes"));
+server.use("/api/incidents", require("./routes/incidents-routes"));
 
 // async function to connect to DB
 async function connectDB() {
@@ -38,19 +43,23 @@ async function connectDB() {
     console.error("MongoDB connection failed:", error.message);
     process.exit(1);
   }
-};
+}
 
 function startServer() {
   const hostname = "localhost"; // Define server hostname
-  const port = 8000;// Define port number
- 
-  // Start the server and listen on the specified hostname and port
-  server.listen(port, hostname, () => {
+  const port = 8000; // Define port number
+
+  const httpServer = http.createServer(server); // wrap express for sockets by weiming
+  initSockets(httpServer); // start socket.io
+
+  //start the http server and listen on specific hostname and port
+  // The reason for the wrapper: httpServer is now the "door" on port 8000. Normal requests like GET /api/incidents get passed to Express (server),
+  // and live socket connections get passed to socket.io. Both share one port that way.
+  httpServer.listen(port, hostname, () => {
+    //listening for
     console.log(`Server running at http://${hostname}:${port}/`);
   });
 }
 
 // call connectDB first and when connection is ready we start the web server
 connectDB().then(startServer);
-
-
