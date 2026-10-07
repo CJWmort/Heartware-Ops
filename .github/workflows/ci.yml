@@ -1,5 +1,3 @@
-# Runs automatically on every Pull Request and every push to main.
-# A red ❌ on your PR means lint, build or unit tests failed – click "Details" to see why.
 name: CI
 
 on:
@@ -15,13 +13,16 @@ jobs:
         working-directory: client
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4 # ⭐ installs pnpm on GitHub's computer
+        with:
+          version: 10 # ⭐
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install   # change to `npm ci` once package-lock.json is committed
-      - run: npm run lint:check
-      - run: npm run test:unit -- --run
-      - run: npm run build
+      - run: pnpm install # ⭐ was npm install
+      - run: pnpm run lint:check # ⭐
+      - run: pnpm run test:unit --run # ⭐
+      - run: pnpm run build # ⭐
 
   server:
     runs-on: ubuntu-latest
@@ -30,8 +31,11 @@ jobs:
         working-directory: server
     steps:
       - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4 # ⭐
+        with:
+          version: 10 # ⭐
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: npm install   # change to `npm ci` once package-lock.json is committed
-      - run: npm test
+      - run: pnpm install # ⭐
+      - run: pnpm test # ⭐
