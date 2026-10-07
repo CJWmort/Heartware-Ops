@@ -15,6 +15,7 @@
   --hw-danger: #c81e1e;
   --hw-radius: 0.75rem;
   --hw-shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 4px 12px rgb(0 0 0 / 0.06);
+  --hw-sea: #bcd8f2;
 }
 
 body {
@@ -79,4 +80,8 @@ body {
   .map-container {
     height: 300px;
   }
+}
+
+.map-container.leaflet-container {
+  background: var(--hw-sea);
 }

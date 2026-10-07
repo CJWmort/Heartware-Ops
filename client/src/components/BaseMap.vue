@@ -48,7 +48,10 @@ onMounted(() => {
   }).addTo(map)
 
   // OneMap only covers Singapore – stop users panning off the map
-  map.setMaxBounds(L.latLngBounds([1.144, 103.535], [1.494, 104.502]))
+  // Mainland Singapore only – Tuas (west) to Changi (east), Southern coast to Woodlands (north)
+  const MAINLAND_SG = L.latLngBounds([1.235, 103.59], [1.475, 104.05])
+  map.setMaxBounds(MAINLAND_SG)
+  map.options.maxBoundsViscosity = 1.0 // 1.0 = hard edge, can't drag outside at all
   emit('ready', map, L)
 })
 
