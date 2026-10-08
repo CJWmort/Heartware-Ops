@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import axios from 'axios'
-import { useAuthStore } from '@/stores/auth'
+import { useAuthStore } from '@/services/auth'
 import { NAV_LINKS } from '@/router/nav-links'
 
 const auth = useAuthStore()

@@ -5,7 +5,7 @@ import PageHeader from '@/components/PageHeader.vue'
 import FeaturePlaceholder from '@/components/FeaturePlaceholder.vue'
 import { ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
+import { useAuthStore } from '@/services/auth'
 import axios from 'axios'
 
 const auth = useAuthStore()

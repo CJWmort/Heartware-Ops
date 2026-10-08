@@ -38,7 +38,11 @@ const AccountSchema = new mongoose.Schema({
     password: {
         type: String,
         required: true
-    }
+    },
+    availableDates: {
+        type: [String],
+        default: []
+    },
 }, {
     timestamps: true // auto timestamp management (createdAt, updatedAt) will update automatically based on methods used
 });
