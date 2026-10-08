@@ -26,7 +26,7 @@ test.describe('F1a Registration', () => {
     await expect(page.getByTestId('reg-postal-preview')).toContainText(/not found/i)
   })
 
-  test.fixme('successful sign-up logs the volunteer in', async ({ page }) => {
+  test.fixme('successful sign-up logs the volunteer in', async ({ page: _page }) => {
     // Fill every step with valid data, tick consent, submit
     // await expect(page).toHaveURL(/\/me\/assignment/)
   })
