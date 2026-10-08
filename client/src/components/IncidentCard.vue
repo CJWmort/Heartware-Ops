@@ -11,28 +11,29 @@ const props = defineProps({
 // 2. EMITS – what the card tells the page ("this button was clicked")
 defineEmits(['select', 'acknowledge', 'resolve'])
 
-// 3. SEVERITY_LABEL
-const SEVERITY_LABEL = { high: 'High', medium: 'Medium', low: 'Low' }
-
-// 4. label
+// 3. label
 const label = computed(() => props.template?.label || props.incident.type)
 
-// 5. icon
+// 4. icon
 const icon = computed(() => props.template?.icon || 'bi-exclamation-circle-fill')
 
-// 6. school name
+// 5. school name
 const school = computed(() => props.incident.school || 'Unknown school')
 
-// 7. latest update to display first
+// 6. provides the date/time and the note when a incident is first reported
+const reported = computed(() => {
+  const time = formatDateTime(props.incident.createdAt)
+  if (!props.incident.note) return time
+  return `${time} - ${props.incident.note}`
+})
+
+// 7. latest update to display
 const latestUpdate = computed(() => {
   //array must not be empty
   const last = props.incident.history.at(-1)
   if (!last?.note) return ''
-  else return `${formatDateTime(last.at)} - ${last.note}`
+  else return `${formatDateTime(last.at)} - ${last.note}` //formated to display directly compared to createdAt
 })
-
-// 8. createdAt time helper
-const createdAt = computed(() => formatDateTime(props.incident.createdAt))
 
 // 9. DateTime helper
 function formatDateTime(date) {
@@ -53,17 +54,18 @@ function formatDateTime(date) {
   <div
     class="card card-hw border-start border-5"
     :class="{
-      'border-danger': incident.severity === 'high',
-      'border-warning': incident.severity === 'medium',
-      'border-secondary': incident.severity === 'low',
+      'border-danger': incident.status !== 'resolved' && incident.severity === 'high',
+      'border-warning': incident.status !== 'resolved' && incident.severity === 'medium',
+      'border-primary': incident.status !== 'resolved' && incident.severity === 'low',
+      'border-success': incident.status === 'resolved',
     }"
     :data-testid="`incident-card-${incident._id}`"
   >
     <div class="card-body">
-      <h3 class="h6 mb-1" :class="['bi', icon, 'me-2']">{{ label }}</h3>
+      <h3 class="h6 mb-1" :class="['bi', icon, 'me-5']">{{ label }}</h3>
       <p class="small text-muted mb-2">{{ school }}</p>
       <p class="mb-2">
-        {{ createdAt + ' - ' + incident.note }}
+        {{ reported }}
       </p>
       <p v-if="latestUpdate" class="mb-2">{{ latestUpdate }}</p>
 
