@@ -1,6 +1,7 @@
 const Incident = require("../models/incidents-model"); //access the database
 const TEMPLATES = require("../data/incident-templates.json"); //gets the templates declared inside data
 
+const STATUS_ORDER = { new: 0, acknowledged: 1, resolved: 2 };
 const SEVERITY_ORDER = { high: 0, medium: 1, low: 2 };
 const NEXT_STATUS = { new: "acknowledged", acknowledged: "resolved" };
 const { emit } = require("../sockets"); // emit is declared here to use sockets
@@ -35,7 +36,16 @@ exports.listIncidents = async (req, res) => {
   try {
     const filter = req.query.status ? { status: req.query.status } : {};
     const list = await Incident.retrieveAll(filter);
-    list.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity]);
+    list.sort((a, b) => {
+      const byStatus = STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
+      if (byStatus !== 0) return byStatus;
+
+      const bySeverity = SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity];
+      if (bySeverity !== 0) return bySeverity;
+
+      const byTime = new Date(a.createdAt) - new Date(b.createdAt);
+      if (byTime !== 0) return byTime;
+    });
     res.json(list);
   } catch (error) {
     res.status(500).json({ message: error.message });

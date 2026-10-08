@@ -26,16 +26,30 @@ const school = computed(() => props.incident.school || 'Unknown school')
 // 7. latest update to display first
 const latestUpdate = computed(() => {
   //array must not be empty
-  let result = ''
-  if (props.incident.history.length !== 0) {
-    result = props.incident.history.at(-1)?.note || '' //this will return the latest update from history or empty string if it is empty
-  }
-  return result
+  const last = props.incident.history.at(-1)
+  if (!last?.note) return ''
+  else return `${formatDateTime(last.at)} - ${last.note}`
 })
+
+// 8. createdAt time helper
+const createdAt = computed(() => formatDateTime(props.incident.createdAt))
+
+// 9. DateTime helper
+function formatDateTime(date) {
+  return new Date(date).toLocaleString('en-SG', {
+    day: 'numeric',
+    month: 'short',
+    year: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: 'Asia/Singapore',
+  })
+}
 </script>
 
 <template>
-  <!-- 3. TEMPLATE – how ONE card looks -->
+  <!-- 8. TEMPLATE – how ONE card looks -->
   <div
     class="card card-hw border-start border-5"
     :class="{
@@ -48,7 +62,9 @@ const latestUpdate = computed(() => {
     <div class="card-body">
       <h3 class="h6 mb-1" :class="['bi', icon, 'me-2']">{{ label }}</h3>
       <p class="small text-muted mb-2">{{ school }}</p>
-      <p class="mb-2">{{ incident.note }}</p>
+      <p class="mb-2">
+        {{ createdAt + ' - ' + incident.note }}
+      </p>
       <p v-if="latestUpdate" class="mb-2">{{ latestUpdate }}</p>
 
       <button

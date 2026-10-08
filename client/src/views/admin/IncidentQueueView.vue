@@ -76,11 +76,25 @@ function plotIncidents() {
 function onSelect(incident) {
   console.log('selected', incident._id)
 }
-function onAcknowledge(incident) {
-  console.log('acknowledge', incident._id)
+
+async function onAcknowledge(incident) {
+  try {
+    await updateIncidentStatus(incident._id, 'acknowledged')
+    incidents.value = await listIncidents()
+  } catch (error) {
+    errorMessage.value = error.friendlyMessage
+  }
 }
-function onResolve(incident) {
-  console.log('resolve', incident._id)
+
+async function onResolve(incident) {
+  try {
+    const note = prompt('Please include details on how was it resolved.')
+    if (!note) return // if note is empty, it cannot be resolved
+    await updateIncidentStatus(incident._id, 'resolved', note)
+    incidents.value = await listIncidents()
+  } catch (error) {
+    errorMessage.value = error.friendlyMessage
+  }
 }
 </script>
 
