@@ -51,9 +51,12 @@ function plotIncidents() {
       return
 
     const icon = templatesByType.value[incident.type]?.icon || 'bi-exclamation-circle-fill'
+    const colourClass =
+      incident.status === 'resolved' ? 'severity-resolved' : `severity-${incident.severity}`
+
     const pin = leafletRef.divIcon({
       html: `<i class="bi ${icon}"></i>`, // the HTML to show
-      className: 'incident-pin severity-${incident.severity}', // a CSS class so you can style it
+      className: `incident-pin ${colourClass}`, // a CSS class so you can style it
       iconSize: [32, 32], // width, height in px
     })
 
@@ -110,14 +113,14 @@ async function onResolve(incident) {
 
     <div class="row g-3">
       <!-- the map will be here, top for phones and right-side for desktop views-->
-      <div class="col-12 col-lg-5 order-1 order-lg-2">
+      <div class="col-12 col-lg-6 order-1 order-lg-2">
         <div class="incident-map-wrap sticky-lg-top">
           <BaseMap testid="incident-map" @ready="onMapReady"></BaseMap>
         </div>
       </div>
 
       <!-- status/cards will under map on iphone 16, left side on desktop -->
-      <div class="col-12 col-lg-7 order-2 order-lg-1">
+      <div class="col-6 col-lg-7 order-2 order-lg-1">
         <div class="d-flex flex-column gap-3" data-testid="queue-new">
           <IncidentCard
             v-for="incident in incidents"

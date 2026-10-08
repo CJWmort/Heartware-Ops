@@ -1,0 +1,26 @@
+[
+  {
+    "name": "NE Show 1",
+    "date": "2027-07-10T18:00:00+08:00",
+    "venue": "Padang",
+    "totalSlots": 120
+  },
+  {
+    "name": "NE Show 2",
+    "date": "2027-07-17T18:00:00+08:00",
+    "venue": "Padang",
+    "totalSlots": 120
+  },
+  {
+    "name": "Preview 1",
+    "date": "2027-07-24T18:00:00+08:00",
+    "venue": "Padang",
+    "totalSlots": 80
+  },
+  {
+    "name": "Preview 2",
+    "date": "2027-07-31T18:00:00+08:00",
+    "venue": "Padang",
+    "totalSlots": 40
+  }
+]

@@ -1,18 +1,38 @@
-// API calls for Kuah (F1a). Each returns the response data (or throws – show error.friendlyMessage).
+// axios calls for Kuah (F1a). Each returns the response data (or throws – show error.friendlyMessage).
 // Contract: docs/API.md
-import api from './api'
+import axios from 'axios'
+
+const BASE_URL = '/api/auth'
+
+function addFriendlyMessage(error) {
+  error.friendlyMessage =
+    error.response?.data?.message || error.message || 'Something went wrong. Please try again.'
+  return error
+}
 
 export async function register(payload) {
-  const { data } = await api.post('/auth/register', payload)
-  return data
+  try {
+    const { data } = await axios.post(`${BASE_URL}/register`, payload, { timeout: 15000 })
+    return data
+  } catch (error) {
+    throw addFriendlyMessage(error)
+  }
 }
 
 export async function login(email, password) {
-  const { data } = await api.post('/auth/login', { email, password })
-  return data
+  try {
+    const { data } = await axios.post(`${BASE_URL}/login`, { email, password }, { timeout: 15000 })
+    return data
+  } catch (error) {
+    throw addFriendlyMessage(error)
+  }
 }
 
 export async function fetchMe() {
-  const { data } = await api.get('/auth/me')
-  return data
+  try {
+    const { data } = await axios.get(`${BASE_URL}/me`, { timeout: 15000 })
+    return data
+  } catch (error) {
+    throw addFriendlyMessage(error)
+  }
 }
