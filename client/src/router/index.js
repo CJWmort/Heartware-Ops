@@ -1,105 +1,113 @@
-// Which URL shows which page, and who is allowed to see it. Owner: Kuah (app shell)
-//
-// meta.roles  – only these roles may open the page (others are sent home)
-// meta.public – no login needed
-// meta.title  – browser tab title
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import HomeView from '@/views/HomeView.vue'
 
 const VOLUNTEER = ['volunteer']
-const COORDINATOR = ['coordinator']
-const HQ = ['hq', 'coordinator']
+const ADMIN = ['admin']
 
 const routes = [
+  // ---- Anyone
   { path: '/', name: 'home', component: HomeView, meta: { public: true, title: 'Home' } },
+
+  // ---- Guests only
   {
     path: '/login',
     name: 'login',
     component: () => import('@/views/LoginView.vue'),
-    meta: { public: true, guestOnly: true, title: 'Log in' },
+    meta: { guestOnly: true, title: 'Log in' },
   },
-
-  // ---- Feature 1a – Registration (Kuah)
   {
     path: '/register',
     name: 'register',
     component: () => import('@/views/volunteer/RegisterView.vue'),
-    meta: { public: true, guestOnly: true, title: 'Volunteer sign-up' },
+    meta: { guestOnly: true, title: 'Volunteer sign-up' },
   },
 
-  // ---- Volunteer pages
+  // ---- Volunteer pages: /volunteer/...
   {
-    path: '/me/assignment', // F1b – Fanny
-    name: 'my-assignment',
-    component: () => import('@/views/volunteer/MyAssignmentView.vue'),
-    meta: { roles: VOLUNTEER, title: 'My assignment' },
-  },
-  {
-    path: '/me/open-slots', // F2 – Yap
-    name: 'open-slots',
-    component: () => import('@/views/volunteer/OpenSlotsView.vue'),
-    meta: { roles: VOLUNTEER, title: 'Open slots' },
-  },
-  {
-    path: '/me/tracking', // F3 – Chin
-    name: 'tracking',
-    component: () => import('@/views/volunteer/TrackingView.vue'),
-    meta: { roles: VOLUNTEER, title: 'Event day' },
-  },
-  {
-    path: '/me/report', // F4 – Wei Ming
-    name: 'report-incident',
-    component: () => import('@/views/volunteer/ReportIncidentView.vue'),
-    meta: { roles: VOLUNTEER, title: 'Report incident' },
-  },
-  {
-    path: '/me/badges', // F5 – Hanafi
-    name: 'my-badges',
-    component: () => import('@/views/volunteer/MyBadgesView.vue'),
-    meta: { roles: VOLUNTEER, title: 'My badges' },
-  },
-  {
-    path: '/me/badge-studio', // F5 – Hanafi
-    name: 'badge-studio',
-    component: () => import('@/views/volunteer/BadgeStudioView.vue'),
-    meta: { roles: VOLUNTEER, title: 'Badge Studio' },
-  },
-
-  // ---- Coordinator pages
-  {
-    path: '/admin/allocation', // F1b – Fanny
-    name: 'allocation-board',
-    component: () => import('@/views/admin/AllocationBoardView.vue'),
-    meta: { roles: COORDINATOR, title: 'Allocation' },
-  },
-  {
-    path: '/admin/replacements', // F2 – Yap
-    name: 'replacements',
-    component: () => import('@/views/admin/ReplacementView.vue'),
-    meta: { roles: COORDINATOR, title: 'Replacements' },
-  },
-  {
-    path: '/admin/badges', // F5 – Hanafi
-    name: 'badge-awards',
-    component: () => import('@/views/admin/BadgeAwardsView.vue'),
-    meta: { roles: COORDINATOR, title: 'Badges & orders' },
+    path: '/volunteer',
+    meta: { roles: ['volunteer'] }, // applies to every child below
+    children: [
+      { path: '', redirect: { name: 'volunteer-assignment' } },
+      {
+        path: 'assignment', // F1b – Fanny
+        name: 'volunteer-assignment',
+        component: () => import('@/views/volunteer/MyAssignmentView.vue'),
+        meta: { title: 'My assignment' },
+      },
+      {
+        path: 'open-slots', // F2 – Yap
+        name: 'volunteer-open-slots',
+        component: () => import('@/views/volunteer/OpenSlotsView.vue'),
+        meta: { title: 'Open slots' },
+      },
+      {
+        path: 'tracking', // F3 – Chin
+        name: 'volunteer-tracking',
+        component: () => import('@/views/volunteer/TrackingView.vue'),
+        meta: { title: 'Event day' },
+      },
+      {
+        path: 'report', // F4 – Wei Ming
+        name: 'volunteer-report',
+        component: () => import('@/views/volunteer/ReportIncidentView.vue'),
+        meta: { title: 'Report incident' },
+      },
+      {
+        path: 'badges', // F5 – Hanafi
+        name: 'volunteer-badges',
+        component: () => import('@/views/volunteer/MyBadgesView.vue'),
+        meta: { title: 'My badges' },
+      },
+      {
+        path: 'badge-studio', // F5 – Hanafi
+        name: 'volunteer-badge-studio',
+        component: () => import('@/views/volunteer/BadgeStudioView.vue'),
+        meta: { title: 'Badge Studio' },
+      },
+    ],
   },
 
-  // ---- HQ pages (coordinators can see them too)
+  // ---- Admin pages: /admin/...
   {
-    path: '/hq/live', // F3 – Chin
-    name: 'hq-live',
-    component: () => import('@/views/admin/HqLiveBoardView.vue'),
-    meta: { roles: HQ, title: 'Live board' },
-  },
-  {
-    path: '/hq/incidents', // F4 – Wei Ming
-    name: 'hq-incidents',
-    component: () => import('@/views/admin/IncidentQueueView.vue'),
-    meta: { roles: HQ, title: 'Incidents & alerts' },
+    path: '/admin',
+    meta: { roles: ['admin'] }, // applies to every child below
+    children: [
+      { path: '', redirect: { name: 'admin-allocation' } },
+      {
+        path: 'allocation', // F1b – Fanny
+        name: 'admin-allocation',
+        component: () => import('@/views/admin/AllocationBoardView.vue'),
+        meta: { title: 'Allocation' },
+      },
+      {
+        path: 'replacements', // F2 – Yap
+        name: 'admin-replacements',
+        component: () => import('@/views/admin/ReplacementView.vue'),
+        meta: { title: 'Replacements' },
+      },
+      {
+        path: 'live', // F3 – Chin
+        name: 'admin-live',
+        component: () => import('@/views/admin/HqLiveBoardView.vue'),
+        meta: { title: 'Live board' },
+      },
+      {
+        path: 'incidents', // F4 – Wei Ming
+        name: 'admin-incidents',
+        component: () => import('@/views/admin/IncidentQueueView.vue'),
+        meta: { title: 'Incidents & alerts' },
+      },
+      {
+        path: 'badges', // F5 – Hanafi
+        name: 'admin-badges',
+        component: () => import('@/views/admin/BadgeAwardsView.vue'),
+        meta: { title: 'Badges & orders' },
+      },
+    ],
   },
 
+  // ---- Anything else
   {
     path: '/:pathMatch(.*)*',
     name: 'not-found',
@@ -116,12 +124,14 @@ const router = createRouter({
 
 router.beforeEach(async (to) => {
   const auth = useAuthStore()
-  await auth.restore()
+  await auth.restore() // asks the server once, then reuses the answer
 
-  if (to.meta.guestOnly && auth.isLoggedIn) return { name: 'home' }
-  if (to.meta.public) return true
+  const { guestOnly, public: isPublic, roles } = to.meta
+
+  if (guestOnly) return auth.isLoggedIn ? { name: 'home' } : true
+  if (isPublic) return true
   if (!auth.isLoggedIn) return { name: 'login', query: { redirect: to.fullPath } }
-  if (to.meta.roles && !to.meta.roles.includes(auth.role)) return { name: 'home' }
+  if (roles && !roles.includes(auth.role)) return { name: 'home' }
   return true
 })
 

@@ -65,7 +65,7 @@ exports.login = async (req, res) => {
         if (!valid) {
             return res.status(401).json({ message: 'Incorrect email or password.' });
         }
-
+        
         // New session ID on login
         req.session.regenerate((err) => {
             if (err) return res.status(500).json({ message: 'Login failed.' });

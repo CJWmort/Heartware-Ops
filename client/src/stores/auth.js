@@ -1,64 +1,49 @@
-// Who is logged in. Owner: Kuah (app shell)
-// Use in any component:
-//   import { useAuthStore } from '@/stores/auth'
-//   const auth = useAuthStore()
-//   auth.user?.name, auth.isLoggedIn, auth.role
+// Sends the request, saves the returned user in the shared store
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import { getToken, setToken } from '@/services/api'
-import * as authApi from '@/services/auth'
+import axios from 'axios'
 
 export const useAuthStore = defineStore('auth', () => {
-  const user = ref(null)
-  const token = ref(getToken())
-  const ready = ref(false) // true once we've tried to restore the session on page load
+  const user = ref(null) // Holds the logged-in user's data ({ _id, name, email, role }), or null for a guest.
+  const ready = ref(false) // Records whether we've asked the server yet. It starts false and flips to true after the first check.
 
-  const isLoggedIn = computed(() => !!user.value)
-  const role = computed(() => user.value?.role ?? null)
+  const isLoggedIn = computed(() => !!user.value) // True when user has a value. !! turns the object into true and null into false.
+  const role = computed(() => user.value?.role ?? null) // User's role, or null for a guest. The ?. stops it crashing when user is null.
 
-  function setSession(newToken, newUser) {
-    token.value = newToken
-    user.value = newUser
-    setToken(newToken)
-  }
-
+  // 1. Sends the email and password to the server.
+  // 2. Server checks them with bcrypt and creates a session.
+  // 3. Browser stores the session cookie by itself.
+  // 4. Server replies with the user's safe details, which the store saves in user.
   async function login(email, password) {
-    const data = await authApi.login(email, password) // { token, user }
-    setSession(data.token, data.user)
-    return data.user
+    const res = await axios.post('/api/users/login', { email, password })
+    user.value = res.data
+    ready.value = true
+    return user.value
   }
 
-  async function register(payload) {
-    const data = await authApi.register(payload) // { token, user }
-    setSession(data.token, data.user)
-    return data.user
-  }
-
-  // Called once by the router before the first page loads (restores login after refresh)
+  // Handles page refreshes on every navigation, but only the first call does any work.
   async function restore() {
-    if (ready.value) return
+    if (ready.value) return // Makes it ask the server only once per page load.
     try {
-      if (token.value) {
-        const data = await authApi.fetchMe()
-        user.value = data.user ?? data
-      }
+      const res = await axios.get('/api/users/me')
+      user.value = res.data
     } catch {
-      setSession(null, null)
+      user.value = null
     } finally {
       ready.value = true
     }
   }
 
-  function logout() {
-    setSession(null, null)
+  // Tells the server to destroy the session, then clears user
+  async function logout() {
+    user.value = null  
+    try {
+      await axios.post('/api/users/logout')
+    } catch (err) {
+      console.error('Logout request failed', err)
+    }
   }
 
-  // DEVELOPMENT ONLY: pretend to be a role so you can build your pages before login works.
-  // The router + LoginView only expose this when import.meta.env.DEV is true.
-  function devLoginAs(devRole) {
-    user.value = { _id: `dev-${devRole}`, name: `Dev ${devRole}`, email: `${devRole}@dev`, role: devRole }
-    ready.value = true
-  }
-
-  return { user, token, ready, isLoggedIn, role, login, register, restore, logout, devLoginAs }
+  // Allow other components to call the functions in here (auth.js)
+  return { user, ready, isLoggedIn, role, login, restore, logout }
 })

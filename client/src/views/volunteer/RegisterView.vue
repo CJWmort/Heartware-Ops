@@ -4,7 +4,13 @@
 import PageHeader from '@/components/PageHeader.vue'
 import FeaturePlaceholder from '@/components/FeaturePlaceholder.vue'
 import { ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { useAuthStore } from '@/stores/auth'
 import axios from 'axios'
+
+const auth = useAuthStore()
+const router = useRouter()
+const route = useRoute()
 
 // TODO(Kuah): build this page, then delete FeaturePlaceholder below.
 const todos = [
@@ -92,8 +98,10 @@ async function register() {
       role: "volunteer"
     }
     await axios.post('/api/users', body)
-
     console.log('Success! User created')
+    
+    await auth.login(email.value, password.value)
+    router.push(route.query.redirect || '/')
   } catch (error) {
     serverError.value = error.response?.data?.message || 'Could not create your account. Try again.'
   } finally {

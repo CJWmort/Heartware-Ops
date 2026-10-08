@@ -9,8 +9,8 @@ const router = useRouter()
 
 const links = computed(() => NAV_LINKS[auth.role] ?? [])
 
-function logout() {
-  auth.logout()
+async function logout() {
+  await auth.logout()
   router.push({ name: 'login' })
 }
 </script>
