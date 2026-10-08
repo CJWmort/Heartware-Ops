@@ -117,7 +117,7 @@ async function onResolve(incident) {
       </div>
 
       <!-- status/cards will under map on iphone 16, left side on desktop -->
-      <div class="col-12 col-lg-7 order-2 order-lg-1">
+      <div class="col-6 col-lg-7 order-2 order-lg-1">
         <div class="d-flex flex-column gap-3" data-testid="queue-new">
           <IncidentCard
             v-for="incident in incidents"
