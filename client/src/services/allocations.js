@@ -1,33 +1,72 @@
-// API calls for Fanny (F1b). Each returns the response data (or throws – show error.friendlyMessage).
-// Contract: docs/API.md
-import api from './api'
+// axios calls for Fanny (F1b). Each returns the response data (or throws – show error.friendlyMessage).
+import axios from 'axios'
+
+const BASE_URL = '/api/allocations'
+
+function addFriendlyMessage(error) {
+  error.friendlyMessage =
+    error.response?.data?.message || error.message || 'Something went wrong. Please try again.'
+  return error
+}
 
 export async function runAllocation(eventId) {
-  const { data } = await api.post('/allocations/run', { eventId })
-  return data
+  try {
+    const { data } = await axios.post(`${BASE_URL}/run`, { eventId }, { timeout: 15000 })
+    return data
+  } catch (error) {
+    throw addFriendlyMessage(error)
+  }
 }
 
 export async function getAllocation(eventId) {
-  const { data } = await api.get('/allocations', { params: { eventId } })
-  return data
+  try {
+    const { data } = await axios.get(BASE_URL, { params: { eventId }, timeout: 15000 })
+    return data
+  } catch (error) {
+    throw addFriendlyMessage(error)
+  }
 }
 
 export async function reassignSlot(slotId, volunteerId) {
-  const { data } = await api.patch(`/allocations/slots/${slotId}`, { volunteerId })
-  return data
+  try {
+    const { data } = await axios.patch(
+      `${BASE_URL}/slots/${slotId}`,
+      { volunteerId },
+      { timeout: 15000 },
+    )
+    return data
+  } catch (error) {
+    throw addFriendlyMessage(error)
+  }
 }
 
 export async function publishAllocation(eventId) {
-  const { data } = await api.post('/allocations/publish', { eventId })
-  return data
+  try {
+    const { data } = await axios.post(`${BASE_URL}/publish`, { eventId }, { timeout: 15000 })
+    return data
+  } catch (error) {
+    throw addFriendlyMessage(error)
+  }
 }
 
 export async function getMyAssignment() {
-  const { data } = await api.get('/allocations/me')
-  return data
+  try {
+    const { data } = await axios.get(`${BASE_URL}/me`, { timeout: 15000 })
+    return data
+  } catch (error) {
+    throw addFriendlyMessage(error)
+  }
 }
 
 export async function respondToSlot(slotId, response) {
-  const { data } = await api.post(`/allocations/slots/${slotId}/respond`, { response })
-  return data
+  try {
+    const { data } = await axios.post(
+      `${BASE_URL}/slots/${slotId}/respond`,
+      { response },
+      { timeout: 15000 },
+    )
+    return data
+  } catch (error) {
+    throw addFriendlyMessage(error)
+  }
 }

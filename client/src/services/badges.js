@@ -1,48 +1,100 @@
-// API calls for Hanafi (F5). Each returns the response data (or throws – show error.friendlyMessage).
+// axios calls for Hanafi (F5). Each returns the response data (or throws – show error.friendlyMessage).
 // Contract: docs/API.md
-import api from './api'
+import axios from 'axios'
+
+const BASE_URL = '/api/badges'
+
+function addFriendlyMessage(error) {
+  error.friendlyMessage =
+    error.response?.data?.message || error.message || 'Something went wrong. Please try again.'
+  return error
+}
 
 export async function listBadges() {
-  const { data } = await api.get('/badges')
-  return data
+  try {
+    const { data } = await axios.get(BASE_URL, { timeout: 15000 })
+    return data
+  } catch (error) {
+    throw addFriendlyMessage(error)
+  }
 }
 
 export async function autoAward(eventId) {
-  const { data } = await api.post('/badges/auto-award', { eventId })
-  return data
+  try {
+    const { data } = await axios.post(`${BASE_URL}/auto-award`, { eventId }, { timeout: 15000 })
+    return data
+  } catch (error) {
+    throw addFriendlyMessage(error)
+  }
 }
 
 export async function awardBadge(volunteerIds, badgeId, message) {
-  const { data } = await api.post('/badges/award', { volunteerIds, badgeId, message })
-  return data
+  try {
+    const { data } = await axios.post(
+      `${BASE_URL}/award`,
+      { volunteerIds, badgeId, message },
+      { timeout: 15000 },
+    )
+    return data
+  } catch (error) {
+    throw addFriendlyMessage(error)
+  }
 }
 
 export async function getMyBadges() {
-  const { data } = await api.get('/badges/me')
-  return data
+  try {
+    const { data } = await axios.get(`${BASE_URL}/me`, { timeout: 15000 })
+    return data
+  } catch (error) {
+    throw addFriendlyMessage(error)
+  }
 }
 
 export async function getMyDesign() {
-  const { data } = await api.get('/badges/design/me')
-  return data
+  try {
+    const { data } = await axios.get(`${BASE_URL}/design/me`, { timeout: 15000 })
+    return data
+  } catch (error) {
+    throw addFriendlyMessage(error)
+  }
 }
 
 export async function saveMyDesign(design) {
-  const { data } = await api.put('/badges/design/me', design)
-  return data
+  try {
+    const { data } = await axios.put(`${BASE_URL}/design/me`, design, { timeout: 15000 })
+    return data
+  } catch (error) {
+    throw addFriendlyMessage(error)
+  }
 }
 
 export async function placeOrder(address) {
-  const { data } = await api.post('/badges/orders', { address })
-  return data
+  try {
+    const { data } = await axios.post(`${BASE_URL}/orders`, { address }, { timeout: 15000 })
+    return data
+  } catch (error) {
+    throw addFriendlyMessage(error)
+  }
 }
 
 export async function getMyOrders() {
-  const { data } = await api.get('/badges/orders/me')
-  return data
+  try {
+    const { data } = await axios.get(`${BASE_URL}/orders/me`, { timeout: 15000 })
+    return data
+  } catch (error) {
+    throw addFriendlyMessage(error)
+  }
 }
 
 export async function updateOrderStatus(orderId, status) {
-  const { data } = await api.patch(`/badges/orders/${orderId}/status`, { status })
-  return data
+  try {
+    const { data } = await axios.patch(
+      `${BASE_URL}/orders/${orderId}/status`,
+      { status },
+      { timeout: 15000 },
+    )
+    return data
+  } catch (error) {
+    throw addFriendlyMessage(error)
+  }
 }
