@@ -120,3 +120,35 @@ exports.volunteerLocations = async (req, res) => {
         res.status(500).json({ message: 'Could not load volunteer locations.' });
     }
 };
+
+// Registration form: postal code -> address
+// GET /api/users/postal-lookup?postalCode=560123  ->  { address, lat, lng }
+exports.postalLookup = async (req, res) => {
+    const postalCode = (req.query.postalCode || '').trim();
+    if (!/^\d{6}$/.test(postalCode)) {
+        return res.status(400).json({ message: 'Enter a 6-digit postal code.' });
+    }
+    try {
+        const place = await onemap.lookupPostal(postalCode);
+        if (!place) return res.status(404).json({ message: 'No address found for this postal code.' });
+        res.json(place);
+    } catch (error) {
+        console.error('Postal lookup failed:', error.message);
+        res.status(502).json({ message: 'Could not reach OneMap. Please type your address.' });
+    }
+};
+
+// Registration form: address text -> matching places (each with a postal code)
+// GET /api/users/address-search?q=ang mo kio ave 3  ->  [{ address, postal, lat, lng }, ...]
+exports.addressSearch = async (req, res) => {
+    const q = (req.query.q || '').trim();
+    if (q.length < 3) {
+        return res.status(400).json({ message: 'Type at least 3 characters to search.' });
+    }
+    try {
+        res.json(await onemap.searchAddress(q));
+    } catch (error) {
+        console.error('Address search failed:', error.message);
+        res.status(502).json({ message: 'Could not reach OneMap. Please type your address.' });
+    }
+};

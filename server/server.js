@@ -6,7 +6,8 @@ const http = require("http"); // added for sockets to work by weiming
 const { initSockets } = require("./sockets"); // added for sockets to work by weiming
 
 const server = express();
-
+const dns = require("dns");
+dns.setServers(["8.8.8.8", "1.1.1.1"]);
 // make sure u add this line when you are using Express to do form (POST)
 server.use(express.urlencoded({ extended: true }));
 
