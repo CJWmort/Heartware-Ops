@@ -108,3 +108,15 @@ body {
 .incident-pin.severity-resolved {
   --severity: var(--bs-success);
 }
+
+.incident-btn.severity-high {
+  --severity: var(--bs-danger);
+}
+
+.incident-btn.severity-medium {
+  --severity: var(--bs-warning);
+}
+
+.incident-btn.severity-low {
+  --severity: var(--bs-primary);
+}

@@ -1,7 +1,7 @@
 <script setup>
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { useAuthStore } from '@/stores/auth'
+import { useAuthStore } from '@/services/auth'
 import { NAV_LINKS } from '@/router/nav-links'
 
 const auth = useAuthStore()
@@ -9,8 +9,8 @@ const router = useRouter()
 
 const links = computed(() => NAV_LINKS[auth.role] ?? [])
 
-function logout() {
-  auth.logout()
+async function logout() {
+  await auth.logout()
   router.push({ name: 'login' })
 }
 </script>

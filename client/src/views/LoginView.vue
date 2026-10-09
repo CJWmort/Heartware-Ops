@@ -1,10 +1,9 @@
 <script setup>
 import { ref } from 'vue'
-import axios from 'axios'
 import { useRoute, useRouter } from 'vue-router'
-import { useAuthStore } from '@/stores/auth' //remove after can use session
+import { useAuthStore } from '@/services/auth'
 
-const auth = useAuthStore() //remove after can use session
+const auth = useAuthStore()
 const router = useRouter()
 const route = useRoute()
 
@@ -13,44 +12,22 @@ const password = ref('')
 const error = ref('')
 const loading = ref(false)
 
-const isDev = import.meta.env.DEV //remove after can use session
-
 async function submit() {
   error.value = ''
-
-  if (!email.value && !password.value) {
+  if (!email.value || !password.value) {
     error.value = 'Enter your email and password.'
     return
   }
-  if (!email.value) {
-    error.value = 'Enter your email.'
-    return
-  }
-  if (!password.value) {
-    error.value = 'Enter your password.'
-    return
-  }
-
   loading.value = true
   try {
-    await axios.post('/api/login', {
-      email: email.value,
-      password: password.value
-    })
+    await auth.login(email.value, password.value)
     router.push(route.query.redirect || '/')
   } catch (err) {
-    console.error(err) // shows the real error in DevTools while you build
+    console.error(err)
     error.value = err.response?.data?.message || 'Could not reach the server. Try again.'
   } finally {
     loading.value = false
   }
-}
-
-//remove after can use session
-// DEVELOPMENT ONLY – lets teammates open their pages before real login is finished.
-function devLogin(role) {
-  auth.devLoginAs(role)
-  router.push(route.query.redirect || '/')
 }
 </script>
 
@@ -85,18 +62,6 @@ function devLogin(role) {
           <p class="small text-center mt-3 mb-0">
             New volunteer? <RouterLink to="/register">Sign up here</RouterLink>
           </p>
-        </div>
-      </div>
-
-      <!-- Only visible in `npm run dev`; never in the deployed build -->
-      <div v-if="isDev" class="card card-hw mt-3 border border-info" data-testid="dev-login">
-        <div class="card-body small">
-          <p class="fw-semibold mb-2"><i class="bi bi-tools me-1"></i>Dev shortcut (no server needed)</p>
-          <div class="d-flex flex-wrap gap-2">
-            <button class="btn btn-outline-info btn-sm" data-testid="dev-login-volunteer" @click="devLogin('volunteer')">Volunteer</button>
-            <button class="btn btn-outline-info btn-sm" data-testid="dev-login-coordinator" @click="devLogin('coordinator')">Coordinator</button>
-            <button class="btn btn-outline-info btn-sm" data-testid="dev-login-hq" @click="devLogin('hq')">HQ</button>
-          </div>
         </div>
       </div>
     </div>

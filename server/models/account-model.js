@@ -38,7 +38,11 @@ const AccountSchema = new mongoose.Schema({
     password: {
         type: String,
         required: true
-    }
+    },
+    availableDates: {
+        type: [String],
+        default: []
+    },
 }, {
     timestamps: true // auto timestamp management (createdAt, updatedAt) will update automatically based on methods used
 });
@@ -61,4 +65,9 @@ exports.findByEmail = function (email) {
 
 exports.findById = function (id) {
     return Account.findById(id).select('-password');
+};
+
+// Fetch all volunteers (name, postalCode)
+exports.retrieveVolunteers = function () {
+    return Account.find({ role: 'volunteer' }).select('name postalCode address');
 };

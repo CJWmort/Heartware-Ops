@@ -26,11 +26,16 @@ server.use(
     secret: process.env.SECRET,
     resave: false,
     saveUninitialized: false,
+    cookie: {
+      httpOnly: true, // JS can't read it
+      sameSite: 'lax',             
+      maxAge: 1000 * 60 * 60 * 8 // 8 hours
+    }
   }),
 );
 
 // Routing
-server.use("/api", require("./routes/accounts-routes"));
+server.use("/api/users", require("./routes/accounts-routes"));
 server.use("/api/incidents", require("./routes/incidents-routes"));
 
 // async function to connect to DB

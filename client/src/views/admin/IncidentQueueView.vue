@@ -77,6 +77,7 @@ function plotIncidents() {
 }
 
 function onSelect(incident) {
+  //need to follow up
   console.log('selected', incident._id)
 }
 

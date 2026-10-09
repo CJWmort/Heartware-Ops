@@ -4,7 +4,7 @@ import 'bootstrap/dist/js/bootstrap.bundle.min.js' // navbar collapse, dropdowns
 import './assets/main.css'
 
 import { createApp } from 'vue'
-import { createPinia } from 'pinia'
+import { createPinia } from 'pinia' // Function used to create a state management container
 
 import App from './App.vue'
 import router from './router'

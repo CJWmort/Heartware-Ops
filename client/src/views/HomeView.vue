@@ -1,11 +1,13 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
-import axios from 'axios'
-import { useAuthStore } from '@/stores/auth'
+import { computed } from 'vue'
+import { useAuthStore } from '@/services/auth'
 import { NAV_LINKS } from '@/router/nav-links'
 
 const auth = useAuthStore()
-const links = computed(() => NAV_LINKS[auth.role] ?? [])
+
+// '??' logical operator that returns its right-hand side operand 
+// when its left-hand side operand is null or undefined
+const links = computed(() => NAV_LINKS[auth.role] ?? []) 
 
 const features = [
   { icon: 'bi-person-plus', title: 'Smart allocation', text: 'Volunteers matched to schools, remote schools first.' },
@@ -15,25 +17,12 @@ const features = [
   { icon: 'bi-award', title: 'Badge Studio', text: 'Earn badges and design your own physical badge.' },
 ]
 
-const user = ref(null)
-
-onMounted(async () => {
-  try {
-    const res = await axios.get('/api/me') // Fetch current user data
-    user.value = res.data
-  } catch {
-    user.value = null
-  }
-})
-
 </script>
 
 <template>
-  <p v-if="user">Logged in as {{ user.name }} ({{ user.role }})</p>
-  <p v-else>Not logged in</p>
   <!-- Logged in: quick links for your role -->
   <section v-if="auth.isLoggedIn" data-testid="dashboard">
-    <h1 class="h3 mb-1">Hi, {{ auth.user.name }} 👋</h1>
+    <h1 class="h3 mb-1">Hi, {{ auth.user.name }}</h1>
     <p class="text-muted-hw mb-4">What would you like to do?</p>
     <div class="row g-3">
       <div v-for="link in links" :key="link.to" class="col-12 col-sm-6 col-lg-4">

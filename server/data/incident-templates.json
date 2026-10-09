@@ -1,32 +1,37 @@
 [
   {
     "type": "STUDENT_UNWELL",
-    "label": "Student unwell",
+    "label": "Student Unwell",
     "icon": "bi-bandaid-fill",
     "defaultSeverity": "high"
   },
   {
     "type": "STUDENT_MISSING",
-    "label": "Student missing",
+    "label": "Student Missing",
     "icon": "bi-person-fill-exclamation",
     "defaultSeverity": "high"
   },
   {
     "type": "BUS_DELAYED",
-    "label": "Bus delayed",
+    "label": "Bus Delayed",
     "icon": "bi-hourglass-split",
     "defaultSeverity": "medium"
   },
   {
     "type": "BUS_BREAKDOWN",
-    "label": "Bus breakdown",
+    "label": "Bus Breakdown",
     "icon": "bi-tools",
     "defaultSeverity": "high"
   },
-  { "type": "LOST_ITEM", "label": "Lost item", "icon": "bi-bag-x-fill", "defaultSeverity": "low" },
+  {
+    "type": "LOST_ITEM",
+    "label": "Items Missing",
+    "icon": "bi-bag-x-fill",
+    "defaultSeverity": "low"
+  },
   {
     "type": "OTHERS",
-    "label": "Something else",
+    "label": "Others",
     "icon": "bi-exclamation-circle-fill",
     "defaultSeverity": "medium"
   }

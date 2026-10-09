@@ -1,5 +1,6 @@
 // Get Service model
 const Account = require('../models/account-model');
+const onemap = require('../../client/src/services/onemap');
 
 // Bcrypt used to Hash and protect passwords
 const bcrypt = require('bcrypt');
@@ -65,7 +66,7 @@ exports.login = async (req, res) => {
         if (!valid) {
             return res.status(401).json({ message: 'Incorrect email or password.' });
         }
-
+        
         // New session ID on login
         req.session.regenerate((err) => {
             if (err) return res.status(500).json({ message: 'Login failed.' });
@@ -95,5 +96,27 @@ exports.me = async (req, res) => {
         res.json(user);
     } catch (error) {
         res.status(500).json({ message: 'Could not load user.' });
+    }
+};
+
+exports.volunteerLocations = async (req, res) => {
+    try {
+        const volunteers = await Account.retrieveVolunteers();
+
+        const result = await Promise.all(
+            volunteers.map(async (v) => {
+                try {
+                    const coords = await onemap.geocodePostal(v.postalCode);
+                    return coords ? { _id: v._id, name: v.name, ...coords, address: v.address } : null;
+                } catch (err) {
+                    console.error(`Geocoding failed for ${v.postalCode}:`, err.message);
+                    return null;
+                }
+            })
+        );
+        // Removes all "falsy" (0, and false) values from the 'result' array 
+        res.json(result.filter(Boolean));
+    } catch (error) {
+        res.status(500).json({ message: 'Could not load volunteer locations.' });
     }
 };
