@@ -1,111 +1,141 @@
 <script setup>
-// Feature 3 – Live Movement Tracking (HQ map) — owner: Chin
-import { ref, onMounted, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
 import PageHeader from '@/components/PageHeader.vue'
-import FeaturePlaceholder from '@/components/FeaturePlaceholder.vue'
 import BaseMap from '@/components/BaseMap.vue'
-import { SINGAPORE_CENTER } from '@/utils/constants'
+import { SINGAPORE_CENTER, INNER_RING, OUTER_RING } from '@/utils/constants'
 
-// TODO(Chin): build this page, then delete FeaturePlaceholder below.
-const todos = [
-  'Side list: school, bus, progress bar (checkpoints done / 6), last update time; click → zoom to marker + timeline',
-  'Filters: venue, status (not started / en route / seated / returning / done)',
-  'data-testids: hq-map, hq-group-list, hq-group-<slotId>, hq-filter-status',
-]
-
+// Vue state                                                           
 const volunteers = ref([])
 const loading = ref(true)
 const error = ref('')
-const searchVolunteer = ref('');
+const searchVolunteer = ref('')
 const searchBy = ref('name') // 'name' or 'address'
 
-// Leaflet objects 
+// Leaflet objects
 let map = null
 let L = null
-let layer = null
-const markers = {} // Each user (_id) will have marker
+let zoneLayer = null
+let volunteerLayer = null
+let pinIcon = null
+const markers = {} // volunteer _id: marker
 
-// Both map and geolocation data are required first
-function drawMarkers() {
-  if (!map || !L) return
-  layer.clearLayers()
-  const points = []
-
-  volunteers.value.forEach((v) => {
-    points.push([v.lat, v.lng])
-    markers[v._id] = L.marker([v.lat, v.lng])
-      .bindTooltip(v.name, { direction: 'top', offset: [-15, -15], sticky: false })
-      .addTo(layer)
+// Map: Create teardrop marker (with user icon)
+function createPinIcon() {
+  return L.divIcon({
+    className: 'user-pin',
+    html: `
+      <div class="user-pin-inner">
+        <svg viewBox="0 0 40 52" width="40" height="52" aria-hidden="true">
+          <path d="M20 50 C20 50 38 32 38 19 A18 18 0 1 0 2 19 C2 32 20 50 20 50 Z"
+                fill="#2563eb" stroke="#fff" stroke-width="2" />
+        </svg>
+        <i class="bi bi-person-fill"></i>
+      </div>`,
+    iconSize: [40, 52],
+    iconAnchor: [20, 52], 
+    tooltipAnchor: [0, -63],
   })
-
-  if (points.length) map.fitBounds(points, { padding: [40, 40] })
 }
 
 // Runs once BaseMap has created the map
 function onMapReady(m, leaflet) {
   map = m
   L = leaflet
-  layer = L.layerGroup().addTo(map)
-  drawMarkers() // in case the data arrived first
+  zoneLayer = L.layerGroup().addTo(map)
+  volunteerLayer = L.layerGroup().addTo(map)
+  pinIcon = createPinIcon()
+
+  drawZones() 
+  drawMarkers() 
 }
 
-let previousVolunteerFound = undefined; // Store previous volunteer object found
-// Zoom in to a specific volunteer
+// Map: Drawing zones (inner + outer)
+function drawZones() {
+  zoneLayer.clearLayers()
+
+  L.polygon(OUTER_RING, {
+    color: '#6C757D', weight: 1.5, fillColor: '#3b82f6', fillOpacity: 0.1,
+  }).addTo(zoneLayer)
+
+  L.polygon(INNER_RING, {
+    color: '#0d6efd', weight: 1.5, fillColor: '#0d6efd', fillOpacity: 0.1,
+  }).addTo(zoneLayer)
+}
+
+// Map: Drawing markers
+function drawMarkers() {
+  if (!map) return // Stop drawing markers if no map found
+
+  volunteerLayer.clearLayers()
+  Object.keys(markers).forEach((id) => delete markers[id]) // Clear all markers
+
+  const points = []
+  volunteers.value.forEach((v) => {
+    points.push([v.lat, v.lng])
+    markers[v._id] = L.marker([v.lat, v.lng], { icon: pinIcon })
+      .bindTooltip(v.name, { direction: 'top', sticky: false })
+      .addTo(volunteerLayer)
+  })
+
+  if (points.length) map.fitBounds(points, { padding: [40, 40] })
+}
+
+// Map: reset tooltips  
+function closeAllTooltips() {
+  Object.values(markers).forEach((marker) => marker.closeTooltip())
+}
+
+// Map: reset zoom  
+function resetView() {
+  closeAllTooltips()
+  map.flyTo(SINGAPORE_CENTER, 10, { animate: true, duration: 0.5 })
+}
+
+// Map: focus volunteer  
 function focusVolunteer(v) {
-  if (!v) {
-    // Reset map if no volunteer match search result
-    map.flyTo(SINGAPORE_CENTER, 10, {
-        animate: true,
-        duration: 0.5 // Animation duration in seconds
-    });
-    
-    // Close all existing tooltip above markers
-    Object.values(markers).forEach((marker) => marker.closeTooltip())
-    previousVolunteerFound = undefined; // Reset the previous volunteer found since no result
-    return
-  } 
-
-  // Stop function when the same volunteer is found
-  if (previousVolunteerFound === v) return
-
-  // If new volunteer result found:
-  // Set previousVolunteerFound and Zoom to volunteer geolocation
-  previousVolunteerFound = v;
-  map.flyTo([v.lat, v.lng], 17, {
-      animate: true,
-      duration: 1.5 // Animation duration in seconds
-  });
-  markers[v._id]?.openTooltip() // Force open pop up display for name
+  closeAllTooltips()
+  map.flyTo([v.lat, v.lng], 17, { animate: true, duration: 1.5 })
+  markers[v._id]?.openTooltip()
 }
 
+
+// Search volunteers by 'name' / 'address'                                                             
 const searchLabel = computed(() => (searchBy.value === 'name' ? 'Name' : 'Address'))
 
-// Return search result whenever 'Search Volunteer' input changes
 const searchResult = computed(() => {
-    const q = searchVolunteer.value.trim().toLowerCase()
-    if (!q) return undefined
-    return volunteers.value.find((u) => (u[searchBy.value] ?? '').toLowerCase().includes(q))
+  const q = searchVolunteer.value.trim().toLowerCase()
+  if (!q) return undefined
+  return volunteers.value.find((u) => (u[searchBy.value] ?? '').toLowerCase().includes(q))
 })
 
-// Zoom to the match whenever search input changes
+let lastMatchId = null // so typing more letters of the same match doesn't re-fly the map
+
 function onSearchInput() {
-  focusVolunteer(searchResult.value)
+  const match = searchResult.value
+
+  if (!match) {
+    if (lastMatchId) resetView() // only reset if we had zoomed somewhere
+    lastMatchId = null
+    return
+  }
+
+  if (match._id === lastMatchId) return
+  lastMatchId = match._id
+  focusVolunteer(match)
 }
 
-// Update the searchBy reactive value ('name' or 'address')
 function setSearchBy(field) {
   searchBy.value = field
-  if (searchVolunteer.value){
-    onSearchInput()
-  }
+  if (searchVolunteer.value) onSearchInput()
 }
 
+// Fetch volunteer geolocation data on page load then draw markers                                                       
 onMounted(async () => {
   try {
     const res = await axios.get('/api/users/locations')
     volunteers.value = res.data
-    drawMarkers() // Display markers for each volunteer (based on geolocation)
+    drawMarkers()
   } catch (err) {
     error.value = err.response?.data?.message || 'Could not load volunteers.'
   } finally {
@@ -118,19 +148,18 @@ onMounted(async () => {
   <section>
     <PageHeader title="Live board" icon="bi-broadcast" />
     <div v-if="error" class="alert alert-danger py-2" role="alert">{{ error }}</div>
-    <FeaturePlaceholder feature="Feature 3 – Live Movement Tracking (HQ map)" owner="Chin" :todos="todos" />
-    <!-- Suggested layout: map 8 cols + list 4 cols on desktop; list under map on mobile -->
   </section>
+
   <div class="row">
     <div class="col-xl-4 col-lg-4 mb-3">
       <ul class="list-group mb-3">
-        <li class="list-group-item">School:</li>
-        <li class="list-group-item">Bus:</li>
-        <li class="list-group-item">Checkpoints: 4/6</li>
-        <li class="list-group-item">Last Updated: </li>
+        <li class="list-group-item">School: ?</li>
+        <li class="list-group-item">Bus: ?</li>
+        <li class="list-group-item">Checkpoints: ?/6</li>
+        <li class="list-group-item">Last Updated: ?</li>
       </ul>
 
-      <div class="">
+      <div>
         <p v-if="loading" class="text-muted-hw">Loading volunteers…</p>
         <p v-else-if="!volunteers.length" class="text-muted-hw">No volunteer locations yet.</p>
         
@@ -162,8 +191,38 @@ onMounted(async () => {
         </div>
       </div>
     </div>
+    
     <div class="col-xl-8 col-lg-8 col-md-12">
       <BaseMap @ready="onMapReady" />
     </div>
   </div>
 </template>
+
+<style scoped>
+/* Marker css styling */
+:global(.user-pin-inner) {
+  position: relative;
+  width: 30px;
+  height: 52px;
+  transform-origin: 50% 100%;  
+  transition: transform 0.15s;
+  filter: drop-shadow(0 2px 3px rgb(0 0 0 / 0.35));
+}
+
+:global(.user-pin-inner:hover) {
+  transform: scale(1.15);
+}
+
+:global(.user-pin-inner i) {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 40px;
+  height: 38px;              
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 1.25rem;
+}
+</style>
