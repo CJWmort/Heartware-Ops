@@ -37,7 +37,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   // Tells the server to destroy the session, then clears user
   async function logout() {
-    user.value = null  
+    user.value = null
     try {
       await axios.post('/api/users/logout')
     } catch (err) {

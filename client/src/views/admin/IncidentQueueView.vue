@@ -51,9 +51,12 @@ function plotIncidents() {
       return
 
     const icon = templatesByType.value[incident.type]?.icon || 'bi-exclamation-circle-fill'
+    const colourClass =
+      incident.status === 'resolved' ? 'severity-resolved' : `severity-${incident.severity}`
+
     const pin = leafletRef.divIcon({
       html: `<i class="bi ${icon}"></i>`, // the HTML to show
-      className: 'incident-pin severity-${incident.severity}', // a CSS class so you can style it
+      className: `incident-pin ${colourClass}`, // a CSS class so you can style it
       iconSize: [32, 32], // width, height in px
     })
 
@@ -74,13 +77,30 @@ function plotIncidents() {
 }
 
 function onSelect(incident) {
+  //need to follow up
   console.log('selected', incident._id)
 }
-function onAcknowledge(incident) {
-  console.log('acknowledge', incident._id)
+
+async function onAcknowledge(incident) {
+  try {
+    await updateIncidentStatus(incident._id, 'acknowledged')
+    incidents.value = await listIncidents()
+    plotIncidents()
+  } catch (error) {
+    errorMessage.value = error.friendlyMessage
+  }
 }
-function onResolve(incident) {
-  console.log('resolve', incident._id)
+
+async function onResolve(incident) {
+  try {
+    const note = prompt('Please include details on how was it resolved.')
+    if (!note) return // if note is empty, it cannot be resolved
+    await updateIncidentStatus(incident._id, 'resolved', note)
+    incidents.value = await listIncidents()
+    plotIncidents()
+  } catch (error) {
+    errorMessage.value = error.friendlyMessage
+  }
 }
 </script>
 

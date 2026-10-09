@@ -1,33 +1,74 @@
-// API calls for Wei Ming (F4). Each returns the response data (or throws – show error.friendlyMessage).
-// Contract: docs/API.md
-import api from './api'
+// axios calls for Wei Ming (F4). Each returns the response data (or throws – show error.friendlyMessage).
+import axios from 'axios'
+
+const BASE_URL = '/api/incidents'
+
+function addFriendlyMessage(error) {
+  error.friendlyMessage =
+    error.response?.data?.message || error.message || 'Something went wrong. Please try again.'
+  return error
+}
 
 export async function listTemplates() {
-  const { data } = await api.get('/incidents/templates')
-  return data
+  try {
+    const { data } = await axios.get(`${BASE_URL}/templates`, { timeout: 15000 })
+    return data
+  } catch (error) {
+    throw addFriendlyMessage(error)
+  }
 }
 
 export async function reportIncident(payload) {
-  const { data } = await api.post('/incidents', payload)
-  return data
+  try {
+    const { data } = await axios.post(BASE_URL, payload, { timeout: 15000 })
+    return data
+  } catch (error) {
+    throw addFriendlyMessage(error)
+  }
 }
 
 export async function listIncidents(status) {
-  const { data } = await api.get('/incidents', { params: { status } })
-  return data
+  try {
+    const { data } = await axios.get(BASE_URL, { params: { status }, timeout: 15000 })
+    return data
+  } catch (error) {
+    throw addFriendlyMessage(error)
+  }
 }
 
 export async function updateIncidentStatus(incidentId, status, note) {
-  const { data } = await api.patch(`/incidents/${incidentId}/status`, { status, note })
-  return data
+  try {
+    const { data } = await axios.patch(
+      `${BASE_URL}/${incidentId}/status`,
+      { status, note },
+      { timeout: 15000 },
+    )
+    return data
+  } catch (error) {
+    throw addFriendlyMessage(error)
+  }
 }
 
 export async function listAlerts(status) {
-  const { data } = await api.get('/incidents/alerts', { params: { status } })
-  return data
+  try {
+    const { data } = await axios.get(`${BASE_URL}/alerts`, { params: { status }, timeout: 15000 })
+    return data
+  } catch (error) {
+    throw addFriendlyMessage(error)
+  }
 }
 
 export async function acknowledgeAlert(alertId) {
-  const { data } = await api.patch(`/incidents/alerts/${alertId}/acknowledge`, {})
-  return data
+  try {
+    const { data } = await axios.patch(
+      `${BASE_URL}/alerts/${alertId}/acknowledge`,
+      {},
+      {
+        timeout: 15000,
+      },
+    )
+    return data
+  } catch (error) {
+    throw addFriendlyMessage(error)
+  }
 }
