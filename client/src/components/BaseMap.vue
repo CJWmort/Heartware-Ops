@@ -26,7 +26,7 @@ L.Icon.Default.mergeOptions({
 
 const props = defineProps({
   center: { type: Object, default: () => SINGAPORE_CENTER },
-  zoom: { type: Number, default: 11 },
+  zoom: { type: Number, default: 16 },
   testid: { type: String, default: 'map' },
 })
 const emit = defineEmits(['ready'])

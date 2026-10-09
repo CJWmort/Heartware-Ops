@@ -1,13 +1,13 @@
 <script setup>
-import { ref, onMounted, computed } from 'vue'
-import axios from 'axios'
+import { computed } from 'vue'
 import { useAuthStore } from '@/services/auth'
 import { NAV_LINKS } from '@/router/nav-links'
 
 const auth = useAuthStore()
-const links = computed(() => NAV_LINKS[auth.role] ?? []) 
+
 // '??' logical operator that returns its right-hand side operand 
 // when its left-hand side operand is null or undefined
+const links = computed(() => NAV_LINKS[auth.role] ?? []) 
 
 const features = [
   { icon: 'bi-person-plus', title: 'Smart allocation', text: 'Volunteers matched to schools, remote schools first.' },
