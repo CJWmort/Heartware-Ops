@@ -207,7 +207,7 @@ onMounted(async () => {
 
     <div class="col-xl-8 col-lg-8 col-md-12">
       <!-- Zoom to Padang by defining prop values being sent to BaseMap component -->
-      <BaseMap :center="VENUES['Padang']" :zoom="13" testid="hq-map" @ready="onMapReady" />
+      <BaseMap :center="VENUES['Padang']" :zoom="10" testid="hq-map" @ready="onMapReady" />
     </div>
   </div>
 </template>

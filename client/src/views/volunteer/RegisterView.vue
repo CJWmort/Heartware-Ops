@@ -606,7 +606,7 @@ async function verifyAndCreate() {
             <div class="mb-3">
               <label for="address" class="form-label fw-semibold">Address</label>
               <input id="address" v-model="address" type="text"
-                     placeholder="Start typing, e.g. 123 Ang Mo Kio Ave 3"
+                     placeholder="123 Ang Mo Kio Ave 3"
                      class="form-control form-control-lg"
                      :class="{ 'is-invalid': errors.address, 'is-valid': isOk('address') }"
                      @blur="onAddressBlur" data-testid="reg-address" autocomplete="off" />
@@ -636,7 +636,7 @@ async function verifyAndCreate() {
                        class="form-control"
                        :class="{ 'is-invalid': errors.password, 'is-valid': isOk('password') }"
                        @blur="touch('password')" data-testid="reg-password" autocomplete="new-password" />
-                <button type="button" class="btn btn-outline-secondary"
+                <button type="button" class="btn btn-outline-secondary border rounded-end"
                         :aria-label="showPassword ? 'Hide password' : 'Show password'"
                         @click="showPassword = !showPassword">
                   <i class="bi" :class="showPassword ? 'bi-eye' : 'bi-eye-slash'"></i>
@@ -664,7 +664,7 @@ async function verifyAndCreate() {
                        class="form-control"
                        :class="{ 'is-invalid': errors.confirmPassword, 'is-valid': isOk('confirmPassword') }"
                        @blur="touch('confirmPassword')" autocomplete="new-password" />
-                <button type="button" class="btn btn-outline-secondary"
+                <button type="button" class="btn btn-outline-secondary border rounded-end"
                         :aria-label="showConfirmPassword ? 'Hide password' : 'Show password'"
                         @click="showConfirmPassword = !showConfirmPassword">
                   <i class="bi" :class="showConfirmPassword ? 'bi-eye' : 'bi-eye-slash'"></i>

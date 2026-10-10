@@ -73,6 +73,27 @@ export async function geocodePostal(postalCode) {
   }
 }
 
+export async function getRoute(start, end, routeType) {
+    const body = {
+      params: { start, end, routeType }, // start/end are "lat,lng" strings
+      headers: { Authorization: token },
+    }
+    const call = () => axios.get(`${process.env.ONEMAP_BASE_URL}/api/public/routingsvc/route`, body);
+
+    try {
+        if (!token) await login();
+        try {
+            return (await call()).data;
+        } catch (err) {
+            if (err.response?.status !== 401) throw err;
+            await login();
+            return (await call()).data;
+        }
+    } catch (error) {
+        throw new Error(`OneMap routing failed (${error.response?.status || error.message})`, { cause: error });
+    }
+}
+
 // ---------- Registration form: postal code -> address (added by Kuah) ----------
 export async function lookupPostal(postalCode) {
   try {

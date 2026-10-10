@@ -125,6 +125,24 @@ exports.volunteerLocations = async (req, res) => {
     }
 };
 
+// Routing from start to end points
+exports.route = async (req, res) => {
+    const { startLat, startLng, endLat, endLng } = req.query;
+    const routeType = ['walk', 'drive', 'cycle'].includes(req.query.routeType) ? req.query.routeType : 'walk';
+
+    const nums = [startLat, startLng, endLat, endLng].map(Number);
+    if (nums.some(Number.isNaN)) {
+        return res.status(400).json({ message: 'Invalid coordinates.' });
+    }
+
+    try {
+        res.json(await onemap.getRoute(`${startLat},${startLng}`, `${endLat},${endLng}`, routeType));
+    } catch (error) {
+        console.error('Routing failed:', error.message);
+        res.status(502).json({ message: 'Could not get a route from OneMap.' });
+    }
+};
+
 // Registration form: postal code -> address
 // GET /api/users/postal-lookup?postalCode=560123  ->  { address, lat, lng }
 exports.postalLookup = async (req, res) => {
