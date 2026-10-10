@@ -5,7 +5,7 @@ import PageHeader from '@/components/PageHeader.vue'
 import BaseMap from '@/components/BaseMap.vue'
 import { VENUES, SINGAPORE_CENTER, INNER_RING, OUTER_RING } from '@/utils/constants'
 
-// Vue state                                                           
+// Vue state
 const volunteers = ref([])
 const loading = ref(true)
 const error = ref('')
@@ -33,7 +33,7 @@ function createPinIcon() {
         <i class="bi bi-person-fill"></i>
       </div>`,
     iconSize: [40, 52],
-    iconAnchor: [20, 52], 
+    iconAnchor: [20, 52],
     tooltipAnchor: [0, -63],
   })
 }
@@ -46,8 +46,8 @@ function onMapReady(m, leaflet) {
   volunteerLayer = L.layerGroup().addTo(map)
   pinIcon = createPinIcon()
 
-  drawZones() 
-  drawMarkers() 
+  drawZones()
+  drawMarkers()
 }
 
 // Map: Drawing zones (inner + outer)
@@ -55,11 +55,17 @@ function drawZones() {
   zoneLayer.clearLayers()
 
   L.polygon(OUTER_RING, {
-    color: '#6C757D', weight: 1.5, fillColor: '#3b82f6', fillOpacity: 0.1,
+    color: '#6C757D',
+    weight: 1.5,
+    fillColor: '#3b82f6',
+    fillOpacity: 0.1,
   }).addTo(zoneLayer)
 
   L.polygon(INNER_RING, {
-    color: '#0d6efd', weight: 1.5, fillColor: '#0d6efd', fillOpacity: 0.1,
+    color: '#0d6efd',
+    weight: 1.5,
+    fillColor: '#0d6efd',
+    fillOpacity: 0.1,
   }).addTo(zoneLayer)
 }
 
@@ -79,26 +85,25 @@ function drawMarkers() {
   })
 }
 
-// Map: reset tooltips  
+// Map: reset tooltips
 function closeAllTooltips() {
   Object.values(markers).forEach((marker) => marker.closeTooltip())
 }
 
-// Map: reset zoom  
+// Map: reset zoom
 function resetView() {
   closeAllTooltips()
   map.flyTo(SINGAPORE_CENTER, 10, { animate: true, duration: 0.5 })
 }
 
-// Map: focus volunteer  
+// Map: focus volunteer
 function focusVolunteer(v) {
   closeAllTooltips()
   map.flyTo([v.lat, v.lng], 17, { animate: true, duration: 1.5 })
   markers[v._id]?.openTooltip()
 }
 
-
-// Search volunteers by 'name' / 'address'                                                             
+// Search volunteers by 'name' / 'address'
 const searchLabel = computed(() => (searchBy.value === 'name' ? 'Name' : 'Address'))
 
 const searchResult = computed(() => {
@@ -107,7 +112,7 @@ const searchResult = computed(() => {
   return volunteers.value.find((u) => (u[searchBy.value] ?? '').toLowerCase().includes(q))
 })
 
-let lastMatchId = null // so typing more letters of the same match doesn't re-fly the map
+let lastMatchId = null // so typing more letters of the same match doesn't re-fly the map >> i am pushing main again
 
 function onSearchInput() {
   const match = searchResult.value
@@ -128,7 +133,7 @@ function setSearchBy(field) {
   if (searchVolunteer.value) onSearchInput()
 }
 
-// Fetch volunteer geolocation data on page load then draw markers                                                       
+// Fetch volunteer geolocation data on page load then draw markers
 onMounted(async () => {
   try {
     const res = await axios.get('/api/users/locations')
@@ -160,7 +165,7 @@ onMounted(async () => {
       <div>
         <p v-if="loading" class="text-muted-hw">Loading volunteers…</p>
         <p v-else-if="!volunteers.length" class="text-muted-hw">No volunteer locations yet.</p>
-        
+
         <div class="input-group mb-3">
           <input
             v-model="searchVolunteer"
@@ -178,18 +183,28 @@ onMounted(async () => {
           </button>
           <ul class="dropdown-menu dropdown-menu-end">
             <li>
-              <a class="dropdown-item" :class="{ active: searchBy === 'name' }" href="#"
-                @click.prevent="setSearchBy('name')">Name</a>
+              <a
+                class="dropdown-item"
+                :class="{ active: searchBy === 'name' }"
+                href="#"
+                @click.prevent="setSearchBy('name')"
+                >Name</a
+              >
             </li>
             <li>
-              <a class="dropdown-item" :class="{ active: searchBy === 'address' }" href="#"
-                @click.prevent="setSearchBy('address')">Address</a>
+              <a
+                class="dropdown-item"
+                :class="{ active: searchBy === 'address' }"
+                href="#"
+                @click.prevent="setSearchBy('address')"
+                >Address</a
+              >
             </li>
           </ul>
         </div>
       </div>
     </div>
-    
+
     <div class="col-xl-8 col-lg-8 col-md-12">
       <!-- Zoom to Padang by defining prop values being sent to BaseMap component -->
       <BaseMap :center="VENUES['Padang']" :zoom="13" testid="hq-map" @ready="onMapReady" />
@@ -203,7 +218,7 @@ onMounted(async () => {
   position: relative;
   width: 30px;
   height: 52px;
-  transform-origin: 50% 100%;  
+  transform-origin: 50% 100%;
   transition: transform 0.15s;
   filter: drop-shadow(0 2px 3px rgb(0 0 0 / 0.35));
 }
@@ -217,7 +232,7 @@ onMounted(async () => {
   top: 0;
   left: 0;
   width: 40px;
-  height: 38px;              
+  height: 38px;
   display: flex;
   align-items: center;
   justify-content: center;
