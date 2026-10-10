@@ -43,6 +43,22 @@ function search(postalCode, addrDetails = 'N') {
   }
   return axios.get(`${process.env.ONEMAP_BASE_URL}/api/common/elastic/search`, body)
 }
+
+// Ask OneMap: "what is at this lat/lng?" implemented for incident report as the user geolocation will be used to get the address
+function reverseSearch(lat, lng) {
+  const config = {
+    params: {
+      location: `${lat},${lng}`, // OneMap wants ONE string: "1.304,103.8746"
+      buffer: 30, // look within 30 metres
+      addressType: 'All',
+    },
+    headers: {
+      Authorization: token, // same login token Kuah's search() uses
+    },
+  }
+  return axios.get(`${process.env.ONEMAP_BASE_URL}/api/public/revgeocode`, config)
+}
+
 // Token is fetched when needed, remembered with its expiry, renewed automatically.
 // If token rejected (401), refresh and retry once.
 export async function geocodePostal(postalCode) {
@@ -136,5 +152,33 @@ export async function searchAddress(text) {
       .slice(0, 5)
   } catch (error) {
     throw new Error(`OneMap failed (${error.response?.status || error.message})`)
+  }
+}
+
+// ---------- Incident Report form usage, reverseGeocode using lat, long to get address, postal code for incident report
+export async function reverseGeocode(lat, lng) {
+  try {
+    if (!token) await login() // 1. no token yet? log in first
+
+    let res
+    try {
+      res = await reverseSearch(lat, lng) // 2. ask OneMap
+    } catch (err) {
+      if (err.response?.status !== 401) throw err // a real error → give up
+      await login() // 401 = token expired → log in again
+      res = await reverseSearch(lat, lng) //   …and try once more
+    }
+
+    console.log(res.data) // 👈 TEMPORARY: so we can see what OneMap sends back
+
+    // Piece 3 goes here
+    const found = res.data.GeocodeInfo?.[0] // checks
+    if (!found) return null // if nothing found from onemap, return null
+    const addressParts = [found.BLOCK, found.ROAD, found.POSTALCODE, found.BUILDINGNAME]
+    const address = addressParts.filter((part) => part && part !== 'NIL').join(' ') // any found.xxx is NIL will be skipped
+    console.log(address)
+    return address || null
+  } catch (error) {
+    throw new Error(`OneMap reverse geocode failed (${error.response?.status || error.message})`)
   }
 }

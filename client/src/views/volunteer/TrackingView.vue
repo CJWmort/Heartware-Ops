@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue'
 import PageHeader from '@/components/PageHeader.vue'
 import BaseMap from '@/components/BaseMap.vue'
 import FeaturePlaceholder from '@/components/FeaturePlaceholder.vue'
+import { getUserLocation, geolocationMessage } from '@/utils/geolocation'
 
 const todos = [
   'Big vertical stepper of the 6 checkpoints (CHECKPOINTS / CHECKPOINT_LABELS in utils/constants.js)',
@@ -13,7 +14,7 @@ const todos = [
   'data-testids: checkpoint-<NAME>, checkpoint-next, tracking-last-ping, tracking-error',
 ]
 
-// Vue state                                                           
+// Vue state
 const loading = ref(true)
 const error = ref('')
 const location = ref(null) // stores { lat, lng, accuracy } fetched from device
@@ -38,7 +39,7 @@ function createPinIcon() {
         <i class="bi bi-person-fill"></i>
       </div>`,
     iconSize: [40, 52],
-    iconAnchor: [20, 52], 
+    iconAnchor: [20, 52],
     tooltipAnchor: [0, -63],
   })
 }
@@ -69,34 +70,34 @@ function drawMyMarker() {
   map.setView([lat, lng], 16)
 }
 
-function getUserLocation() {
-  return new Promise((resolve, reject) => {
-    if (!navigator.geolocation) {
-      reject(new Error('Geolocation is not supported by your browser.'))
-      return
-    }
-    navigator.geolocation.getCurrentPosition(resolve, reject, {
-      enableHighAccuracy: true, // use GPS if available
-      timeout: 10000,
-      maximumAge: 0, // always fetch fresh location
-    })
-  })
-}
+// function getUserLocation() {
+//   return new Promise((resolve, reject) => {
+//     if (!navigator.geolocation) {
+//       reject(new Error('Geolocation is not supported by your browser.'))
+//       return
+//     }
+//     navigator.geolocation.getCurrentPosition(resolve, reject, {
+//       enableHighAccuracy: true, // use GPS if available
+//       timeout: 10000,
+//       maximumAge: 0, // always fetch fresh location
+//     })
+//   })
+// }
 
-function geolocationMessage(err) {
-  switch (err.code) {
-    case err.PERMISSION_DENIED:
-      return 'Location permission was denied. Allow it in your browser settings and reload.'
-    case err.POSITION_UNAVAILABLE:
-      return 'Location information is unavailable.'
-    case err.TIMEOUT:
-      return 'Getting your location timed out. Try again.'
-    default:
-      return err.message || 'Could not get your location.'
-  }
-}
+// function geolocationMessage(err) {
+//   switch (err.code) {
+//     case err.PERMISSION_DENIED:
+//       return 'Location permission was denied. Allow it in your browser settings and reload.'
+//     case err.POSITION_UNAVAILABLE:
+//       return 'Location information is unavailable.'
+//     case err.TIMEOUT:
+//       return 'Getting your location timed out. Try again.'
+//     default:
+//       return err.message || 'Could not get your location.'
+//   }
+// }
 
-// Fetch volunteer geolocation data on page load then draw markers                                                       
+// Fetch volunteer geolocation data on page load then draw markers
 onMounted(async () => {
   try {
     const pos = await getUserLocation()
@@ -118,7 +119,11 @@ onMounted(async () => {
   <section>
     <PageHeader title="Event day" icon="bi-signpost-split" />
     <div v-if="error" class="alert alert-danger py-2" role="alert">{{ error }}</div>
-    <FeaturePlaceholder feature="Feature 3 - Live Movement Tracking (volunteer side)" owner="Chin" :todos="todos" />
+    <FeaturePlaceholder
+      feature="Feature 3 - Live Movement Tracking (volunteer side)"
+      owner="Chin"
+      :todos="todos"
+    />
   </section>
 
   <div class="row">
@@ -148,7 +153,7 @@ onMounted(async () => {
   position: relative;
   width: 30px;
   height: 52px;
-  transform-origin: 50% 100%;  
+  transform-origin: 50% 100%;
   transition: transform 0.15s;
   filter: drop-shadow(0 2px 3px rgb(0 0 0 / 0.35));
 }
@@ -162,7 +167,7 @@ onMounted(async () => {
   top: 0;
   left: 0;
   width: 40px;
-  height: 38px;              
+  height: 38px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -170,4 +175,3 @@ onMounted(async () => {
   font-size: 1.25rem;
 }
 </style>
-
