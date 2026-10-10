@@ -59,7 +59,7 @@ function onMapReady(m, leaflet) {
 
   destMarker = L.marker([VENUES['Padang'].lat, VENUES['Padang'].lng], {
     icon: createPinIcon('#dc2626', 'bi-flag-fill'),
-    opacity: 0.8
+    opacity: 0.8,
   })
     .bindTooltip('Padang', { direction: 'top', sticky: false })
     .addTo(volunteerLayer)
@@ -101,8 +101,10 @@ async function drawRoute() {
   try {
     const res = await axios.get('/api/users/route', {
       params: {
-        startLat: lat, startLng: lng,
-        endLat: VENUES['Padang'].lat, endLng: VENUES['Padang'].lng,
+        startLat: lat,
+        startLng: lng,
+        endLat: VENUES['Padang'].lat,
+        endLng: VENUES['Padang'].lng,
         routeType: travelMode.value,
       },
     })
@@ -128,34 +130,6 @@ async function drawRoute() {
   }
 }
 
-// Fetch the current user location using built in js (navigator) method
-function getUserLocation() {
-  return new Promise((resolve, reject) => {
-    if (!navigator.geolocation) {
-      reject(new Error('Geolocation is not supported by your browser.'))
-      return
-    }
-    navigator.geolocation.getCurrentPosition(resolve, reject, {
-      enableHighAccuracy: true, // use GPS if available
-      timeout: 10000,
-      maximumAge: 0, // always fetch fresh location
-    })
-  })
-}
-
-function geolocationMessage(err) {
-  switch (err.code) {
-    case err.PERMISSION_DENIED:
-      return 'Location permission was denied. Allow it in your browser settings and reload.'
-    case err.POSITION_UNAVAILABLE:
-      return 'Location information is unavailable.'
-    case err.TIMEOUT:
-      return 'Getting your location timed out. Try again.'
-    default:
-      return err.message || 'Could not get your location.'
-  }
-}
-
 // Just to showcase routing between different travel modes
 const travelMode = ref('drive') // starting mode
 const loadingRoute = ref(false)
@@ -175,7 +149,7 @@ function setTravelMode(mode) {
   drawRoute()
 }
 
-// Fetch volunteer geolocation data on page load then draw markers                                                       
+// Fetch volunteer geolocation data on page load then draw markers
 onMounted(async () => {
   try {
     const pos = await getUserLocation()
@@ -220,7 +194,6 @@ onMounted(async () => {
       </div>
     </div>
 
-
     <div class="col-xl-8 col-lg-8 col-md-12">
       <div class="btn-group mb-2" role="group" aria-label="Travel mode">
         <button
@@ -248,7 +221,6 @@ onMounted(async () => {
           <div class="mt-2 fw-semibold">Fetching Routes...</div>
         </div>
       </div>
-
     </div>
   </div>
 </template>
