@@ -2,15 +2,7 @@
 // Feature 5 – Badge wall — owner: Hanafi
 // Spec: docs/FEATURES.md   ·   API calls: src/services/   ·   Tests: e2e/
 import PageHeader from '@/components/PageHeader.vue'
-import FeaturePlaceholder from '@/components/FeaturePlaceholder.vue'
 import { ref } from 'vue'
-// TODO(Hanafi): build this page, then delete FeaturePlaceholder below.
-const todos = [
-  'Grid of earned badges (getMyBadges); locked/greyed ones you have not earned (listBadges)',
-  'Click a badge → modal with description, event and thank-you message',
-  'Button to the Badge Studio; order status tracker (getMyOrders): Placed → In production → Shipped → Delivered',
-  'data-testids: badge-wall, badge-<code>, badge-modal, order-status',
-]
 
 // TEMP: shaped like GET /api/badges and GET /api/badges/me.
 // Replace with listBadges() / getMyBadges() and DELETE before the PR.
@@ -47,8 +39,8 @@ const selected = ref(null)
   <section>
     <PageHeader title="My badges" icon="bi-award" />
     <div class="row g-3" data-testid="badge-wall">
-      <div v-for="b in badges" :key="b.code" :data-testid="'badge-' + b.code" class="col-6 col-md-4 col-lg-3" @click="selected = b">
-        <div class="card card-body text-center" :class="awardFor(b.code) ? '' : 'opacity-50'">
+      <div v-for="b in badges" :key="b.code" :data-testid="'badge-' + b.code" class="col-6 col-md-4 col-lg-3">
+        <div class="card card-body text-center badge-tile" :class="awardFor(b.code) ? '' : 'opacity-50'" @click="selected = b">
           <i :class="'bi ' + b.icon + ' fs-1'"></i>
           <div class="mt-2">{{ b.name }}</div>
         </div>
@@ -79,3 +71,14 @@ const selected = ref(null)
     <div v-if="selected" class="modal-backdrop show"></div>
   </section>
 </template>
+
+<style scoped>
+.badge-tile {
+  cursor: pointer;      
+  transition: transform 0.3s, box-shadow 0.3s;    
+}
+.badge-tile:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--hw-shadow);     
+}
+</style>
