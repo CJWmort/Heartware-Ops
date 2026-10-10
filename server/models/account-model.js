@@ -71,3 +71,8 @@ exports.findById = function (id) {
 exports.retrieveVolunteers = function () {
     return Account.find({ role: 'volunteer' }).select('name postalCode address');
 };
+
+// Used by registration to stop the same phone number signing up twice
+exports.findByPhone = function (phone) {
+    return Account.findOne({ phone: String(phone).replace(/\s+/g, '') });
+};
