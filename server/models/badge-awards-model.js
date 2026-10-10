@@ -9,7 +9,7 @@ const badgeAwardSchema = new mongoose.Schema(
     {
         badge:     { type: String, enum: BADGE_CODES, required: true },
         volunteer: { type: mongoose.Schema.Types.ObjectId, ref: 'Account', required: true },
-        event:     { type: String, enum: SCHEDULE_NAMES},
+        event:     { type: String, enum: SCHEDULE_NAMES, required: true},
         awardedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Account' },          
         message:   { type: String, maxlength: 300 },
     },

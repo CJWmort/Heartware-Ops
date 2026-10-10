@@ -18,3 +18,25 @@ exports.listMyAwards = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+exports.awardBadge = async (req, res) => {
+  try {
+    const { volunteerIds, badgeCode, event, message } = req.body;  
+    const given = [];
+    const skipped = [];
+
+    for (const volunteerId of volunteerIds) {                        
+      try {
+        const award = await BadgeAward.create({ badge: badgeCode, volunteer: volunteerId, event: event, awardedBy: req.session.userId, message: message });
+        given.push(award);
+      } catch (error) {
+        if (error.code === 11000) skipped.push(volunteerId);   
+        else throw error;                                 
+      }
+    }
+
+    res.status(201).json({ given, skipped });
+  } catch (error) {
+    res.status(400).json({ message: error.message });
+  }
+};
