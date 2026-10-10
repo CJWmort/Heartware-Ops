@@ -4,6 +4,7 @@ const onemap = require('../../client/src/services/onemap');
 
 // Bcrypt used to Hash and protect passwords
 const bcrypt = require('bcrypt');
+const otp = require('../utils/otp'); // email verification codes (Brevo)
 
 exports.usersGet = async (req,res) => {
     try {
@@ -17,7 +18,10 @@ exports.usersGet = async (req,res) => {
 exports.userCreate = async (req, res) => {
     try {
         const { name, email, address, postalCode, phone, password, role } = req.body;
-
+        // Volunteers must have verified their email with the 6-digit code first
+        if (!otp.useVerifiedEmail(email)) {
+            return res.status(400).json({ message: 'Please verify your email with the 6-digit code first.' });
+        }
         // Hash before saving, never store the plain password
         const hashedPassword = await bcrypt.hash(password, 10);
 
@@ -152,3 +156,39 @@ exports.addressSearch = async (req, res) => {
         res.status(502).json({ message: 'Could not reach OneMap. Please type your address.' });
     }
 };
+
+// ---------- Email OTP (registration) ----------
+
+// POST /api/users/otp/request   { email }  ->  { resendInSeconds, devCode? }
+exports.otpRequest = async (req, res) => {
+    const email = (req.body.email || '').trim().toLowerCase();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        return res.status(400).json({ message: 'Enter a valid email address.' });
+    }
+    try {
+        // Don't send a code if the email already has an account
+        if (await Account.findByEmail(email)) {
+            return res.status(409).json({ message: 'That email is already registered. Try logging in.' });
+        }
+        // Same for the phone number (checked now, so they don't enter the code for nothing)
+        const phone = (req.body.phone || '').replace(/\s+/g, '');
+        if (phone && await Account.findByPhone(phone)) {
+            return res.status(409).json({ message: 'That phone number is already registered. Try logging in.' });
+        }
+        const result = await otp.requestCode(email);
+        res.json(result);
+    } catch (error) {
+        if (error.status === 429) return res.status(429).json({ message: error.message });
+        console.error('OTP email failed:', error.message);
+        res.status(502).json({ message: 'Could not send the code email. Please try again.' });
+    }
+};
+
+// POST /api/users/otp/verify   { email, code }  ->  { verified: true }
+exports.otpVerify = (req, res) => {
+    const { email, code } = req.body;
+    const message = otp.checkCode(email, code);
+    if (message) return res.status(400).json({ message });
+    res.json({ verified: true });
+};
+
