@@ -20,18 +20,17 @@ let token = null;
 
 // Fetch a fresh token
 async function login() {
-    const res = await axios.post(`${process.env.ONEMAP_BASE_URL}/api/auth/post/getToken`, {
-        email: process.env.ONEMAP_API_EMAIL,
-        password: process.env.ONEMAP_API_PASSWORD,
+    const res = await axios.post(`${import.meta.env.ONEMAP_BASE_URL}/api/auth/post/getToken`, {
+        email: import.meta.env.ONEMAP_API_EMAIL,
+        password: import.meta.env.ONEMAP_API_PASSWORD,
     });
     token = res.data.access_token;
 }
 
 // Hit the search endpoint for OneMap API 
-// addrDetails 'Y' also returns ADDRESS and POSTAL (needed by the registration form)
-function search(postalCode, addrDetails = 'N') {
-    return axios.get(`${process.env.ONEMAP_BASE_URL}/api/common/elastic/search`, {
-        params: { searchVal: postalCode, returnGeom: 'Y', getAddrDetails: addrDetails, pageNum: 1 },
+function search(postalCode) {
+    return axios.get(`${import.meta.env.ONEMAP_BASE_URL}/api/common/elastic/search`, {
+        params: { searchVal: postalCode, returnGeom: 'Y', getAddrDetails: 'N', pageNum: 1 },
         headers: { Authorization: token },
     });
 }
@@ -62,7 +61,7 @@ export async function geocodePostal (postalCode) {
 
         return cache[postalCode];
     } catch (error) {
-        throw new Error(`OneMap failed (${error.response?.status || error.message})`);
+        throw new Error('Failed to fetch from OneMap', { cause: error });
     }
 };
 
