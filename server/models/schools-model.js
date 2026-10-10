@@ -33,6 +33,14 @@ const SchoolsSchema = new mongoose.Schema({
     p5Classes: {
         type: Number,
         required: true
+    },
+    reportingTime:{
+        type: String, 
+        required: true
+    },
+    show: {
+        type: String, 
+        required: true 
     }
 });
 // 'account' refer to the 'accounts' collection in our database
@@ -45,37 +53,21 @@ exports.retrieveAll = function () {
     return Schools.find().sort({ name: 1 });
 };
  
-// Fetch one school by its MongoDB _id
-exports.findById = function (id) {
-    return Schools.findById(id);
-};
- 
 // Fetch one school by exact name (case-insensitive)
 exports.findByName = function (name) {
     return Schools.findOne({ name: new RegExp('^' + escapeRegex(name.trim()) + '$', 'i') });
 };
  
-// Fetch all schools in a zone (e.g. 'NORTH', 'SOUTH')
-exports.findByZone = function (zone) {
-    return Schools.find({ zone: zone.trim().toUpperCase() }).sort({ name: 1 });
+// Fetch all schools in a show (e.g. 'NE Show 1', 'NE Show 2')
+exports.findByShow = function (show) {
+    return Schools.find({ show: show.trim() }).sort({ name: 1 });
 };
  
 // Fetch one school by postal code
 exports.findByPostalCode = function (postalCode) {
     return Schools.findOne({ postalCode: postalCode.trim() });
 };
- 
-// ===== DELETE =====
 
-// Delete one school by its MongoDB _id (returns the deleted doc, or null)
-exports.deleteById = function (id) {
-    return Schools.findByIdAndDelete(id);
-};
- 
-// Delete one school by exact name (case-insensitive)
-exports.deleteByName = function (name) {
-    return Schools.findOneAndDelete({ name: new RegExp('^' + escapeRegex(name.trim()) + '$', 'i') });
-};
  
 // Helper: escape special regex characters in user input
 function escapeRegex(text) {
