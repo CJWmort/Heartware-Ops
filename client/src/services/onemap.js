@@ -65,3 +65,68 @@ export async function geocodePostal (postalCode) {
     }
 };
 
+// ---------- Registration form: postal code -> address (added by Kuah) ----------
+export async function lookupPostal(postalCode) {
+    try {
+        if (!token) await login();
+
+        let res;
+        try {
+            res = await search(postalCode, 'Y');
+        } catch (err) {
+            if (err.response?.status !== 401) throw err;
+            await login(); // token expired: log in again
+            res = await search(postalCode, 'Y');
+        }
+
+        // A postal code search can also return nearby places, so pick the exact match
+        const hit = res.data.results?.find((r) => r.POSTAL === postalCode);
+        if (!hit) return null;
+
+        return {
+            // "123 ANG MO KIO AVENUE 3 SINGAPORE 560123" -> "123 ANG MO KIO AVENUE 3"
+            address: hit.ADDRESS.replace(/\s*SINGAPORE\s+\d{6}$/i, '').trim(),
+            lat: parseFloat(hit.LATITUDE),
+            lng: parseFloat(hit.LONGITUDE),
+        };
+    } catch (error) {
+        throw new Error(`OneMap failed (${error.response?.status || error.message})`);
+    }
+}
+
+// ---------- Registration form: address text -> list of matching places (added by Kuah) ----------
+// e.g. "ang mo kio ave 3" -> [{ address, postal, lat, lng }, ...]  (top 5)
+export async function searchAddress(text) {
+    try {
+        if (!token) await login();
+
+        let res;
+        try {
+            res = await search(text, 'Y');
+        } catch (err) {
+            if (err.response?.status !== 401) throw err;
+            await login(); // token expired: log in again
+            res = await search(text, 'Y');
+        }
+
+        const seen = new Set();
+        return (res.data.results || [])
+            .filter((r) => r.POSTAL && r.POSTAL !== 'NIL') // skip roads/places with no postal code
+            .map((r) => ({
+                address: r.ADDRESS.replace(/\s*SINGAPORE\s+\d{6}$/i, '').trim(),
+                postal: r.POSTAL,
+                lat: parseFloat(r.LATITUDE),
+                lng: parseFloat(r.LONGITUDE),
+            }))
+            .filter((r) => {
+                // remove duplicates (same building can appear more than once)
+                const key = r.address + r.postal;
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+            })
+            .slice(0, 5);
+    } catch (error) {
+        throw new Error(`OneMap failed (${error.response?.status || error.message})`);
+    }
+}
