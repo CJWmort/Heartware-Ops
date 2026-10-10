@@ -37,7 +37,11 @@ const selected = ref(null)
 
 <template>
   <section>
-    <PageHeader title="My badges" icon="bi-award" />
+    <PageHeader title="My badges" icon="bi-award">
+      <template #actions>
+        <RouterLink to="/volunteer/badge-studio" class="btn btn-brand"><i class="bi bi-palette me-1"></i>Design my badge</RouterLink>
+      </template>
+    </PageHeader>
     <div class="row g-3" data-testid="badge-wall">
       <div v-for="b in badges" :key="b.code" :data-testid="'badge-' + b.code" class="col-6 col-md-4 col-lg-3">
         <div class="card card-body text-center badge-tile" :class="awardFor(b.code) ? '' : 'opacity-50'" @click="selected = b">
