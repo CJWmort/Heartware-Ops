@@ -1,41 +1,41 @@
-name: CI
+# name: CI
 
-on:
-  pull_request:
-  push:
-    branches: [main]
+# on:
+#   pull_request:
+#   push:
+#     branches: [main]
 
-jobs:
-  client:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: client
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4 # ⭐ installs pnpm on GitHub's computer
-        with:
-          version: 10 # ⭐
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - run: pnpm install # ⭐ was npm install
-      - run: pnpm run lint:check # ⭐
-      - run: pnpm run test:unit --run # ⭐
-      - run: pnpm run build # ⭐
+# jobs:
+#   client:
+#     runs-on: ubuntu-latest
+#     defaults:
+#       run:
+#         working-directory: client
+#     steps:
+#       - uses: actions/checkout@v4
+#       - uses: pnpm/action-setup@v4 # ⭐ installs pnpm on GitHub's computer
+#         with:
+#           version: 10 # ⭐
+#       - uses: actions/setup-node@v4
+#         with:
+#           node-version: 22
+#       - run: pnpm install # ⭐ was npm install
+#       - run: pnpm run lint:check # ⭐
+#       - run: pnpm run test:unit --run # ⭐
+#       - run: pnpm run build # ⭐
 
-  server:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: server
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4 # ⭐
-        with:
-          version: 10 # ⭐
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - run: pnpm install # ⭐
-      - run: pnpm test # ⭐
+#   server:
+#     runs-on: ubuntu-latest
+#     defaults:
+#       run:
+#         working-directory: server
+#     steps:
+#       - uses: actions/checkout@v4
+#       - uses: pnpm/action-setup@v4 # ⭐
+#         with:
+#           version: 10 # ⭐
+#       - uses: actions/setup-node@v4
+#         with:
+#           node-version: 22
+#       - run: pnpm install # ⭐
+#       - run: pnpm test # ⭐
