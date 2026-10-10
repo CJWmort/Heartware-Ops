@@ -28,11 +28,11 @@ export async function autoAward(eventId) {
   }
 }
 
-export async function awardBadge(volunteerIds, badgeId, message) {
+export async function awardBadge(volunteerIds, badgeCode, event, message) {
   try {
     const { data } = await axios.post(
       `${BASE_URL}/award`,
-      { volunteerIds, badgeId, message },
+      { volunteerIds, badgeCode, event, message },
       { timeout: 15000 },
     )
     return data

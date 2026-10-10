@@ -2,29 +2,21 @@
 // Feature 5 – Badge wall — owner: Hanafi
 // Spec: docs/FEATURES.md   ·   API calls: src/services/   ·   Tests: e2e/
 import PageHeader from '@/components/PageHeader.vue'
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
+import { listBadges, getMyBadges } from '@/services/badges'
 
-// TEMP: shaped like GET /api/badges and GET /api/badges/me.
-// Replace with listBadges() / getMyBadges() and DELETE before the PR.
-const badges = ref([
-  { code: 'FULL_ROUTE', name: 'Full Route Completed', description: 'Checked in at all 6 checkpoints.', icon: 'bi-flag-fill' },
-  { code: 'ON_TIME', name: 'On-Time Every Checkpoint', description: 'No overdue alerts for your group.', icon: 'bi-stopwatch-fill' },
-  { code: 'STAND_IN_HERO', name: 'Stand-in Hero', description: 'Stepped in to fill an open slot.', icon: 'bi-lightning-charge-fill' },
-  { code: 'HEART_OF_GOLD', name: 'Heart of Gold', description: 'Special thanks from the Heartware team.', icon: 'bi-heart-fill' },
-  { code: 'CALM_UNDER_PRESSURE', name: 'Calm Under Pressure', description: 'Handled an incident with care.', icon: 'bi-shield-check' },
-])
+const badges = ref([])
+const myAwards = ref([])
+const error = ref('')
 
-const myAwards = ref([
-  {
-    badge: { code: 'HEART_OF_GOLD', name: 'Heart of Gold', description: 'Special thanks from the Heartware team.', icon: 'bi-heart-fill' },
-    event: { name: 'NE Show 1' },
-    message: 'Thank you for staying calm today!',
-  },
-  {
-    badge: { code: 'STAND_IN_HERO', name: 'Stand-in Hero', description: 'Stepped in to fill an open slot.', icon: 'bi-lightning-charge-fill' },
-    event: { name: 'NE Show 1' },
-  },
-])
+onMounted(async () => {         
+  try {
+    badges.value = await listBadges() 
+    myAwards.value = await getMyBadges()  
+  } catch (e) {
+    error.value = e.friendlyMessage          
+  }
+})
 
 function awardFor(code) {
   return myAwards.value.find(a => a.badge.code === code)
@@ -42,7 +34,8 @@ const selected = ref(null)
         <RouterLink to="/volunteer/badge-studio" class="btn btn-brand"><i class="bi bi-palette me-1"></i>Design my badge</RouterLink>
       </template>
     </PageHeader>
-    <div class="row g-3" data-testid="badge-wall">
+    <div v-if="error" class="alert alert-danger">{{ error }}</div>
+    <div v-else class="row g-3" data-testid="badge-wall">
       <div v-for="b in badges" :key="b.code" :data-testid="'badge-' + b.code" class="col-6 col-md-4 col-lg-3">
         <div class="card card-body text-center badge-tile" :class="awardFor(b.code) ? '' : 'opacity-50'" @click="selected = b">
           <i :class="'bi ' + b.icon + ' fs-1'"></i>
@@ -63,7 +56,7 @@ const selected = ref(null)
           <div class="modal-body">
             {{selected.description}}
             <div v-if="awardFor(selected.code)">
-              Earned at {{awardFor(selected.code).event.name}}
+              Earned at {{awardFor(selected.code).event}}
               <div v-if="awardFor(selected.code).message" class="fst-italic mt-2">{{awardFor(selected.code).message}}</div>
             </div>
             <div v-else>Not earned yet</div>
