@@ -39,10 +39,10 @@ const AccountSchema = new mongoose.Schema({
         type: String,
         required: true
     },
-    availableDates: {
+    availableShows: {
         type: [String],
         default: []
-    },
+    }
 }, {
     timestamps: true // auto timestamp management (createdAt, updatedAt) will update automatically based on methods used
 });
@@ -70,4 +70,22 @@ exports.findById = function (id) {
 // Fetch all volunteers (name, postalCode)
 exports.retrieveVolunteers = function () {
     return Account.find({ role: 'volunteer' }).select('name postalCode address');
+};
+
+// Update the shows a volunteer is available for
+exports.updateAvailableShows = function (id, availableShows) {
+    return Account.findByIdAndUpdate(
+        id,
+        { availableShows },
+        { new: true, runValidators: true } // return the updated doc
+    ).select('-password');
+};
+
+// Remove the given shows from a volunteer's available shows
+exports.removeAvailableShows = function (id, shows) {
+    return Account.findByIdAndUpdate(
+        id,
+        { $pull: { availableShows: { $in: shows } } },
+        { new: true } // return the updated doc
+    ).select('-password');
 };
