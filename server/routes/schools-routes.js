@@ -1,23 +1,17 @@
-const express = require('express');
-const schoolsController = require('../controllers/schools-controller');
+const express = require("express");
+const schoolsController = require("../controllers/schools-controller");
 const router = express.Router();
- 
-const { requireRole } = require('../middleware/auth-middleware');
- 
+
+const { requireRole } = require("../middleware/auth-middleware");
+
 // '/api/schools/<endpoint>'
 // Note: specific paths (/name, /show, /postal) must come BEFORE '/:id',
 // otherwise Express treats words like "show" as an id.
- 
+
 // ===== READ =====
-router.get('/', schoolsController.schoolsGet); // endpoint - Fetch all schools
-router.get('/name/:name', schoolsController.schoolGetByName); // endpoint - Fetch one school by name
-router.get('/show/:show', schoolsController.schoolsGetByShow); // endpoint - Fetch all schools in a show
-router.get('/postal/:postalCode', schoolsController.schoolGetByPostalCode); // endpoint - Fetch one school by postal code
-router.get('/:id', schoolsController.schoolGetById); // endpoint - Fetch one school by _id
- 
-// ===== DELETE =====
-router.delete('/name/:name', requireRole('admin'), schoolsController.schoolDeleteByName); // endpoint - Delete one school by name (admin only)
-router.delete('/:id', requireRole('admin'), schoolsController.schoolDeleteById); // endpoint - Delete one school by _id (admin only)
- 
- 
+router.get("/", schoolsController.schoolsGet); // endpoint - Fetch all schools
+router.get("/name/:name", schoolsController.schoolGetByName); // endpoint - Fetch one school by name
+router.get("/show/:show", schoolsController.schoolsGetByShow); // endpoint - Fetch all schools in a show
+router.get("/postal/:postalCode", schoolsController.schoolGetByPostalCode); // endpoint - Fetch one school by postal code
+
 module.exports = router;
