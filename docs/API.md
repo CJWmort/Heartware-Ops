@@ -78,7 +78,7 @@ Auth column: 🌐 public · 👤 any logged-in user · 🙋 volunteer · 🧑‍
 |---|---|---|---|---|
 | GET | `/badges` | 👤 | – | badge catalogue |
 | POST | `/badges/auto-award` | 🧑‍💼 | `{ eventId }` | `{ awardedCount }` |
-| POST | `/badges/award` | 🧑‍💼 | `{ volunteerIds[], badgeId, message }` | awards |
+| POST | `/badges/award` | 🧑‍💼 | `{ volunteerIds[], badgeCode, event, message }` | given, skipped |
 | GET | `/badges/me` | 🙋 | – | my awards |
 | GET | `/badges/design/me` | 🙋 | – | my saved design (or default) |
 | PUT | `/badges/design/me` | 🙋 | `{ shape, primaryColor, secondaryColor, emblem, ribbonText }` | design |
