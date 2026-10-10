@@ -24,7 +24,6 @@ let L = null
 let volunteerLayer = null
 let pinIcon = null
 let myMarker = null
-let accuracyCircle = null
 
 // Map: Create teardrop marker (with user icon)
 function createPinIcon() {
