@@ -39,7 +39,7 @@ const AccountSchema = new mongoose.Schema({
         type: String,
         required: true
     },
-    availableDates: {
+    availableShows: {
         type: [String],
         default: []
     },
