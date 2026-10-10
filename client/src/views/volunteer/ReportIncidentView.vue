@@ -8,6 +8,9 @@ import { onMounted, ref } from 'vue'
 
 const templates = ref([])
 const selectedType = ref(null)
+const note = ref('')
+const submitting = ref(false)
+const submitted = ref(false)
 const errorMessage = ref('')
 
 // TODO(Wei Ming): build this page, then delete FeaturePlaceholder below.
