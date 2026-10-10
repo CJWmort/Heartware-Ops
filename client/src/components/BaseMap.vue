@@ -29,7 +29,7 @@ const props = defineProps({
   zoom: { type: Number, default: 16 },
   testid: { type: String, default: 'map' },
 })
-const emit = defineEmits(['ready']) 
+const emit = defineEmits(['ready'])
 
 const el = ref(null)
 let map = null
@@ -52,8 +52,7 @@ onMounted(() => {
   const MAINLAND_SG = L.latLngBounds([1.235, 103.59], [1.475, 104.05])
   map.setMaxBounds(MAINLAND_SG)
   map.options.maxBoundsViscosity = 1.0 // 1.0 = hard edge, can't drag outside at all
-
-  emit('ready', map, L) // BaseMap emits "ready" and hands over map and L data, Views catches this emitting event, '<BaseMap @ready="onMapReady" />'
+  emit('ready', map, L)
 })
 
 onBeforeUnmount(() => {
