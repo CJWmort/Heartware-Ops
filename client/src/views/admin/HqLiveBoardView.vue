@@ -3,7 +3,7 @@ import { ref, computed, onMounted } from 'vue'
 import axios from 'axios'
 import PageHeader from '@/components/PageHeader.vue'
 import BaseMap from '@/components/BaseMap.vue'
-import { SINGAPORE_CENTER, INNER_RING, OUTER_RING } from '@/utils/constants'
+import { VENUES, SINGAPORE_CENTER, INNER_RING, OUTER_RING } from '@/utils/constants'
 
 // Vue state                                                           
 const volunteers = ref([])
@@ -77,8 +77,6 @@ function drawMarkers() {
       .bindTooltip(v.name, { direction: 'top', sticky: false })
       .addTo(volunteerLayer)
   })
-
-  if (points.length) map.fitBounds(points, { padding: [40, 40] })
 }
 
 // Map: reset tooltips  
@@ -193,7 +191,8 @@ onMounted(async () => {
     </div>
     
     <div class="col-xl-8 col-lg-8 col-md-12">
-      <BaseMap @ready="onMapReady" />
+      <!-- Zoom to Padang by defining prop values being sent to BaseMap component -->
+      <BaseMap :center="VENUES['Padang']" :zoom="13" testid="hq-map" @ready="onMapReady" />
     </div>
   </div>
 </template>

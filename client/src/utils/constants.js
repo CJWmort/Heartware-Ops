@@ -26,7 +26,7 @@ export const CHECKPOINT_LABELS = Object.freeze({
 
 export const VENUES = Object.freeze({
   'National Stadium': { lat: 1.304, lng: 103.8746 },
-  Padang: { lat: 1.2932, lng: 103.852 },
+  'Padang': { lat: 1.2932, lng: 103.852 },
 })
 
 export const SINGAPORE_CENTER = Object.freeze({ lat: 1.3521, lng: 103.8198 })
