@@ -21,7 +21,7 @@ let pinIcon = null
 const markers = {} // volunteer _id: marker
 
 // Map: Create teardrop marker (with user icon)
-function createPinIcon() {
+function createPinIcon(count = 1) {
   return L.divIcon({
     className: 'user-pin',
     html: `
@@ -31,6 +31,7 @@ function createPinIcon() {
                 fill="#2563eb" stroke="#fff" stroke-width="2" />
         </svg>
         <i class="bi bi-person-fill"></i>
+        ${count > 1 ? `<span class="pin-badge">${count}</span>` : ''}
       </div>`,
     iconSize: [40, 52],
     iconAnchor: [20, 52],
@@ -76,12 +77,31 @@ function drawMarkers() {
   volunteerLayer.clearLayers()
   Object.keys(markers).forEach((id) => delete markers[id]) // Clear all markers
 
-  const points = []
+  // Group volunteers that share the same coordinates
+  const groups = new Map()
   volunteers.value.forEach((v) => {
-    points.push([v.lat, v.lng])
-    markers[v._id] = L.marker([v.lat, v.lng], { icon: pinIcon })
-      .bindTooltip(v.name, { direction: 'top', sticky: false })
+    const key = `${v.lat},${v.lng}`
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(v)
+  })
+
+  groups.forEach((group) => {
+    const { lat, lng } = group[0]
+
+    // Build the tooltip with textContent so names can't inject HTML
+    const tip = document.createElement('div')
+    group.forEach((v) => {
+      const line = document.createElement('div')
+      line.textContent = v.name
+      tip.appendChild(line)
+    })
+
+    const marker = L.marker([lat, lng], { icon: createPinIcon(group.length) })
+      .bindTooltip(tip, { direction: 'top', sticky: false })
       .addTo(volunteerLayer)
+
+    // Everyone in the group shares the marker, so search/focus still works
+    group.forEach((v) => { markers[v._id] = marker })
   })
 }
 
@@ -207,7 +227,7 @@ onMounted(async () => {
 
     <div class="col-xl-8 col-lg-8 col-md-12">
       <!-- Zoom to Padang by defining prop values being sent to BaseMap component -->
-      <BaseMap :center="VENUES['Padang']" :zoom="13" testid="hq-map" @ready="onMapReady" />
+      <BaseMap :center="VENUES['Padang']" :zoom="10" testid="hq-map" @ready="onMapReady" />
     </div>
   </div>
 </template>
@@ -238,5 +258,23 @@ onMounted(async () => {
   justify-content: center;
   color: #fff;
   font-size: 1.25rem;
+}
+
+:global(.user-pin-inner .pin-badge) {
+  position: absolute;
+  top: -4px;
+  left: 26px;
+  min-width: 15px;
+  height: 20px;
+  padding: 0 5px;
+  border-radius: 10px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 20px;
+  text-align: center;
+  border: 2px solid #fff;
+  box-sizing: content-box;
 }
 </style>

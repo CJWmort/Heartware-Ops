@@ -1,8 +1,11 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import PageHeader from '@/components/PageHeader.vue'
 import BaseMap from '@/components/BaseMap.vue'
 import FeaturePlaceholder from '@/components/FeaturePlaceholder.vue'
+import axios from 'axios'
+import polyline from '@mapbox/polyline'
+import { VENUES } from '@/utils/constants'
 import { getUserLocation, geolocationMessage } from '@/utils/geolocation'
 
 const todos = [
@@ -18,6 +21,7 @@ const todos = [
 const loading = ref(true)
 const error = ref('')
 const location = ref(null) // stores { lat, lng, accuracy } fetched from device
+const routeInfo = ref(null) // { minutes, km }
 
 // Leaflet objects
 let map = null
@@ -25,18 +29,20 @@ let L = null
 let volunteerLayer = null
 let pinIcon = null
 let myMarker = null
+let destMarker = null
+let routeLine = null
 
-// Map: Create teardrop marker (with user icon)
-function createPinIcon() {
+// Map: Create teardrop marker
+function createPinIcon(color = '#2563eb', iconClass = 'bi-person-fill') {
   return L.divIcon({
     className: 'user-pin',
     html: `
       <div class="user-pin-inner">
         <svg viewBox="0 0 40 52" width="40" height="52" aria-hidden="true">
           <path d="M20 50 C20 50 38 32 38 19 A18 18 0 1 0 2 19 C2 32 20 50 20 50 Z"
-                fill="#2563eb" stroke="#fff" stroke-width="2" />
+                fill="${color}" stroke="#fff" stroke-width="2" />
         </svg>
-        <i class="bi bi-person-fill"></i>
+        <i class="bi ${iconClass}"></i>
       </div>`,
     iconSize: [40, 52],
     iconAnchor: [20, 52],
@@ -51,9 +57,18 @@ function onMapReady(m, leaflet) {
   volunteerLayer = L.layerGroup().addTo(map)
   pinIcon = createPinIcon()
 
-  drawMyMarker() // in case the location data arrived before the map
+  destMarker = L.marker([VENUES['Padang'].lat, VENUES['Padang'].lng], {
+    icon: createPinIcon('#dc2626', 'bi-flag-fill'),
+    opacity: 0.8
+  })
+    .bindTooltip('Padang', { direction: 'top', sticky: false })
+    .addTo(volunteerLayer)
+
+  drawMyMarker()
+  drawRoute()
 }
 
+// Current volunteer marker
 function drawMyMarker() {
   if (!map || !location.value) return
 
@@ -70,34 +85,97 @@ function drawMyMarker() {
   map.setView([lat, lng], 16)
 }
 
-// function getUserLocation() {
-//   return new Promise((resolve, reject) => {
-//     if (!navigator.geolocation) {
-//       reject(new Error('Geolocation is not supported by your browser.'))
-//       return
-//     }
-//     navigator.geolocation.getCurrentPosition(resolve, reject, {
-//       enableHighAccuracy: true, // use GPS if available
-//       timeout: 10000,
-//       maximumAge: 0, // always fetch fresh location
-//     })
-//   })
-// }
+// Plot the travel route from Volunteer's current location to Padang (depends on 'routeType')
+async function drawRoute() {
+  if (!map || !location.value) return
 
-// function geolocationMessage(err) {
-//   switch (err.code) {
-//     case err.PERMISSION_DENIED:
-//       return 'Location permission was denied. Allow it in your browser settings and reload.'
-//     case err.POSITION_UNAVAILABLE:
-//       return 'Location information is unavailable.'
-//     case err.TIMEOUT:
-//       return 'Getting your location timed out. Try again.'
-//     default:
-//       return err.message || 'Could not get your location.'
-//   }
-// }
+  routeLine?.remove()
+  routeLine = null
+  routeInfo.value = null
+  error.value = ''
+  loadingRoute.value = true // show overlay
 
-// Fetch volunteer geolocation data on page load then draw markers
+  const requestId = ++routeRequestId
+  const { lat, lng } = location.value
+
+  try {
+    const res = await axios.get('/api/users/route', {
+      params: {
+        startLat: lat, startLng: lng,
+        endLat: VENUES['Padang'].lat, endLng: VENUES['Padang'].lng,
+        routeType: travelMode.value,
+      },
+    })
+
+    if (requestId !== routeRequestId) return
+
+    const coords = polyline.decode(res.data.route_geometry)
+    routeLine = L.polyline(coords, { color: '#2563eb', weight: 4 }).addTo(map)
+    map.fitBounds(routeLine.getBounds(), { padding: [60, 60] })
+
+    const s = res.data.route_summary
+    routeInfo.value = {
+      minutes: Math.round(s.total_time / 60),
+      km: (s.total_distance / 1000).toFixed(1),
+    }
+  } catch (err) {
+    if (requestId !== routeRequestId) return
+    error.value = err.response?.data?.message || 'Could not load route.'
+  } finally {
+    // Only hide the loading overlay if this is still the latest request.
+    // If a newer one is incoming, keeps the overlay on.
+    if (requestId === routeRequestId) loadingRoute.value = false
+  }
+}
+
+// Fetch the current user location using built in js (navigator) method
+function getUserLocation() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) {
+      reject(new Error('Geolocation is not supported by your browser.'))
+      return
+    }
+    navigator.geolocation.getCurrentPosition(resolve, reject, {
+      enableHighAccuracy: true, // use GPS if available
+      timeout: 10000,
+      maximumAge: 0, // always fetch fresh location
+    })
+  })
+}
+
+function geolocationMessage(err) {
+  switch (err.code) {
+    case err.PERMISSION_DENIED:
+      return 'Location permission was denied. Allow it in your browser settings and reload.'
+    case err.POSITION_UNAVAILABLE:
+      return 'Location information is unavailable.'
+    case err.TIMEOUT:
+      return 'Getting your location timed out. Try again.'
+    default:
+      return err.message || 'Could not get your location.'
+  }
+}
+
+// Just to showcase routing between different travel modes
+const travelMode = ref('drive') // starting mode
+const loadingRoute = ref(false)
+
+const MODES = [
+  { key: 'drive', label: 'Drive', icon: 'bi-car-front-fill', verb: 'Driving' },
+  { key: 'cycle', label: 'Cycle', icon: 'bi-bicycle', verb: 'Cycling' },
+  { key: 'walk', label: 'Walk', icon: 'bi-person-walking', verb: 'Walking' },
+]
+const activeMode = computed(() => MODES.find((m) => m.key === travelMode.value))
+
+let routeRequestId = 0 // guards against slow responses overwriting newer ones
+
+function setTravelMode(mode) {
+  if (mode === travelMode.value) return
+  travelMode.value = mode
+  drawRoute()
+}
+
+// Fetch volunteer geolocation data on page load then draw markers                                                       
 onMounted(async () => {
   try {
     const pos = await getUserLocation()
@@ -107,6 +185,7 @@ onMounted(async () => {
       accuracy: pos.coords.accuracy, // metres
     }
     drawMyMarker() // in case the map was ready first
+    drawRoute() // display the route from start (volunteer) to end (padang)
   } catch (err) {
     error.value = geolocationMessage(err)
   } finally {
@@ -141,8 +220,35 @@ onMounted(async () => {
       </div>
     </div>
 
+
     <div class="col-xl-8 col-lg-8 col-md-12">
-      <BaseMap @ready="onMapReady" />
+      <div class="btn-group mb-2" role="group" aria-label="Travel mode">
+        <button
+          v-for="m in MODES"
+          :key="m.key"
+          type="button"
+          class="btn"
+          :class="travelMode === m.key ? 'btn-primary' : 'btn-outline-primary'"
+          @click="setTravelMode(m.key)"
+          :disabled="loadingRoute"
+        >
+          <i class="bi" :class="m.icon"></i> {{ m.label }}
+        </button>
+      </div>
+
+      <div v-if="routeInfo" class="list-group-item mb-2">
+        {{ activeMode.verb }} to Padang: {{ routeInfo.minutes }} min · {{ routeInfo.km }} km
+      </div>
+
+      <div class="map-wrap position-relative">
+        <BaseMap @ready="onMapReady" />
+
+        <div v-if="loadingRoute" class="map-loading" role="status" aria-live="polite">
+          <div class="spinner-border text-primary" aria-hidden="true"></div>
+          <div class="mt-2 fw-semibold">Fetching Routes...</div>
+        </div>
+      </div>
+
     </div>
   </div>
 </template>
@@ -173,5 +279,18 @@ onMounted(async () => {
   justify-content: center;
   color: #fff;
   font-size: 1.25rem;
+}
+
+.map-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 1100; /* above Leaflet panes and zoom controls */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: rgb(255 255 255 / 0.6);
+  backdrop-filter: grayscale(1);
+  border-radius: inherit;
 }
 </style>
