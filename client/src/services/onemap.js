@@ -1,7 +1,7 @@
 // OneMap (external API) – live address preview on the registration form. Owner: Kuah (F1a)
 // Docs: https://www.onemap.gov.sg/apidocs/   (Search API needs no key)
 // The SERVER does the real geocoding when saving; this is only for the "📍 Found: ..." preview.
-
+// test
 // TODO(Kuah): call ONEMAP_SEARCH_URL with params
 //   { searchVal: postalCode, returnGeom: 'Y', getAddrDetails: 'Y', pageNum: 1 }
 // and return { address, lat, lng } for the first result, or null if none.
