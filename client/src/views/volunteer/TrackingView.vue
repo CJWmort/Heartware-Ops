@@ -6,6 +6,7 @@ import FeaturePlaceholder from '@/components/FeaturePlaceholder.vue'
 import axios from 'axios'
 import polyline from '@mapbox/polyline'
 import { VENUES } from '@/utils/constants'
+import { getUserLocation, geolocationMessage } from '@/utils/geolocation'
 
 const todos = [
   'Big vertical stepper of the 6 checkpoints (CHECKPOINTS / CHECKPOINT_LABELS in utils/constants.js)',
@@ -16,7 +17,7 @@ const todos = [
   'data-testids: checkpoint-<NAME>, checkpoint-next, tracking-last-ping, tracking-error',
 ]
 
-// Vue state                                                           
+// Vue state
 const loading = ref(true)
 const error = ref('')
 const location = ref(null) // stores { lat, lng, accuracy } fetched from device
@@ -197,7 +198,11 @@ onMounted(async () => {
   <section>
     <PageHeader title="Event day" icon="bi-signpost-split" />
     <div v-if="error" class="alert alert-danger py-2" role="alert">{{ error }}</div>
-    <FeaturePlaceholder feature="Feature 3 - Live Movement Tracking (volunteer side)" owner="Chin" :todos="todos" />
+    <FeaturePlaceholder
+      feature="Feature 3 - Live Movement Tracking (volunteer side)"
+      owner="Chin"
+      :todos="todos"
+    />
   </section>
 
   <div class="row">
@@ -254,7 +259,7 @@ onMounted(async () => {
   position: relative;
   width: 30px;
   height: 52px;
-  transform-origin: 50% 100%;  
+  transform-origin: 50% 100%;
   transition: transform 0.15s;
   filter: drop-shadow(0 2px 3px rgb(0 0 0 / 0.35));
 }
@@ -268,7 +273,7 @@ onMounted(async () => {
   top: 0;
   left: 0;
   width: 40px;
-  height: 38px;              
+  height: 38px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -289,4 +294,3 @@ onMounted(async () => {
   border-radius: inherit;
 }
 </style>
-

@@ -5,6 +5,7 @@ const STATUS_ORDER = { new: 0, acknowledged: 1, resolved: 2 };
 const SEVERITY_ORDER = { high: 0, medium: 1, low: 2 };
 const NEXT_STATUS = { new: "acknowledged", acknowledged: "resolved" };
 const { emit } = require("../sockets"); // emit is declared here to use sockets
+const onemap = require("../../client/src/services/onemap"); // this will access onemap service for reverseGeocoding
 
 // GET /api/incidents/templates
 exports.listTemplates = (req, res) => res.json(TEMPLATES);
@@ -12,7 +13,27 @@ exports.listTemplates = (req, res) => res.json(TEMPLATES);
 // POST /api/incidents
 exports.createIncident = async (req, res) => {
   try {
-    const { slotId, school, busNo, type, severity, note, lat, lng } = req.body;
+    const {
+      slotId,
+      school,
+      busNo,
+      type,
+      severity,
+      note,
+      lat,
+      lng,
+      address: typedAddress,
+    } = req.body;
+    // handle address retreival using geocoding by onemap
+    let address = typedAddress?.trim() || null;
+    try {
+      if (!address && lat != null && lng != null) {
+        address = await onemap.reverseGeocode(lat, lng);
+      }
+    } catch (error) {
+      console.error(error);
+    }
+
     const incident = await Incident.create({
       slotId,
       school,
@@ -21,6 +42,7 @@ exports.createIncident = async (req, res) => {
       severity,
       note,
       location: lat != null ? { lat, lng } : undefined,
+      address: address,
       volunteer: req.session.user?._id,
       history: [{ status: "new" }],
     });
@@ -70,5 +92,19 @@ exports.updateIncidentStatus = async (req, res) => {
     res.json(incident);
   } catch (error) {
     res.status(500).json({ message: error.message });
+  }
+};
+
+// Lookup address for volunteer's incident report page
+exports.lookupAddress = async (req, res) => {
+  const lat = Number(req.query.lat);
+  const lng = Number(req.query.lng);
+  if (Number.isNaN(lat) || Number.isNaN(lng)) return res.json({ address: null });
+
+  try {
+    const address = await onemap.reverseGeocode(lat, lng);
+    res.json({ address });
+  } catch (error) {
+    res.json({ address: null });
   }
 };

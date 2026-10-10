@@ -21,6 +21,7 @@ const IncidentSchema = new mongoose.Schema(
     busNo: String,
     volunteer: { type: mongoose.Schema.Types.ObjectId, ref: "Account" },
     location: { lat: Number, lng: Number },
+    address: String,
     status: { type: String, enum: ["new", "acknowledged", "resolved"], default: "new" },
     history: [{ status: String, note: String, at: { type: Date, default: Date.now } }],
   },
