@@ -40,7 +40,7 @@ server.use("/api/users", require("./routes/accounts-routes"));
 server.use("/api/incidents", require("./routes/incidents-routes"));
 server.use("/api/schools", require("./routes/schools-routes"));
 server.use("/api/badges", require("./routes/badges-routes"));
-server.use("/api/allocations", require("./routes/allocations-routes"));
+server.use("/api/assignments", require("./routes/assignments-routes"));
 
 // async function to connect to DB
 async function connectDB() {

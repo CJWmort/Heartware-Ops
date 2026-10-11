@@ -72,6 +72,11 @@ exports.retrieveVolunteers = function () {
     return Account.find({ role: 'volunteer' }).select('name postalCode address');
 };
 
+// in account-model.js
+exports.findVolunteersByShow = function (show) {
+  return Account.find({ role: "volunteer", availableShows: show.trim() });
+};
+
 // Used by registration to stop the same phone number signing up twice
 exports.findByPhone = function (phone) {
     return Account.findOne({ phone: String(phone).replace(/\s+/g, '') });
