@@ -101,16 +101,46 @@ function pickDomain(domain) {
   touch('email') // check it straight away -> turns green
 }
 
+// OneMap result for the postal code (declared here because the postal code rule below uses it)
+const postalStatus = ref('idle')    // 'idle' | 'loading' | 'found' | 'notfound' | 'error'
+const postalPreview = ref('')       // the address OneMap found
+
+// ---------- Password requirements ----------
+// Each rule has a label (shown in the checklist) and a test (true = met).
+const passwordRules = [
+  { label: 'At least 8 characters', test: (p) => p.length >= 8 },
+  { label: 'One uppercase letter (A–Z)', test: (p) => /[A-Z]/.test(p) },
+  { label: 'One lowercase letter (a–z)', test: (p) => /[a-z]/.test(p) },
+  { label: 'One number (0–9)', test: (p) => /\d/.test(p) },
+  { label: 'One special character (e.g. ! @ # $ %)', test: (p) => /[^A-Za-z0-9\s]/.test(p) },
+]
+
+// computed: re-checks every rule each time the password changes -> [{ label, met }, ...]
+const passwordChecks = computed(() =>
+  passwordRules.map((rule) => ({ label: rule.label, met: rule.test(password.value) })),
+)
+
 const rules = {
   name: () => (name.value.trim() ? '' : 'Enter your name.'),
   email: emailError,
   address: () => (address.value.trim() ? '' : 'Enter your address.'),
-  postalCode: () => (/^\d{6}$/.test(postalCode.value.trim()) ? '' : 'Enter a 6-digit postal code.'),
+  postalCode: () => {
+    if (!/^\d{6}$/.test(postalCode.value.trim())) return 'Enter a 6-digit postal code.'
+    // OneMap checked it and there is no such place -> not a real Singapore postal code
+    if (postalStatus.value === 'notfound') return "This postal code doesn't exist in Singapore. Please check it."
+    return ''
+  },
   phone: () =>
     phoneRegex.test(phone.value.replace(/\s+/g, ''))
       ? ''
       : 'Enter an 8-digit Singapore number starting with 6, 8 or 9.',
-  password: () => (password.value.trim() ? '' : 'Password is required.'),
+  password: () => {
+    if (!password.value) return 'Password is required.'
+    if (/\s/.test(password.value)) return 'Password cannot contain spaces.'
+    return passwordChecks.value.every((check) => check.met)
+      ? ''
+      : 'Your password does not meet all the requirements below.'
+  },
   confirmPassword: () =>
     confirmPassword.value === password.value ? '' : 'Passwords do not match.',
 }
@@ -162,8 +192,6 @@ watch(Object.values(fields), () => {
 // Uses our server (which uses onemap.js), because OneMap needs a secret login:
 //   GET /api/users/postal-lookup?postalCode=560123   -> { address }
 //   GET /api/users/address-search?q=ang mo kio       -> [{ address, postal }, ...]
-const postalStatus = ref('idle')    // 'idle' | 'loading' | 'found' | 'notfound' | 'error'
-const postalPreview = ref('')       // the address OneMap found
 const addressSuggestions = ref([])  // list shown under the Address box
 let postalTimer = null              // for debouncing (waiting until the user stops typing)
 let addressTimer = null
@@ -208,10 +236,12 @@ watch(postalCode, (value) => {
       postalStatus.value = 'found'
       postalPreview.value = response.data.address
       setAddressFromOneMap(response.data.address)
+      touch('postalCode') // real postal code -> green tick
     } catch (error) {
       if (postalCode.value.trim() !== code) return
       // 404 = OneMap has no such postal code; anything else = couldn't reach OneMap
       postalStatus.value = error.response?.status === 404 ? 'notfound' : 'error'
+      touch('postalCode') // 'notfound' -> red box + error message
     }
   }, 400)
 })
@@ -282,6 +312,14 @@ const filledCount = computed(() => {
 // e.g. 1 of 7 filled -> 14%, 7 of 7 -> 100%
 const progress = computed(() => Math.round((filledCount.value / fieldNames.length) * 100))
 
+// ---------- Sign up button on/off ----------
+// computed = re-calculated automatically whenever any field changes (Vue reactivity),
+// so the button switches itself on the moment the last field becomes valid.
+const fieldsLeft = computed(() => fieldNames.length - filledCount.value)
+const canSubmit = computed(
+  () => fieldsLeft.value === 0 && postalStatus.value !== 'loading' && !loading.value,
+)
+
 // ---------- Email verification (6-digit code) ----------
 const step = ref('form')      // 'form' = fill in details, 'otp' = type the emailed code
 const otpCode = ref('')
@@ -305,7 +343,10 @@ onBeforeUnmount(() => clearInterval(resendTimer)) // stop the timer if the user 
 
 // Ask the server to email a code
 async function sendCode() {
-  const response = await axios.post('/api/users/otp/request', { email: email.value.trim() })
+  const response = await axios.post('/api/users/otp/request', {
+    email: email.value.trim(),
+    phone: phone.value.replace(/\s+/g, ''), // so the server can check it isn't already registered
+  })
   devCode.value = response.data.devCode || ''
   startResendTimer(response.data.resendInSeconds || 60)
 }
@@ -314,6 +355,10 @@ async function sendCode() {
 async function register() {
   serverError.value = ''
   submitted.value = true
+  if (postalStatus.value === 'loading') {
+    serverError.value = 'Still checking your postal code. Try again in a second.'
+    return
+  }
   if (!validate()) return
 
   loading.value = true
@@ -544,15 +589,12 @@ async function verifyAndCreate() {
               <div class="invalid-feedback"><i class="bi bi-x-circle-fill"></i> {{ errors.postalCode }}</div>
 
               <!-- OneMap result under the postal box -->
-              <div v-if="postalStatus !== 'idle'" class="small mt-1" data-testid="reg-postal-preview">
+              <div v-if="postalStatus !== 'idle' && postalStatus !== 'notfound'" class="small mt-1" data-testid="reg-postal-preview">
                 <span v-if="postalStatus === 'loading'" class="text-muted">
                   <span class="spinner-border spinner-border-sm me-1"></span> Looking up address…
                 </span>
                 <span v-else-if="postalStatus === 'found'" class="text-success">
                   <i class="bi bi-geo-alt-fill"></i> Found: {{ postalPreview }}
-                </span>
-                <span v-else-if="postalStatus === 'notfound'" class="text-warning">
-                  <i class="bi bi-exclamation-triangle-fill"></i> No address found for this postal code. Please type your address below.
                 </span>
                 <span v-else class="text-warning">
                   <i class="bi bi-wifi-off"></i> Couldn't reach OneMap. Please type your address below.
@@ -564,7 +606,7 @@ async function verifyAndCreate() {
             <div class="mb-3">
               <label for="address" class="form-label fw-semibold">Address</label>
               <input id="address" v-model="address" type="text"
-                     placeholder="Start typing, e.g. 123 Ang Mo Kio Ave 3"
+                     placeholder="123 Ang Mo Kio Ave 3"
                      class="form-control form-control-lg"
                      :class="{ 'is-invalid': errors.address, 'is-valid': isOk('address') }"
                      @blur="onAddressBlur" data-testid="reg-address" autocomplete="off" />
@@ -594,7 +636,7 @@ async function verifyAndCreate() {
                        class="form-control"
                        :class="{ 'is-invalid': errors.password, 'is-valid': isOk('password') }"
                        @blur="touch('password')" data-testid="reg-password" autocomplete="new-password" />
-                <button type="button" class="btn btn-outline-secondary"
+                <button type="button" class="btn btn-outline-secondary border rounded-end"
                         :aria-label="showPassword ? 'Hide password' : 'Show password'"
                         @click="showPassword = !showPassword">
                   <i class="bi" :class="showPassword ? 'bi-eye' : 'bi-eye-slash'"></i>
@@ -602,6 +644,15 @@ async function verifyAndCreate() {
                 <div class="invalid-feedback"><i class="bi bi-x-circle-fill"></i> {{ errors.password }}</div>
                 <div class="valid-feedback"><i class="bi bi-check-circle-fill"></i> Looks good!</div>
               </div>
+
+              <!-- Password checklist: each rule turns green with a tick once it's met -->
+              <ul class="list-unstyled small mt-2 mb-0" data-testid="reg-password-rules">
+                <li v-for="check in passwordChecks" :key="check.label"
+                    :class="check.met ? 'text-success' : 'text-muted-hw'">
+                  <i class="bi me-1" :class="check.met ? 'bi-check-circle-fill' : 'bi-circle'"></i>
+                  {{ check.label }}
+                </li>
+              </ul>
             </div>
 
             <!-- Confirm password (input-group: feedback goes INSIDE) -->
@@ -613,7 +664,7 @@ async function verifyAndCreate() {
                        class="form-control"
                        :class="{ 'is-invalid': errors.confirmPassword, 'is-valid': isOk('confirmPassword') }"
                        @blur="touch('confirmPassword')" autocomplete="new-password" />
-                <button type="button" class="btn btn-outline-secondary"
+                <button type="button" class="btn btn-outline-secondary border rounded-end"
                         :aria-label="showConfirmPassword ? 'Hide password' : 'Show password'"
                         @click="showConfirmPassword = !showConfirmPassword">
                   <i class="bi" :class="showConfirmPassword ? 'bi-eye' : 'bi-eye-slash'"></i>
@@ -623,11 +674,19 @@ async function verifyAndCreate() {
               </div>
             </div>
 
-            <button type="submit" class="btn btn-brand btn-lg w-100 mt-2 tap-target" :disabled="loading"
+            <button type="submit" class="btn btn-brand btn-lg w-100 mt-2 tap-target" :disabled="!canSubmit"
                     data-testid="reg-submit">
               <span v-if="loading" class="spinner-border spinner-border-sm me-2"></span>
               {{ loading ? 'Sending code…' : 'Sign up' }}
             </button>
+
+            <!-- Tells the user WHY the button is still greyed out -->
+            <p v-if="!canSubmit && !loading" class="small text-muted-hw text-center mt-2 mb-0" data-testid="reg-submit-hint">
+              <template v-if="postalStatus === 'loading'">Checking your postal code…</template>
+              <template v-else>
+                Complete {{ fieldsLeft }} more {{ fieldsLeft === 1 ? 'field' : 'fields' }} to sign up.
+              </template>
+            </p>
           </form>
           </div>
           <!-- ================= end of STEP 1 ================= -->

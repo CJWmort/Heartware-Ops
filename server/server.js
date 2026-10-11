@@ -39,6 +39,8 @@ server.use(
 server.use("/api/users", require("./routes/accounts-routes"));
 server.use("/api/incidents", require("./routes/incidents-routes"));
 server.use("/api/schools", require("./routes/schools-routes"));
+server.use("/api/badges", require("./routes/badges-routes"));
+
 
 // async function to connect to DB
 async function connectDB() {
