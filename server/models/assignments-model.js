@@ -26,12 +26,18 @@ const AssignmentsSchema = new mongoose.Schema({
       message: "Show must be NE Show 1, NE Show 2, NE Show 3 or NE Show 4",
     },
   },
+  // straight-line distance in km from the volunteer's home to the school,
+  // worked out by the scarcity-first matching
+  distance: {
+    type: Number,
+    min: [0, "Distance cannot be negative"],
+  },
   status: {
     type: String,
     required: true,
     enum: {
       values: ["Pending", "Accepted", "Declined"],
-      message: "Status must be pending, confirmed, reserve or withdrawn",
+      message: "Status must be pending, accecpted or declined",
     },
     default: "Pending",
   },
@@ -44,6 +50,24 @@ AssignmentsSchema.index({ school: 1 });
 
 // 'assignment' refer to the 'assignments' collection in our database
 const Assignments = mongoose.model("Assignments", AssignmentsSchema, "assignments");
+
+
+// ===== DELETE =====
+
+// Remove every assignment. Run this before createMany() when re-running the
+// allocation, otherwise the unique (volunteer, show) index rejects the new ones.
+exports.deleteAll = function () {
+  return Assignments.deleteMany({});
+};
+
+
+// ===== CREATE =====
+
+// Save many assignments at once, e.g. the result of scarcityFirst():
+//   [{ volunteer, school, show, distance }, ...]
+exports.createMany = function (assignments) {
+  return Assignments.insertMany(assignments);
+};
 
 
 // ===== READ =====
