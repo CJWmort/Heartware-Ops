@@ -89,5 +89,5 @@ exports.findBySchool = function (schoolId) {
 
 // Fetch all assignments in a show (e.g. 'NE Show 1')
 exports.findByShow = function (show) {
-  return Assignments.find({ show: show.trim() }).populate("school").populate("volunteer").sort({ _id: 1 });
+  return Assignments.find({ show: show.trim() }).populate("school").populate("volunteer").sort({ show: 1 });
 };

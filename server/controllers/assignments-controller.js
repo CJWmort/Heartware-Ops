@@ -5,7 +5,6 @@ const School = require('../models/schools-model');
 const dotenv = require("dotenv");
 
 
-const { haversine } = require('../utils/haversine');
 const { scarcityFirst } = require('../utils/scarcityFirst');
 const { addPositions } = require('../utils/geocode');
 
@@ -15,6 +14,17 @@ dotenv.config({ path: "./config.env" }); //process.env.ONEMAP_TOKEN
 exports.getAssignments = async (req, res) => {
     try {
         const assignments = await Assignments.retrieveAll();
+        res.json(assignments);
+    } catch (error) {
+        res.status(500).json({message: error.message});
+    }
+};
+
+// GET /api/assignments/show/:show
+exports.getShowAssignments = async (req, res) => {
+    try {
+        const show = req.params.show
+        const assignments = await Assignments.findByShow(show);
         res.json(assignments);
     } catch (error) {
         res.status(500).json({message: error.message});

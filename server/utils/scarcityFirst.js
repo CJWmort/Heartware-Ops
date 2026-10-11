@@ -2,7 +2,6 @@
 //
 // volunteers: [{ _id, name, postalCode, address, lat, lng }, ...]
 // locations:  [{ _id, name, postalCode, address, zone, lat, lng, p5Classes, ... }, ...]
-//             volunteers needed = `need`, else `p5Classes`, else 1 (see needOf)
 // returns:    [{ volunteer, school, show, distance }, ...]
 //             the same field names as the Assignments model:
 //             volunteer = volunteer _id, school = school _id,
@@ -19,19 +18,6 @@ function distanceBetween(a, b) {
   return haversine([a.lat, a.lng], [b.lat, b.lng]);
 }
 
-// How many volunteers a location needs.
-// Uses `need` if the record has it, otherwise `p5Classes` (one volunteer per
-// P5 class), otherwise 1. Change this one function if the rule changes.
-function needOf(location) {
-  if (location.need !== undefined && location.need !== null) {
-    return location.need;
-  }
-  if (location.p5Classes !== undefined && location.p5Classes !== null) {
-    return location.p5Classes;
-  }
-  return 1;
-}
-
 // Scarcity score of a location: the average of the shortest `need` distances
 // from the free volunteers to that location. Higher means harder to serve.
 function scarcityScore(location, freeVolunteers) {
@@ -45,7 +31,7 @@ function scarcityScore(location, freeVolunteers) {
   distances.sort((x, y) => x - y);
 
   // 3. Only look at the nearest `need` (or fewer, if not enough volunteers are left).
-  const k = Math.min(needOf(location), distances.length);
+  const k = Math.min(location.p5Classes, distances.length);
 
   // 4. Average of those k distances.
   let total = 0;
@@ -65,7 +51,7 @@ function scarcityFirst(volunteers, locations) {
   // Locations still waiting to be filled (skip any that need nobody).
   let todo = [];
   for (const location of locations) {
-    if (needOf(location) > 0) {
+    if (location.p5Classes > 0) {
       todo.push(location);
     }
   }
@@ -99,7 +85,7 @@ function scarcityFirst(volunteers, locations) {
     );
 
     // The closest `need` volunteers go to this location.
-    const count = Math.min(needOf(location), sorted.length);
+    const count = Math.min(location.p5Classes, sorted.length);
     for (let i = 0; i < count; i++) {
       assigned[location._id].push(sorted[i]);
     }
