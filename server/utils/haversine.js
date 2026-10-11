@@ -1,7 +1,6 @@
 const EARTH_RADIUS_KM = 6371;
 const toRad = (deg) => (deg * Math.PI) / 180;
-
-// Straight-line distance over the earth's surface, in km. Points are [lat, lon].
+// calculates distance between 2 coordinates 
 function haversine(a, b) {
   const lat1 = toRad(a[0]);
   const lon1 = toRad(a[1]);
