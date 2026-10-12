@@ -15,7 +15,7 @@ const submitted = ref(false)
 const errorMessage = ref('')
 const location = ref({}) // stores { lat, lng, accuracy } fetched from device
 const locationStatus = ref(null) // default shall be null to cater for gps errors
-const address = ref('') // address line to display to volunteer to verify but not editable
+const address = ref('') // address line to be pre-filled from GPS, volunteer can edit
 
 // TODO(Wei Ming): build this page, then delete FeaturePlaceholder below.
 const todos = [
@@ -61,8 +61,15 @@ function selectTemplate(template) {
   }
 }
 
+function reportAnother() {
+  selectedType.value = null
+  note.value = ''
+  address.value = ''
+  submitted.value = false
+}
+
 async function submitReport() {
-  if (!selectedType.value || submitting.value) return // selectedType is null or submitting is false
+  if (!selectedType.value || submitting.value || submitted.value) return // selectedType is null or submitting is false
   submitting.value = true
   errorMessage.value = ''
 
@@ -101,6 +108,15 @@ async function submitReport() {
       owner="Wei Ming"
       :todos="todos"
     />
+
+    <div v-if="errorMessage" class="alert alert-danger">{{ errorMessage }}</div>
+    <div v-if="submitted" class="alert alert-success" data-testid="incident-success">
+      Report sent, HQ has been notified.
+      <button type="button" class="btn btn-sm btn-outline-success ms-2" @click="reportAnother">
+        Report another
+      </button>
+    </div>
+
     <form @submit.prevent="submitReport">
       <div class="row g-2 mb-3">
         <div v-for="template in templates" :key="template.type" class="col-6 align-content-center">
@@ -111,6 +127,7 @@ async function submitReport() {
               'btn-outline-danger': template.defaultSeverity === 'high',
               'btn-outline-warning': template.defaultSeverity === 'medium',
               'btn-outline-primary': template.defaultSeverity === 'low',
+              active: selectedType === template.type,
             }"
             @click="selectTemplate(template)"
             :data-testid="`incident-type-${template.type}`"
@@ -120,26 +137,25 @@ async function submitReport() {
         </div>
       </div>
 
-      <div class="row g-2 mb-1" v-if="selectedType" :disabled="submitted">
+      <div class="row g-2 mb-1" v-if="selectedType">
         <label for="note">Details for Incident:</label>
         <textarea
           class="form-control"
           v-model="note"
           maxlength="500"
           placeholder="Enter details of the incident in Who, What, When, Why and How Format"
+          id="note"
+          data-testid="incident-note"
         ></textarea>
         <label for="note-length">{{ note.length }} / 500</label>
         <label for="locationStatus"> GPS: {{ locationStatus }} </label>
         <label for="address" class="form-label">Your location:</label>
-        <p v-if="address" class="small text-muted mb-1">📍 Near {{ address }}</p>
         <input
           id="address"
           v-model="address"
           class="form-control"
           placeholder="Postal code, building or road name"
         />
-        <label for="address" v-if="locationStatus === 'unavailable'">Show this</label>
-        <p>{{}}</p>
         <button
           class="btn btn-primary"
           type="submit"
