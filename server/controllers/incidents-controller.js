@@ -65,7 +65,7 @@ exports.listIncidents = async (req, res) => {
       const bySeverity = SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity];
       if (bySeverity !== 0) return bySeverity;
 
-      const byTime = new Date(a.createdAt) - new Date(b.createdAt);
+      const byTime = new Date(b.createdAt) - new Date(a.createdAt); //newest incident will be at the top
       if (byTime !== 0) return byTime;
     });
     res.json(list);

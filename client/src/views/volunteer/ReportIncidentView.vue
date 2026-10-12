@@ -16,7 +16,6 @@ const errorMessage = ref('')
 const location = ref({}) // stores { lat, lng, accuracy } fetched from device
 const locationStatus = ref(null) // default shall be null to cater for gps errors
 const address = ref('') // address line to display to volunteer to verify but not editable
-const locationAdditionalNote = ref('') // for volunteer to add in details such as gate, descriptive information (optional data)
 
 // TODO(Wei Ming): build this page, then delete FeaturePlaceholder below.
 const todos = [
