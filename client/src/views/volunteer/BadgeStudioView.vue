@@ -32,18 +32,15 @@ const emblems = [
 const selectedEmblem = computed(() => emblems.find(e => e.key === emblem.value) || emblems[0])
 
 const ribbonFontSize = computed(() => Math.min(16, 180/(ribbonText.value.length)))
-
-const todos = [
-  'Live SVG preview that updates instantly as options change',
-  'Controls: shape (BADGE_SHAPES), primary + secondary colour pickers, emblem picker, ribbon text (max 20, live counter)',
-  'Save draft (saveMyDesign); "Lock in & order" → address form → placeOrder() → design becomes read-only',
-  'data-testids: studio-preview, studio-shape-<shape>, studio-primary-color, studio-secondary-color, studio-emblem-<key>, studio-ribbon, studio-ribbon-count, studio-save, studio-lock, order-address, order-submit',
-]
 </script>
 
 <template>
   <section>
-    <PageHeader title="Badge Studio" icon="bi-palette" />
+    <PageHeader title="Badge Studio" icon="bi-palette">
+      <template #actions>
+        <RouterLink to="/volunteer/badges" class="btn btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Back</RouterLink>
+      </template>
+    </PageHeader>
 
     <div class="row g-4">
       <!-- LEFT: preview -->
@@ -98,7 +95,5 @@ const todos = [
         </div>
       </div>
     </div>
-
-    <FeaturePlaceholder class="mt-4" feature="Feature 5 – Badge Studio" owner="Hanafi" :todos="todos" />
   </section>
 </template>

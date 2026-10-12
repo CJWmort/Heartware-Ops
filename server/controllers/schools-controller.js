@@ -17,24 +17,6 @@ exports.schoolsGet = async (req, res) => {
     }
 };
 
-// GET /schools/:id  → one school by _id
-exports.schoolGetById = async (req, res) => {
-    try {
-        const { id } = req.params;
-        if (!isValidId(id)) {
-            return res.status(400).json({ message: 'Invalid school id' });
-        }
-
-        const school = await Schools.findById(id);
-        if (!school) {
-            return res.status(404).json({ message: 'School not found' });
-        }
-        res.json(school);
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
-};
-
 // GET /schools/name/:name  → one school by name
 exports.schoolGetByName = async (req, res) => {
     try {
@@ -48,10 +30,10 @@ exports.schoolGetByName = async (req, res) => {
     }
 };
 
-// GET /schools/zone/:zone  → all schools in a zone (NORTH, SOUTH, EAST, WEST)
-exports.schoolsGetByZone = async (req, res) => {
+// GET /schools/show/:show  → all schools in a show (NE1,NE2,NE3,NE4)
+exports.schoolsGetByShow = async (req, res) => {
     try {
-        const schoolList = await Schools.findByZone(req.params.zone);
+        const schoolList = await Schools.findByShow(req.params.show);
         res.json(schoolList);
     } catch (error) {
         res.status(500).json({ message: error.message });
@@ -76,35 +58,3 @@ exports.schoolGetByPostalCode = async (req, res) => {
     }
 };
 
-// ===== DELETE =====
-
-// DELETE /schools/:id  → delete one school by _id
-exports.schoolDeleteById = async (req, res) => {
-    try {
-        const { id } = req.params;
-        if (!isValidId(id)) {
-            return res.status(400).json({ message: 'Invalid school id' });
-        }
-
-        const deleted = await Schools.deleteById(id);
-        if (!deleted) {
-            return res.status(404).json({ message: 'School not found' });
-        }
-        res.json({ message: `${deleted.name} deleted successfully`, school: deleted });
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
-};
-
-// DELETE /schools/name/:name  → delete one school by name
-exports.schoolDeleteByName = async (req, res) => {
-    try {
-        const deleted = await Schools.deleteByName(req.params.name);
-        if (!deleted) {
-            return res.status(404).json({ message: 'School not found' });
-        }
-        res.json({ message: `${deleted.name} deleted successfully`, school: deleted });
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
-};

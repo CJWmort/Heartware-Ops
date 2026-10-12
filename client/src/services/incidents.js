@@ -18,6 +18,15 @@ export async function listTemplates() {
   }
 }
 
+export async function getAddressAt(lat, lng) {
+  try {
+    const { data } = await axios.get(`${BASE_URL}/where`, { params: { lat, lng }, timeout: 15000 })
+    return data.address
+  } catch (error) {
+    throw addFriendlyMessage(error)
+  }
+}
+
 export async function reportIncident(payload) {
   try {
     const { data } = await axios.post(BASE_URL, payload, { timeout: 15000 })
