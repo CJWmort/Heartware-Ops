@@ -103,6 +103,40 @@ exports.me = async (req, res) => {
     }
 };
 
+// Update current logged in user's available shows
+// PUT /api/users/me  body: { availableShows: ["NE Show 2", ...] }
+exports.updateMe = async (req, res) => {
+    try {
+        const { availableShows } = req.body;
+        if (!Array.isArray(availableShows) || !availableShows.every(s => typeof s === 'string')) {
+            return res.status(400).json({ message: 'availableShows must be an array of strings.' });
+        }
+
+        const user = await Account.updateAvailableShows(req.session.userId, availableShows);
+        if (!user) return res.status(401).json({ message: 'Not logged in' });
+        res.json(user);
+    } catch (error) {
+        res.status(500).json({ message: 'Could not update user.' });
+    }
+};
+
+// Remove shows from current logged in user's available shows
+// DELETE /api/users/me  body: { availableShows: ["NE Show 2", ...] }
+exports.removeMyShows = async (req, res) => {
+    try {
+        const { availableShows } = req.body;
+        if (!Array.isArray(availableShows) || !availableShows.every(s => typeof s === 'string')) {
+            return res.status(400).json({ message: 'availableShows must be an array of strings.' });
+        }
+
+        const user = await Account.removeAvailableShows(req.session.userId, availableShows);
+        if (!user) return res.status(401).json({ message: 'Not logged in' });
+        res.json(user);
+    } catch (error) {
+        res.status(500).json({ message: 'Could not update user.' });
+    }
+};
+
 exports.volunteerLocations = async (req, res) => {
     try {
         const volunteers = await Account.retrieveVolunteers();

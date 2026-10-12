@@ -22,7 +22,8 @@ router.post('/login', accountsController.login); // endpoint - Start user sessio
 router.post('/logout', accountsController.logout); // endpoint - Stop user session (backend)
 
 router.get('/me',requireLogin, accountsController.me); // endpoint - Fetch current logged in user
-
+router.put('/me', requireLogin, accountsController.updateMe); // endpoint - Update current logged in user's available shows
+router.delete('/me', requireLogin, accountsController.removeMyShows); // endpoint - Remove shows from current logged in user's available shows
 
 module.exports = router;
 
