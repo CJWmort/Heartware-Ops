@@ -148,8 +148,9 @@ loadData();
           </p>
 
           <div v-for="volunteer in school.volunteers" class="border border-1 rounded p-2 m-1 d-flex justify-content-between">
-            <span> {{  volunteer.name }} ({{ volunteer.phone }}) </span>
-            <span class="badge rounded-pill text-bg-warning"> {{  volunteer.status }} </span>
+            <span><span class="badge rounded-pill text-bg-warning"> {{  volunteer.status }} </span>
+               {{  volunteer.name }} ({{ volunteer.phone }}) </span>
+            <span> Distance: {{ volunteer.distance }}</span>
           </div>
         </div>
       </div>
