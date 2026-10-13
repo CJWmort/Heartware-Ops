@@ -3,9 +3,9 @@
 // Spec: docs/FEATURES.md   ·   API calls: src/services/   ·   Tests: e2e/
 import PageHeader from '@/components/PageHeader.vue'
 import FeaturePlaceholder from '@/components/FeaturePlaceholder.vue'
-import { ref } from 'vue'
-import draggable from 'vuedraggable'
-import axios from 'axios'
+import { ref, computed } from 'vue'
+import draggable from "vuedraggable";
+import axios from 'axios';
 
 // TODO(Fanny): build this page, then delete FeaturePlaceholder below.
 const todos = [
@@ -17,61 +17,66 @@ const todos = [
   'data-testids: alloc-event-select, alloc-run, alloc-summary, alloc-slot-<id>, alloc-volunteer-<id>, alloc-warning, alloc-view-toggle, alloc-publish',
 ]
 
-const API_URL = '/api/'
-
 const assignments = ref([])
-const shows = ['NE Show 1', 'NE Show 2', 'NE Show 3', 'NE Show 4']
-const selectedShow = ref('')
+const shows = ["NE Show 1","NE Show 2","NE Show 3","NE Show 4"]
+const selectedShow = ref("")
+const schools = ref([])
 const searchbar = ref('')
+const groupedAssignments = computed(() => {
+  // Step 1: build { show: { schools: [...] } }
+  const byShow = {};
 
-// The board is a plain reactive object (NOT a computed) so that vuedraggable
-// can write the reordered volunteer arrays back into it.
-// Shape: { 'NE Show 1': { schools: [{ ...school, volunteers: [...] }] }, ... }
-const board = ref({})
+  for (const a of assignments.value) {
+    if (!byShow[a.show]) {
+      byShow[a.show] = { schools: [] };
+    }
+    const schools = byShow[a.show].schools;
+
+    // Find the school inside this show, or add it
+    // ({ ...a.school } copies every school field unchanged)
+    let schoolEntry = null;
+    for (const s of schools) {
+      if (s._id === a.school._id) schoolEntry = s;
+    }
+    if (!schoolEntry) {
+      schoolEntry = { ...a.school, volunteers: [] };
+      schools.push(schoolEntry);
+    }
+
+    // Add the volunteer: every volunteer field unchanged,
+    // plus status and distance, which belong to the assignment
+    schoolEntry.volunteers.push({
+      ...a.volunteer,
+      status: a.status,
+      distance: a.distance,
+    });
+  }
+
+  // Step 2: rebuild the object with the show names in order (NE Show 1, 2, 3, 4)
+  const result = {};
+  for (const show of Object.keys(byShow).sort()) {
+    result[show] = byShow[show];
+  }
+  return result;
+});
+
+const API_URL = "/api/"
 
 // warnings shown as badges on a school card, keyed by reportingLoc
 const warnings = ref({})
 
-// Stable key for each volunteer chip (adjust if your volunteer id field differs)
-const volKey = (v) => v._id ?? v.v_id ?? v.phone ?? v.name
+async function loadData(){
+  const response = await axios.get(API_URL+"assignments");
+  assignments.value = response.data;  
+  console.log(assignments.value);
 
-function buildBoard(list) {
-  const byShow = {}
-
-  for (const a of list) {
-    if (!byShow[a.show]) byShow[a.show] = { schools: [] }
-    const schoolsInShow = byShow[a.show].schools
-
-    let entry = schoolsInShow.find((s) => s._id === a.school._id)
-    if (!entry) {
-      entry = { ...a.school, volunteers: [] }
-      schoolsInShow.push(entry)
-    }
-
-    entry.volunteers.push({
-      ...a.volunteer,
-      status: a.status,
-      distance: a.distance,
-    })
-  }
-
-  // show names in order (NE Show 1, 2, 3, 4)
-  const result = {}
-  for (const show of Object.keys(byShow).sort()) result[show] = byShow[show]
-  board.value = result
-  warnings.value = {}
+  const schools = await axios.get(API_URL+"schools")
+  schools.value = schools.data;
 }
 
-async function loadData() {
-  const response = await axios.get(API_URL + 'assignments')
-  assignments.value = response.data
-  buildBoard(assignments.value)
-}
-
-async function runAllocation() {
-  const response = await axios.get(API_URL + 'assignments/run')
-  assignments.value = response.data
-  buildBoard(assignments.value)
+async function runAllocation(){
+  const response = await axios.get(API_URL+"assignments/run");
+  assignments.value = response.data;
 }
 
 function addWarning(school, msg) {
@@ -83,133 +88,75 @@ function clearWarnings(school) {
   warnings.value[school.reportingLoc] = []
 }
 
-function checkCapacity(school) {
-  if (school.volunteers.length > school.p5Classes) {
-    addWarning(school, `Over capacity (${school.volunteers.length}/${school.p5Classes})`)
-  }
-}
-
 // Fires on every list involved in a drag: evt.added / evt.removed / evt.moved
 async function onChange(evt, school) {
   if (evt.added) {
     const vol = evt.added.element
     clearWarnings(school)
 
-    // TODO: persist the move and show server warnings, e.g.
-    // const res = await reassignSlot({ volunteerId: vol._id, toSchool: school.reportingLoc })
-    // res.warnings.forEach((w) => addWarning(school, w))
+    // TODO: call reassignSlot() here and push each returned warning with addWarning(school, w)
+    // e.g. const res = await reassignSlot({ volunteerId: vol.v_id, toSchool: school.reportingLoc })
+    //      res.warnings.forEach(w => addWarning(school, w))
 
     // over capacity -> warning badge (not a hard block)
-    checkCapacity(school)
-    console.log(`${vol.name} moved to ${school.reportingLoc}`)
+    if (school.volunteers.length > school.p5Classes) {
+      addWarning(school, `Over capacity (${school.volunteers.length}/${school.p5Classes})`)
+    }
+    // same volunteer already placed at another school in this show -> double-booked
+    console.log(`${vol.v_name} moved to ${school.reportingLoc}`)
   }
   if (evt.removed) {
     clearWarnings(school)
-    checkCapacity(school)
+    if (school.volunteers.length > school.p5Classes) {
+      addWarning(school, `Over capacity (${school.volunteers.length}/${school.p5Classes})`)
+    }
   }
 }
 
-function matchesSearch(school) {
-  return searchbar.value === '' || school.name.toUpperCase().includes(searchbar.value.toUpperCase())
-}
-
-loadData()
+loadData();
 </script>
+
 
 <template>
   <section>
     <PageHeader title="Allocation" icon="bi-grid-3x3-gap" />
     <FeaturePlaceholder feature="Feature 1b – Smart Allocation (coordinator board)" owner="Fanny" :todos="todos" />
     <!-- Suggested layout: toolbar (event, run, filters, board/map toggle, publish) above a responsive grid of school cards -->
-
-    <button
-      class="btn btn-brand btn-lg w-100 mt-2 tap-target"
-      data-testid="alloc-run"
-      @click="runAllocation"
-    >
-      Run Allocations
-    </button>
-    <br />
-
-    <div class="bg-dark-subtle border border-1 rounded p-2">
-      <label for="show">Select show:</label>
-      <select
-        name="show"
-        id="show"
-        class="form-select"
-        v-model="selectedShow"
-        data-testid="alloc-event-select"
-      >
-        <option v-for="show in shows" :key="show" :value="show">{{ show }}</option>
-      </select>
-      <input type="text" class="form-control my-2" placeholder="School search" v-model="searchbar" />
-
-      <div v-if="board[selectedShow]">
-        <template v-for="school in board[selectedShow].schools" :key="school._id">
-          <div class="card text-start my-2" v-if="matchesSearch(school)">
-            <div class="card-body">
-              <h4 class="card-title">{{ school.name }}</h4>
-              <p class="card-text">
-                Reporting time: {{ school.reportingTime }} <br />
-                Capacity: {{ school.volunteers.length }}/{{ school.p5Classes }}
-              </p>
-
-              <!-- warning badges -->
-              <div v-if="warnings[school.reportingLoc]?.length" class="mb-2">
-                <span
-                  v-for="(w, i) in warnings[school.reportingLoc]"
-                  :key="i"
-                  class="badge text-bg-danger me-1"
-                  data-testid="alloc-warning"
-                >
-                  {{ w }}
-                </span>
-              </div>
-
-              <!-- drop zone: volunteers can be dragged between schools in the same show -->
-              <draggable
-                v-model="school.volunteers"
-                :group="'volunteers-' + selectedShow"
-                :item-key="volKey"
-                class="volunteer-list"
-                ghost-class="drag-ghost"
-                :data-testid="'alloc-slot-' + school._id"
-                @change="onChange($event, school)"
-              >
-                <template #item="{ element: volunteer }">
-                  <div
-                    class="border border-1 rounded p-2 m-1 d-flex justify-content-between volunteer-chip"
-                    :data-testid="'alloc-volunteer-' + volKey(volunteer)"
-                  >
-                    <span>{{ volunteer.name }} ({{ volunteer.phone }})</span>
-                    <span class="badge rounded-pill text-bg-warning">{{ volunteer.status }}</span>
-                  </div>
-                </template>
-              </draggable>
-            </div>
-          </div>
-        </template>
-      </div>
-      <p v-else>There are no assignments.</p>
-    </div>
+     
+      
   </section>
-</template>
+  <body>
+    <button class="btn btn-brand btn-lg w-100 mt-2 tap-target" @click = "runAllocation">
+        Run Allocations
+     </button> <br>
 
-<style scoped>
-.volunteer-list {
-  min-height: 3rem; /* keeps an empty school droppable */
-  padding: 0.25rem;
-  border: 1px dashed var(--bs-border-color);
-  border-radius: 0.5rem;
-}
-.volunteer-chip {
-  cursor: grab;
-  background: var(--bs-body-bg);
-}
-.volunteer-chip:active {
-  cursor: grabbing;
-}
-.drag-ghost {
-  opacity: 0.4;
-}
-</style>
+    <div class="bg-dark-subtle border border-1 rounded p-2" >
+    <label for="show"> Select show:</label>
+    <select name="show" id="show" class="form-select" v-model="selectedShow" data-testid="alloc-event-select">
+      <option v-for="show in shows" :value="show">{{ show }}</option>
+    </select>
+    <input type="text" class=" form-control my-2" placeholder="School search" v-model="searchbar">
+        
+    <div v-if="groupedAssignments[selectedShow]">
+      <span v-for="school in groupedAssignments[selectedShow].schools">
+      <div class="card text-start my-2" v-if="searchbar == '' || school.name.toUpperCase().includes(searchbar.toUpperCase())">
+        <div class="card-body">
+          <h4 class="card-title">{{school.name}} </h4>
+          <p class="card-text">
+            Reporting time: {{school.reportingTime}} <br>
+            Capacity: {{school.volunteers.length}}/{{school.p5Classes}}
+          </p>
+
+          <div v-for="volunteer in school.volunteers" class="border border-1 rounded p-2 m-1 d-flex justify-content-between">
+            <span> {{  volunteer.name }} ({{ volunteer.phone }}) </span>
+            <span class="badge rounded-pill text-bg-warning"> {{  volunteer.status }} </span>
+          </div>
+        </div>
+      </div>
+      </span>
+    </div>
+    <p v-else> There are no assignments.</p>
+    </div>
+
+  </body>
+</template>
