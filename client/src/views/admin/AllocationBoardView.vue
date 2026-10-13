@@ -20,6 +20,8 @@ const todos = [
 const assignments = ref([])
 const shows = ["NE Show 1","NE Show 2","NE Show 3","NE Show 4"]
 const selectedShow = ref("")
+const schools = ref([])
+const searchbar = ref('')
 const groupedAssignments = computed(() => {
   // Step 1: build { show: { schools: [...] } }
   const byShow = {};
@@ -58,19 +60,22 @@ const groupedAssignments = computed(() => {
   return result;
 });
 
-const API_URL = "/api/assignments/"
+const API_URL = "/api/"
 
 // warnings shown as badges on a school card, keyed by reportingLoc
 const warnings = ref({})
 
 async function loadData(){
-  const response = await axios.get(API_URL);
+  const response = await axios.get(API_URL+"assignments");
   assignments.value = response.data;  
   console.log(assignments.value);
+
+  const schools = await axios.get(API_URL+"schools")
+  schools.value = schools.data;
 }
 
 async function runAllocation(){
-  const response = await axios.get(API_URL+"run");
+  const response = await axios.get(API_URL+"assignments/run");
   assignments.value = response.data;
 }
 
@@ -124,36 +129,34 @@ loadData();
     <button class="btn btn-brand btn-lg w-100 mt-2 tap-target" @click = "runAllocation">
         Run Allocations
      </button> <br>
-    <!-- {{  assignments  }}
-    <br>
-    {{  groupedAssignments[selectedShow] }}
-    <br>
-    {{  shows  }} -->
+
+    <div class="bg-dark-subtle border border-1 rounded p-2" >
     <label for="show"> Select show:</label>
     <select name="show" id="show" class="form-select" v-model="selectedShow" data-testid="alloc-event-select">
       <option v-for="show in shows" :value="show">{{ show }}</option>
     </select>
-
-    <br />
-    <div class="bg-light-subtle border border-1 rounded" v-if="groupedAssignments[selectedShow]">
-      <!-- {{ groupedAssignments[selectedShow] }} -->
-      <div class="card text-start" v-for="school in groupedAssignments[selectedShow].schools">
+    <input type="text" class=" form-control my-2" placeholder="School search" v-model="searchbar">
+        
+    <div v-if="groupedAssignments[selectedShow]">
+      <span v-for="school in groupedAssignments[selectedShow].schools">
+      <div class="card text-start my-2" v-if="searchbar == '' || school.name.toUpperCase().includes(searchbar.toUpperCase())">
         <div class="card-body">
-          <h4 class="card-title">{{school.name}}</h4>
+          <h4 class="card-title">{{school.name}} </h4>
           <p class="card-text">
             Reporting time: {{school.reportingTime}} <br>
             Capacity: {{school.volunteers.length}}/{{school.p5Classes}}
           </p>
 
-          <div v-for="volunteer in school.volunteers">
-            <p class="border border-1 rounded p-2"> {{  volunteer.name }} ({{ volunteer.phone }})</p>
+          <div v-for="volunteer in school.volunteers" class="border border-1 rounded p-2 m-1 d-flex justify-content-between">
+            <span> {{  volunteer.name }} ({{ volunteer.phone }}) </span>
+            <span class="badge rounded-pill text-bg-warning"> {{  volunteer.status }} </span>
           </div>
         </div>
       </div>
-      
+      </span>
     </div>
     <p v-else> There are no assignments.</p>
-
+    </div>
 
   </body>
 </template>
