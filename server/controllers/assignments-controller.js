@@ -40,7 +40,7 @@ exports.runAssignments = async (req,res) => {
             let volunteers = await Account.findVolunteersByShow(show);
             let volPos = await addPositions(volunteers, process.env.ONEMAP_TOKEN);
             let schools = await School.findByShow(show);
-            let result = scarcityFirst(volPos.located,schools); // scarcityFirst -- temporary using greedy to be more efficient when vol < schools
+            let result = greedyByPair(volPos.located,schools); // scarcityFirst -- temporary using greedy to be more efficient when vol < schools
             await Assignments.createMany(result);
             console.log(volunteers, show);
         }
