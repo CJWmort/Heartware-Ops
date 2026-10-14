@@ -1,5 +1,6 @@
 const BADGES = require("../data/badges.json");
 const BadgeAward = require("../models/badge-awards-model"); 
+const BadgeDesign = require("../models/badge-design-model");
 
 exports.listBadges = (req, res) => res.json(BADGES);
 
@@ -40,3 +41,25 @@ exports.awardBadge = async (req, res) => {
     res.status(400).json({ message: error.message });
   }
 };
+
+exports.saveMyDesign = async (req, res) => {
+  try {
+    const design = await BadgeDesign.findByVolunteer(req.session.userId)
+    if (design?.locked === true) {
+      return res.status(409).json({ message: 'Design is locked.' }) }
+    const {shape, primaryColor, secondaryColor, emblem, ribbonText } = req.body
+    if (!design) {
+      const saved = await BadgeDesign.create({ volunteer: req.session.userId, shape, primaryColor, secondaryColor, emblem, ribbonText, locked: false})
+      res.status(201).json(saved)
+    } else {
+      design.shape = shape
+      design.primaryColor = primaryColor
+      design.secondaryColor = secondaryColor
+      design.emblem = emblem
+      design.ribbonText = ribbonText 
+      await design.save()
+      res.status(200).json(design) }
+  } catch (error) {
+     res.status(400).json({ message: error.message })
+  }
+}
