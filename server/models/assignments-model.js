@@ -36,10 +36,16 @@ const AssignmentsSchema = new mongoose.Schema({
     type: String,
     required: true,
     enum: {
-      values: ["Pending", "Accepted", "Declined"],
-      message: "Status must be pending, accecpted or declined",
+      values: ["Pending", "Accepted", "Declined", "Withdrawn"],
+      message: "Status must be Pending, Accepted, Declined or Withdrawn",
     },
     default: "Pending",
+  },
+  // why the volunteer pulled out after accepting (only set when status is 'Withdrawn')
+  withdrawReason: {
+    type: String,
+    trim: true,
+    maxlength: [300, "Reason must be 300 characters or fewer"],
   },
 });
 
@@ -90,4 +96,35 @@ exports.findBySchool = function (schoolId) {
 // Fetch all assignments in a show (e.g. 'NE Show 1')
 exports.findByShow = function (show) {
   return Assignments.find({ show: show.trim() }).populate("school").populate("volunteer").sort({ show: 1 });
+};
+
+// Fetch the logged in volunteer's own assignments, with the school filled in.
+// Volunteer is not populated so the account (and password hash) is never sent back.
+exports.findMine = function (volunteerId) {
+  return Assignments.find({ volunteer: volunteerId }).populate("school").sort({ show: 1 });
+};
+
+
+// ===== UPDATE =====
+
+// Volunteer accepts their own pending assignment.
+// Only matches if the assignment belongs to this volunteer and is still 'Pending',
+// so returns null otherwise.
+exports.acceptMine = function (assignmentId, volunteerId) {
+  return Assignments.findOneAndUpdate(
+    { _id: assignmentId, volunteer: volunteerId, status: "Pending" },
+    { status: "Accepted" },
+    { new: true, runValidators: true } // return the updated doc
+  ).populate("school");
+};
+
+// Volunteer pulls out of a show they had already accepted.
+// Only matches if the assignment belongs to this volunteer and is 'Accepted',
+// so returns null otherwise.
+exports.withdrawMine = function (assignmentId, volunteerId, reason) {
+  return Assignments.findOneAndUpdate(
+    { _id: assignmentId, volunteer: volunteerId, status: "Accepted" },
+    { status: "Withdrawn", withdrawReason: reason },
+    { new: true, runValidators: true } // return the updated doc
+  ).populate("school");
 };
