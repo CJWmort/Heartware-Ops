@@ -7,7 +7,6 @@ const dotenv = require("dotenv");
 
 const { scarcityFirst } = require('../utils/scarcityFirst');
 const { greedyByPair } = require('../utils/greedy');
-const { addPositions } = require('../utils/geocode');
 
 // dotenv.config({ path: "./config.env" }); //process.env.ONEMAP_TOKEN
 
@@ -48,9 +47,8 @@ exports.runAssignments = async (req,res) => {
         await Assignments.deleteAll();
         for (show of ["NE Show 1","NE Show 2","NE Show 3","NE Show 4"]){
             let volunteers = await Account.findVolunteersByShow(show);
-            let volPos = await addPositions(volunteers);
             let schools = await School.findByShow(show);
-            let result = greedyByPair(volPos.located,schools); // scarcityFirst -- temporary using greedy to be more efficient when vol < schools
+            let result = haversine(volunteers,schools); // scarcityFirst -- temporary using greedy to be more efficient when vol < schools
             await Assignments.createMany(result);
             console.log(volunteers, show);
         }
