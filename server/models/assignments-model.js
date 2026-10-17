@@ -13,7 +13,6 @@ const AssignmentsSchema = new mongoose.Schema({
   school: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Schools",
-    required: true,
   },
   // same value as the school's show (e.g. 'NE Show 1'); kept here so that
   // the unique index below can enforce one school per volunteer per show
@@ -36,8 +35,8 @@ const AssignmentsSchema = new mongoose.Schema({
     type: String,
     required: true,
     enum: {
-      values: ["Pending", "Accepted", "Declined", "Withdrawn"],
-      message: "Status must be Pending, Accepted, Declined or Withdrawn",
+      values: ["Pending", "Accepted", "Declined", "Reserve"],
+      message: "Status must be Pending, Accepted, Declined or Reserve",
     },
     default: "Pending",
   },

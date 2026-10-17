@@ -48,7 +48,7 @@ exports.runAssignments = async (req,res) => {
         for (show of ["NE Show 1","NE Show 2","NE Show 3","NE Show 4"]){
             let volunteers = await Account.findVolunteersByShow(show);
             let schools = await School.findByShow(show);
-            let result = haversine(volunteers,schools); // scarcityFirst -- temporary using greedy to be more efficient when vol < schools
+            let result = scarcityFirst(volunteers,schools,show); // scarcityFirst -- temporary using greedy to be more efficient when vol < schools
             await Assignments.createMany(result);
             console.log(volunteers, show);
         }
