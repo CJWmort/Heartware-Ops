@@ -1,6 +1,6 @@
 // Get Service model
 const Account = require('../models/account-model');
-const onemap = require('../../client/src/services/onemap');
+const onemap = require('../services/onemap');
 
 // Bcrypt used to Hash and protect passwords
 const bcrypt = require('bcrypt');

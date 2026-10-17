@@ -11,7 +11,7 @@
 //   throw new Error(`searchPostalCode not implemented yet (postal code ${postalCode})`)
 // }
 
-import axios from 'axios'
+const axios = require('axios');
 
 // Documentation: https://www.onemap.gov.sg/apidocs/docs/tokenmanagement
 
@@ -61,7 +61,7 @@ function reverseSearch(lat, lng) {
 
 // Token is fetched when needed, remembered with its expiry, renewed automatically.
 // If token rejected (401), refresh and retry once.
-export async function geocodePostal(postalCode) {
+async function geocodePostal(postalCode) {
   if (cache[postalCode]) return cache[postalCode]
 
   try {
@@ -89,7 +89,7 @@ export async function geocodePostal(postalCode) {
   }
 }
 
-export async function getRoute(start, end, routeType) {
+async function getRoute(start, end, routeType) {
     const body = {
       params: { start, end, routeType }, // start/end are "lat,lng" strings
       headers: { Authorization: token },
@@ -111,7 +111,7 @@ export async function getRoute(start, end, routeType) {
 }
 
 // ---------- Registration form: postal code -> address (added by Kuah) ----------
-export async function lookupPostal(postalCode) {
+async function lookupPostal(postalCode) {
   try {
     if (!token) await login()
 
@@ -141,7 +141,7 @@ export async function lookupPostal(postalCode) {
 
 // ---------- Registration form: address text -> list of matching places (added by Kuah) ----------
 // e.g. "ang mo kio ave 3" -> [{ address, postal, lat, lng }, ...]  (top 5)
-export async function searchAddress(text) {
+async function searchAddress(text) {
   try {
     if (!token) await login()
 
@@ -177,7 +177,7 @@ export async function searchAddress(text) {
 }
 
 // ---------- Incident Report form usage, reverseGeocode using lat, long to get address, postal code for incident report
-export async function reverseGeocode(lat, lng) {
+async function reverseGeocode(lat, lng) {
   try {
     if (!token) await login() // 1. no token yet? log in first
 
@@ -203,3 +203,11 @@ export async function reverseGeocode(lat, lng) {
     throw new Error(`OneMap reverse geocode failed (${error.response?.status || error.message})`)
   }
 }
+
+module.exports = {
+  geocodePostal,
+  getRoute,
+  lookupPostal,
+  searchAddress,
+  reverseGeocode,
+};

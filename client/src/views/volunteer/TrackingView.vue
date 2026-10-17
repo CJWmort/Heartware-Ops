@@ -2,20 +2,10 @@
 import { ref, computed, onMounted } from 'vue'
 import PageHeader from '@/components/PageHeader.vue'
 import BaseMap from '@/components/BaseMap.vue'
-import FeaturePlaceholder from '@/components/FeaturePlaceholder.vue'
 import axios from 'axios'
 import polyline from '@mapbox/polyline'
 import { VENUES } from '@/utils/constants'
 import { getUserLocation, geolocationMessage } from '@/utils/geolocation'
-
-const todos = [
-  'Big vertical stepper of the 6 checkpoints (CHECKPOINTS / CHECKPOINT_LABELS in utils/constants.js)',
-  'Only the NEXT checkpoint is tappable; tap → get location (navigator.geolocation) → checkIn()',
-  'While this page is open: sendPing() every PING_INTERVAL_MS; keep screen awake (navigator.wakeLock)',
-  'Status strip: "Last location sent 2 min ago", GPS accuracy, offline warning',
-  'Quick link to Report incident (Feature 4)',
-  'data-testids: checkpoint-<NAME>, checkpoint-next, tracking-last-ping, tracking-error',
-]
 
 // Vue state
 const loading = ref(true)
@@ -172,11 +162,6 @@ onMounted(async () => {
   <section>
     <PageHeader title="Event day" icon="bi-signpost-split" />
     <div v-if="error" class="alert alert-danger py-2" role="alert">{{ error }}</div>
-    <FeaturePlaceholder
-      feature="Feature 3 - Live Movement Tracking (volunteer side)"
-      owner="Chin"
-      :todos="todos"
-    />
   </section>
 
   <div class="row">
