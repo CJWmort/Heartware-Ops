@@ -1,209 +1,616 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
-import PageHeader from '@/components/PageHeader.vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import BaseMap from '@/components/BaseMap.vue'
 import axios from 'axios'
 import polyline from '@mapbox/polyline'
 import { VENUES } from '@/utils/constants'
-import { getUserLocation, geolocationMessage } from '@/utils/geolocation'
+import { startTracking, stopTracking, geolocationMessage } from '@/utils/geolocation'
 
-// Vue state
-const loading = ref(true)
-const error = ref('')
-const location = ref(null) // stores { lat, lng, accuracy } fetched from device
-const routeInfo = ref(null) // { minutes, km }
+/* ------------------------------------------------------------------ */
+/* Settings                                                            */
+/* ------------------------------------------------------------------ */
+const DEST = VENUES['Padang'] // destination { lat, lng }
+const FOLLOW_ZOOM = 16 // zoom level used when centering on the user
+const GLIDE_MS = 1000 // how long the marker takes to glide between GPS fixes
+const BIG_JUMP_M = 500 // jumps larger than this snap instead of gliding
+const REROUTE_M = 10 // re-fetch the route after moving this many metres
+const HEADING_MIN_MOVE_M = 3 // ignore GPS jitter smaller than this when computing heading
 
-// Leaflet objects
+// Phones/tablets have a coarse (finger) primary pointer; desktops don't.
+// Used to show the heading cone only on devices that can report a direction.
+const showHeading = window.matchMedia('(pointer: coarse)').matches
+
+const MODES = [
+  { key: 'drive', label: 'Drive', icon: 'bi-car-front-fill', verb: 'Driving' },
+  { key: 'walk', label: 'Walk', icon: 'bi-person-walking', verb: 'Walking' },
+]
+
+/* ------------------------------------------------------------------ */
+/* Vue state (reactive, used by the template)                          */
+/* ------------------------------------------------------------------ */
+const loading = ref(true) // waiting for the first GPS fix
+const error = ref('') // geolocation or route error message
+const location = ref(null) // latest position: { lat, lng, accuracy }
+const routeInfo = ref(null) // last fetched route summary: { minutes, km }
+const following = ref(true) // true = map camera follows the user's marker
+const travelMode = ref('drive') // 'drive' or 'walk'
+const loadingRoute = ref(false) // shows the "Fetching Routes..." overlay
+
+const activeMode = computed(() => MODES.find((m) => m.key === travelMode.value))
+
+/* ------------------------------------------------------------------ */
+/* Non-reactive state (Leaflet objects and bookkeeping)                */
+/* ------------------------------------------------------------------ */
 let map = null
-let L = null
-let volunteerLayer = null
-let pinIcon = null
-let myMarker = null
-let destMarker = null
-let routeLine = null
+let L = null // Leaflet library, passed in by BaseMap
+let volunteerLayer = null // layer group holding the markers
+let meIcon = null // blue dot icon for the user
+let myMarker = null // the user's marker
+let routeLine = null // the drawn route polyline
+let routeRenderer = null // shared canvas renderer for route lines
+let routeLabel = null // "xx min" pill sitting on the route
 
-// Map: Create teardrop marker
-function createPinIcon(color = '#2563eb', iconClass = 'bi-person-fill') {
+let firstFix = true // true until the first GPS position arrives
+let lastRouteLoc = null // where the route was last fetched from
+let animFrame = null // id of the running glide animation
+let recentering = false // true while the recenter pan is animating
+let heading = null // degrees clockwise from north, null if unknown
+let prevFix = null // last position used for the bearing fallback
+let routeBase = null // snapshot of the last route, used for live estimates
+let routeRequestId = 0 // guards against slow responses overwriting newer ones
+
+/* ------------------------------------------------------------------ */
+/* Distance and direction helpers                                      */
+/* ------------------------------------------------------------------ */
+
+// Straight-line distance in metres between two { lat, lng } points (haversine)
+function distanceMeters(a, b) {
+  const R = 6371000
+  const toRad = (d) => (d * Math.PI) / 180
+  const dLat = toRad(b.lat - a.lat)
+  const dLng = toRad(b.lng - a.lng)
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2
+  return 2 * R * Math.asin(Math.sqrt(h))
+}
+
+// Compass bearing in degrees (0 = north, 90 = east) from point a to point b
+function bearingDeg(a, b) {
+  const toRad = (d) => (d * Math.PI) / 180
+  const toDeg = (r) => (r * 180) / Math.PI
+  const dLng = toRad(b.lng - a.lng)
+  const y = Math.sin(dLng) * Math.cos(toRad(b.lat))
+  const x =
+    Math.cos(toRad(a.lat)) * Math.sin(toRad(b.lat)) -
+    Math.sin(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.cos(dLng)
+  return (toDeg(Math.atan2(y, x)) + 360) % 360
+}
+
+/* ------------------------------------------------------------------ */
+/* Map icons                                                           */
+/* ------------------------------------------------------------------ */
+
+// Destination marker: red location pin resting on a small grey dot
+function createDestIcon() {
   return L.divIcon({
-    className: 'user-pin',
+    className: 'dest-marker',
     html: `
-      <div class="user-pin-inner">
-        <svg viewBox="0 0 40 52" width="40" height="52" aria-hidden="true">
-          <path d="M20 50 C20 50 38 32 38 19 A18 18 0 1 0 2 19 C2 32 20 50 20 50 Z"
-                fill="${color}" stroke="#fff" stroke-width="2" />
-        </svg>
-        <i class="bi ${iconClass}"></i>
+      <div class="dest-pin">
+        <span class="dest-dot"></span>
+        <i class="bi bi-geo-alt-fill"></i>
       </div>`,
-    iconSize: [40, 52],
-    iconAnchor: [20, 52],
-    tooltipAnchor: [0, -63],
+    iconSize: [32, 40],
+    iconAnchor: [16, 32], // the tip of the pin / center of the grey dot is the real location
+    tooltipAnchor: [0, -34],
   })
 }
 
-// Runs once BaseMap has created the map
+// Blue dot with a hidden heading cone (used for the user)
+function createDotIcon() {
+  return L.divIcon({
+    className: 'me-dot',
+    html: `
+      <div class="me-dot-wrap">
+        <div class="me-dot-cone"></div>
+        <div class="me-dot-core"></div>
+      </div>`,
+    iconSize: [40, 40],
+    iconAnchor: [20, 20],
+    tooltipAnchor: [0, -14],
+  })
+}
+
+// "xx min" pill shown on the route line
+function createRouteLabelIcon(minutes) {
+  return L.divIcon({
+    className: 'route-label',
+    html: `<div class="route-label-pill">${minutes} min</div>`,
+    iconSize: [0, 0], // the pill centers itself with CSS
+  })
+}
+
+// Point halfway along the route's length (not just the middle vertex)
+function routeMidpoint(coords) {
+  if (coords.length < 2) return coords[0]
+  const segLen = (i) => L.latLng(coords[i - 1]).distanceTo(coords[i])
+
+  let total = 0
+  for (let i = 1; i < coords.length; i++) total += segLen(i)
+
+  let walked = 0
+  for (let i = 1; i < coords.length; i++) {
+    const seg = segLen(i)
+    if (walked + seg >= total / 2) {
+      const t = seg === 0 ? 0 : (total / 2 - walked) / seg
+      const [a, b] = [coords[i - 1], coords[i]]
+      return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]
+    }
+    walked += seg
+  }
+  return coords[0]
+}
+
+// Create the label on first call, then move and refresh it on later calls
+function placeRouteLabel(coords, minutes) {
+  const pos = routeMidpoint(coords)
+  if (!routeLabel) {
+    routeLabel = L.marker(pos, {
+      icon: createRouteLabelIcon(minutes),
+      interactive: false, // clicks pass through to the map
+      keyboard: false,
+      zIndexOffset: -100, // stays below your dot and the flag
+    }).addTo(volunteerLayer)
+  } else {
+    routeLabel.setLatLng(pos)
+    routeLabel.setIcon(createRouteLabelIcon(minutes))
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Map setup                                                           */
+/* ------------------------------------------------------------------ */
+
+// Runs once BaseMap has created the map: sets up layers, the destination
+// marker, and draws anything we already have a location for.
 function onMapReady(m, leaflet) {
   map = m
   L = leaflet
+  routeRenderer = L.canvas() // reused so the route stays visible during zoom animations
   volunteerLayer = L.layerGroup().addTo(map)
-  pinIcon = createPinIcon()
+  meIcon = createDotIcon()
 
-  destMarker = L.marker([VENUES['Padang'].lat, VENUES['Padang'].lng], {
-    icon: createPinIcon('#dc2626', 'bi-flag-fill'),
-    opacity: 0.8,
+  L.marker([DEST.lat, DEST.lng], {
+    icon: createDestIcon(),
   })
-    .bindTooltip('Padang', { direction: 'top', sticky: false })
-    .addTo(volunteerLayer)
+  .bindTooltip('Padang', { direction: 'top', sticky: false })
+  .addTo(volunteerLayer)
 
-  drawMyMarker()
+  map.zoomControl?.setPosition('bottomright') // move +/- buttons to the bottom right
+  map.on('dragstart', () => (following.value = false)) // user took control of the map
+  drawMyMarker(true)
   drawRoute()
 }
 
-// Current volunteer marker
-function drawMyMarker() {
-  if (!map || !location.value) return
+/* ------------------------------------------------------------------ */
+/* User marker                                                         */
+/* ------------------------------------------------------------------ */
 
+// Creates the user's marker on the first call, then glides it to the latest
+// position. Pass shouldCenter = true to also center the map on the user.
+function drawMyMarker(shouldCenter = false) {
+  if (!map || !location.value) return
   const { lat, lng } = location.value
 
   if (!myMarker) {
-    myMarker = L.marker([lat, lng], { icon: pinIcon })
+    myMarker = L.marker([lat, lng], { icon: meIcon })
       .bindTooltip('Me', { direction: 'top', sticky: false })
       .addTo(volunteerLayer)
+    shouldCenter = true
   } else {
-    myMarker.setLatLng([lat, lng])
+    moveMarkerSmooth(lat, lng)
   }
 
-  map.setView([lat, lng], 16)
+  if (shouldCenter) map.setView([lat, lng], FOLLOW_ZOOM)
+  updateHeadingUI()
 }
 
-// Plot the travel route from Volunteer's current location to Padang (depends on 'routeType')
-async function drawRoute() {
+// Animates the marker from its current spot to (lat, lng) so it glides
+// instead of jumping. The camera follows each frame while `following` is on.
+function moveMarkerSmooth(lat, lng, duration = GLIDE_MS) {
+  const from = myMarker.getLatLng()
+  const to = L.latLng(lat, lng)
+
+  cancelAnimationFrame(animFrame) // stop any glide still in progress
+
+  // Big jump (e.g. first fix or GPS recovery): snap instead of gliding
+  if (from.distanceTo(to) > BIG_JUMP_M) {
+    myMarker.setLatLng(to)
+    if (following.value && !recentering) map.panTo(to, { animate: false })
+    return
+  }
+
+  const start = performance.now()
+  const step = (now) => {
+    const t = Math.min((now - start) / duration, 1) // progress from 0 to 1
+    const cur = [from.lat + (to.lat - from.lat) * t, from.lng + (to.lng - from.lng) * t]
+    myMarker.setLatLng(cur)
+    if (following.value && !recentering) map.panTo(cur, { animate: false })
+    if (t < 1) animFrame = requestAnimationFrame(step)
+  }
+  animFrame = requestAnimationFrame(step)
+}
+
+// Recenter button: turns following back on and pans the map to the volunteer.
+function recenter() {
+  if (!map || !myMarker) return
+  following.value = true
+  recentering = true
+  map.once('moveend', () => (recentering = false))
+  map.panTo(myMarker.getLatLng(), { duration: 0.5 })
+  setTimeout(() => (recentering = false), 600) // fallback in case moveend never fires
+}
+
+/* ------------------------------------------------------------------ */
+/* Heading (look direction)                                           */
+/* ------------------------------------------------------------------ */
+
+// Updates `heading` from a GPS reading. Uses the device's own heading when
+// available, otherwise the bearing between the last two meaningful positions.
+// Heading is cleared on desktop, where the cone is never shown.
+function updateHeading(pos) {
+  const gpsHeading = pos.coords.heading
+  const movedFar = prevFix && distanceMeters(prevFix, location.value) > HEADING_MIN_MOVE_M
+
+  if (!showHeading) {
+    heading = null
+  } else if (typeof gpsHeading === 'number' && !Number.isNaN(gpsHeading)) {
+    heading = gpsHeading
+  } else if (movedFar) {
+    heading = bearingDeg(prevFix, location.value)
+  }
+
+  // Only advance the reference point after real movement (ignores GPS jitter)
+  if (!prevFix || movedFar) {
+    prevFix = { lat: location.value.lat, lng: location.value.lng }
+  }
+}
+
+// Shows and rotates the cone on the user's dot, or hides it if heading is unknown
+function updateHeadingUI() {
+  const el = myMarker?.getElement()?.querySelector('.me-dot-cone')
+  if (!el) return
+  if (!showHeading || heading === null) {
+    el.style.display = 'none'
+    return
+  }
+  el.style.display = 'block'
+  el.style.transform = `rotate(${heading}deg)`
+}
+
+/* ------------------------------------------------------------------ */
+/* Routing                                                             */
+/* ------------------------------------------------------------------ */
+
+// Fetches the route from the user's location to Padang and draws it.
+// background = true refreshes quietly (no overlay, old line stays until the
+// new one is ready); false is used for first load and travel-mode changes.
+async function drawRoute(background = false) {
   if (!map || !location.value) return
 
-  routeLine?.remove()
-  routeLine = null
-  routeInfo.value = null
-  error.value = ''
-  loadingRoute.value = true // show overlay
+  if (!background) {
+    routeLine?.remove()
+    routeLine = null
+    if (routeLabel) {
+      volunteerLayer.removeLayer(routeLabel)
+      routeLabel = null
+    }
+    routeInfo.value = null
+    loadingRoute.value = true
+  }
 
   const requestId = ++routeRequestId
   const { lat, lng } = location.value
 
   try {
+    // Backend calls the OneMap API for the route
     const res = await axios.get('/api/users/route', {
       params: {
         startLat: lat,
         startLng: lng,
-        endLat: VENUES['Padang'].lat,
-        endLng: VENUES['Padang'].lng,
-        routeType: travelMode.value,
+        endLat: DEST.lat,
+        endLng: DEST.lng,
+        routeType: travelMode.value, // 'walk' or 'drive'
       },
     })
 
-    if (requestId !== routeRequestId) return
+    if (requestId !== routeRequestId) return // a newer request replaced this one
 
+    error.value = '' // route found, clear any old error
+
+    // Draw the new line first, then remove the old one so the route never blinks out
     const coords = polyline.decode(res.data.route_geometry)
-    routeLine = L.polyline(coords, { color: '#2563eb', weight: 4 }).addTo(map)
-    map.fitBounds(routeLine.getBounds(), { padding: [60, 60] })
+    const newLine = L.polyline(coords, {
+      color: '#2563eb',
+      weight: 4,
+      renderer: routeRenderer,
+    }).addTo(map)
+    routeLine?.remove()
+    routeLine = newLine
 
     const s = res.data.route_summary
+    routeBase = {
+      straight: distanceMeters({ lat, lng }, DEST),
+      km: s.total_distance / 1000,
+      minutes: s.total_time / 60,
+    }
     routeInfo.value = {
       minutes: Math.round(s.total_time / 60),
       km: (s.total_distance / 1000).toFixed(1),
     }
+    placeRouteLabel(coords, Math.round(s.total_time / 60))
   } catch (err) {
     if (requestId !== routeRequestId) return
     error.value = err.response?.data?.message || 'Could not load route.'
   } finally {
-    // Only hide the loading overlay if this is still the latest request.
-    // If a newer one is incoming, keeps the overlay on.
+    // Only hide the overlay if this is still the latest request;
+    // if a newer one is in flight, it keeps the overlay on.
     if (requestId === routeRequestId) loadingRoute.value = false
   }
 }
 
-// Just to showcase routing between different travel modes
-const travelMode = ref('drive') // starting mode
-const loadingRoute = ref(false)
+// Time and distance shown in the card. Between route fetches it shrinks as the
+// user gets closer to Padang (scaled by straight-line distance), and each
+// re-route replaces it with exact numbers from the API.
+const liveInfo = computed(() => {
+  if (!routeInfo.value || !routeBase || !location.value) return routeInfo.value
+  if (routeBase.straight < 1) return routeInfo.value
 
-const MODES = [
-  { key: 'drive', label: 'Drive', icon: 'bi-car-front-fill', verb: 'Driving' },
-  { key: 'cycle', label: 'Cycle', icon: 'bi-bicycle', verb: 'Cycling' },
-  { key: 'walk', label: 'Walk', icon: 'bi-person-walking', verb: 'Walking' },
-]
-const activeMode = computed(() => MODES.find((m) => m.key === travelMode.value))
+  const straightNow = distanceMeters(location.value, DEST)
+  const ratio = Math.max(0, Math.min(1, straightNow / routeBase.straight))
 
-let routeRequestId = 0 // guards against slow responses overwriting newer ones
+  return {
+    km: (routeBase.km * ratio).toFixed(1),
+    minutes: Math.max(1, Math.round(routeBase.minutes * ratio)),
+  }
+})
 
+// Keep the pill's minutes in step with the sheet as the user moves
+watch(
+  () => liveInfo.value?.minutes,
+  (min) => {
+    if (routeLabel && min != null) routeLabel.setIcon(createRouteLabelIcon(min))
+  },
+)
+
+// Switches between drive/walk and fetches a fresh route
 function setTravelMode(mode) {
   if (mode === travelMode.value) return
   travelMode.value = mode
   drawRoute()
 }
 
-// Fetch volunteer geolocation data on page load then draw markers
-onMounted(async () => {
-  try {
-    const pos = await getUserLocation()
-    location.value = {
-      lat: pos.coords.latitude,
-      lng: pos.coords.longitude,
-      accuracy: pos.coords.accuracy, // metres
-    }
-    drawMyMarker() // in case the map was ready first
-    drawRoute() // display the route from start (volunteer) to end (padang)
-  } catch (err) {
-    error.value = geolocationMessage(err)
-  } finally {
-    loading.value = false
+/* ------------------------------------------------------------------ */
+/* Geolocation callbacks                                               */
+/* ------------------------------------------------------------------ */
+
+// Called by watchPosition on every new GPS fix
+function onPosition(pos) {
+  location.value = {
+    lat: pos.coords.latitude,
+    lng: pos.coords.longitude,
+    accuracy: pos.coords.accuracy, // metres
   }
+  error.value = ''
+  loading.value = false
+
+  updateHeading(pos)
+
+  if (firstFix) {
+    // First fix: center the map and draw the initial route
+    firstFix = false
+    drawMyMarker(true)
+    drawRoute()
+    lastRouteLoc = { ...location.value }
+  } else {
+    // Later fixes: glide the marker, and quietly re-route after enough movement
+    drawMyMarker(false)
+    if (distanceMeters(lastRouteLoc, location.value) > REROUTE_M) {
+      drawRoute(true)
+      lastRouteLoc = { ...location.value }
+    }
+  }
+}
+
+// Called by watchPosition when location fails (permission denied, timeout, etc.)
+function onGeoError(err) {
+  error.value = geolocationMessage(err)
+  loading.value = false
+}
+
+/* ------------------------------------------------------------------ */
+/* Bottom sheet                                                        */
+/* ------------------------------------------------------------------ */
+const sheetEl = ref(null) // the whole sheet
+const peekEl = ref(null) // the part that's always visible (handle + Drive/Walk)
+const expanded = ref(false) // true = fully open
+const dragging = ref(false) // true while the finger is dragging the handle
+const sheetAnimated = ref(false) // false until first layout, so it doesn't animate on load
+const sheetFull = ref(0) // height when fully open (px)
+const sheetPeek = ref(0) // height when collapsed (px)
+const sheetVisible = ref(0) // how many px of the sheet are currently showing
+
+let dragStartY = 0
+let dragStartVisible = 0
+let dragMoved = false
+let sheetObserver = null
+
+// Moves the sheet down by the hidden part; the open sheet has no offset
+const sheetStyle = computed(() => ({
+  transform: `translateY(${sheetFull.value - sheetVisible.value}px)`,
+}))
+
+// Measures the sheet and snaps it to its open or collapsed height
+function measureSheet() {
+  if (!sheetEl.value || !peekEl.value) return
+  sheetFull.value = sheetEl.value.offsetHeight
+  sheetPeek.value = peekEl.value.offsetHeight
+  if (!dragging.value) sheetVisible.value = expanded.value ? sheetFull.value : sheetPeek.value
+}
+
+// Open if closed, close if open
+function toggleSheet() {
+  expanded.value = !expanded.value
+  sheetVisible.value = expanded.value ? sheetFull.value : sheetPeek.value
+}
+
+function onSheetPointerDown(e) {
+  dragging.value = true
+  dragMoved = false
+  dragStartY = e.clientY
+  dragStartVisible = sheetVisible.value
+  e.currentTarget.setPointerCapture(e.pointerId) // keep receiving moves outside the handle
+}
+
+// Sheet height follows the finger, clamped between collapsed and open
+function onSheetPointerMove(e) {
+  if (!dragging.value) return
+  const dy = dragStartY - e.clientY // dragging up is positive
+  if (Math.abs(dy) > 4) dragMoved = true
+  sheetVisible.value = Math.min(
+    sheetFull.value,
+    Math.max(sheetPeek.value, dragStartVisible + dy),
+  )
+}
+
+// A tap toggles; a drag snaps to whichever end is closer
+function onSheetPointerUp() {
+  if (!dragging.value) return
+  dragging.value = false
+  if (!dragMoved) {
+    expanded.value = !expanded.value
+  } else {
+    expanded.value = sheetVisible.value > (sheetFull.value + sheetPeek.value) / 2
+  }
+  sheetVisible.value = expanded.value ? sheetFull.value : sheetPeek.value
+}
+
+// Start tracking once the page is on screen
+onMounted(() => {
+  startTracking(onPosition, onGeoError)
+  measureSheet()
+  sheetObserver = new ResizeObserver(measureSheet) // re-measure when the content changes height
+  sheetObserver.observe(sheetEl.value)
+  requestAnimationFrame(() => (sheetAnimated.value = true)) // enable animations after first layout
+})
+
+// Stop tracking and any running animation when leaving the page
+onUnmounted(() => {
+  stopTracking()
+  cancelAnimationFrame(animFrame)
+  sheetObserver?.disconnect()
 })
 </script>
 
 <template>
-  <section>
-    <PageHeader title="Event day" icon="bi-signpost-split" />
-    <div v-if="error" class="alert alert-danger py-2" role="alert">{{ error }}</div>
-  </section>
+  <!-- <div v-if="error" class="alert alert-danger py-2" role="alert">{{ error }}</div> -->
+  <div class="map-page">
+    <div
+      class="map-stage"
+      :class="{ 'is-dragging': dragging, 'sheet-anim': sheetAnimated }"
+      :style="{ '--sheet-h': sheetVisible + 'px' }"
+    >
+      <BaseMap @ready="onMapReady" />
 
-  <div class="row">
-    <div class="col-xl-4 col-lg-4 mb-3">
-      <ul class="list-group mb-3">
-        <li class="list-group-item">School: ?</li>
-        <li class="list-group-item">Bus: ?</li>
-        <li class="list-group-item">Checkpoints: ?/6</li>
-        <li class="list-group-item">Last Updated: ?</li>
-      </ul>
+      <button
+        type="button"
+        class="recenter-btn"
+        :class="{ active: following }"
+        @click="recenter"
+        aria-label="Recenter map to my location"
+        title="Your location"
+      >
+        <i class="bi" :class="following ? 'bi-geo-alt-fill' : 'bi-crosshair2'"></i>
+      </button>
 
-      <div>
-        <p v-if="loading" class="text-muted-hw">Loading current position...</p>
-        <p v-else-if="!location" class="text-muted-hw">No location found.</p>
-      </div>
-    </div>
-
-    <div class="col-xl-8 col-lg-8 col-md-12">
-      <div class="btn-group mb-2" role="group" aria-label="Travel mode">
-        <button
-          v-for="m in MODES"
-          :key="m.key"
-          type="button"
-          class="btn"
-          :class="travelMode === m.key ? 'btn-primary' : 'btn-outline-primary'"
-          @click="setTravelMode(m.key)"
-          :disabled="loadingRoute"
-        >
-          <i class="bi" :class="m.icon"></i> {{ m.label }}
-        </button>
+      <div v-if="loadingRoute" class="map-loading" role="status" aria-live="polite">
+        <div class="spinner-border text-primary" aria-hidden="true"></div>
+        <div class="mt-2 fw-semibold">Fetching Location Data...</div>
       </div>
 
-      <div v-if="routeInfo" class="list-group-item mb-2">
-        {{ activeMode.verb }} to Padang: {{ routeInfo.minutes }} min · {{ routeInfo.km }} km
-      </div>
+      <!-- Bottom sheet: Drive/Walk always visible, route details when expanded -->
+      <div ref="sheetEl" class="sheet" :style="sheetStyle">
+        <div ref="peekEl" class="sheet-peek">
+          <div
+            class="sheet-handle"
+            role="button"
+            tabindex="0"
+            :aria-expanded="expanded"
+            aria-label="Toggle route details"
+            @pointerdown="onSheetPointerDown"
+            @pointermove="onSheetPointerMove"
+            @pointerup="onSheetPointerUp"
+            @pointercancel="onSheetPointerUp"
+            @keydown.enter.prevent="toggleSheet"
+            @keydown.space.prevent="toggleSheet"
+          >
+            <span class="sheet-grip"></span>
+          </div>
 
-      <div class="map-wrap position-relative">
-        <BaseMap @ready="onMapReady" />
+          <div class="mode-toggle" role="group" aria-label="Travel mode">
+            <button
+              v-for="m in MODES"
+              :key="m.key"
+              type="button"
+              class="mode-btn"
+              :class="{ active: travelMode === m.key }"
+              :disabled="loadingRoute"
+              @click="setTravelMode(m.key)"
+            >
+              <i class="bi" :class="m.icon"></i> {{ m.label }}
+            </button>
+          </div>
+        </div>
 
-        <div v-if="loadingRoute" class="map-loading" role="status" aria-live="polite">
-          <div class="spinner-border text-primary" aria-hidden="true"></div>
-          <div class="mt-2 fw-semibold">Fetching Routes...</div>
+        <div class="sheet-details">
+          <div class="route-summary">
+            <div class="route-icon" aria-hidden="true">
+              <i class="bi" :class="activeMode.icon"></i>
+            </div>
+            <div>
+              <div class="sheet-title">{{ activeMode.verb }} to Padang</div>
+              <div v-if="liveInfo" class="route-stats">
+                <span class="route-min">{{ liveInfo.minutes }} min</span>
+                <span class="route-km">{{ liveInfo.km }} km</span>
+              </div>
+              <div v-else class="route-stats text-muted">Finding route…</div>
+            </div>
+          </div>
+          
+
+          <!-- only display this when volunteer is currently volunteering for a show -->
+          <hr>
+          <div class="sheet-title">NE Show 1</div>
+          <div class="row">
+            <div class="col-6">
+              <div class="d-inline-flex align-items-center">
+                <i class="bi-mortarboard fs-5"></i>&nbsp;
+                <span>Allocated school</span>
+              </div>
+              <div style="font-size: 12px;">Something primary school</div>
+            </div>
+
+            <div class="col-6">
+              <div class="d-inline-flex align-items-center">
+                <i class="bi-clock fs-5"></i>&nbsp;
+                <span>Last updated</span>
+              </div>
+              <div style="font-size: 12px;">17 Oct 2026 12:43:57</div>
+            </div>
+          </div>
+          <hr>
+          <br>
+
         </div>
       </div>
     </div>
@@ -211,33 +618,41 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-/* Marker css styling */
-:global(.user-pin-inner) {
+/* Destination marker: red pin on a grey dot */
+:global(.dest-pin) {
   position: relative;
-  width: 30px;
-  height: 52px;
-  transform-origin: 50% 100%;
-  transition: transform 0.15s;
-  filter: drop-shadow(0 2px 3px rgb(0 0 0 / 0.35));
+  width: 32px;
+  height: 40px;
 }
 
-:global(.user-pin-inner:hover) {
-  transform: scale(1.15);
-}
-
-:global(.user-pin-inner i) {
+:global(.dest-dot) {
   position: absolute;
-  top: 0;
+  left: 11px;
+  top: 27px; /* center sits at (16px, 32px), the marker's anchor */
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #9aa0a6;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
+}
+
+:global(.dest-pin i) {
+  position: absolute;
   left: 0;
-  width: 40px;
-  height: 38px;
+  top: 0;
+  width: 32px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #fff;
-  font-size: 1.25rem;
+  color: #ea4335; /* Google red */
+  font-size: 32px;
+  line-height: 1;
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.35));
 }
 
+/* Overlay shown while a route is loading */
 .map-loading {
   position: absolute;
   inset: 0;
@@ -249,5 +664,275 @@ onMounted(async () => {
   background: rgb(255 255 255 / 0.6);
   backdrop-filter: grayscale(1);
   border-radius: inherit;
+}
+
+/* Recenter button */
+.recenter-btn {
+  position: absolute;
+  right: 10px;
+  bottom: calc(30px + var(--sheet-h, 0px)); /* rides up with the sheet */
+  z-index: 1000; /* above Leaflet panes */
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  color: #666;
+  border: none;
+  border-radius: 50%;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.3);
+  font-size: 1.2rem;
+  cursor: pointer;
+  transition: background-color 0.15s, box-shadow 0.15s, color 0.15s;
+}
+
+.recenter-btn:hover {
+  background: #f5f5f5;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.35);
+}
+
+.recenter-btn:active {
+  background: #eaeaea;
+}
+
+.recenter-btn:focus-visible {
+  outline: 2px solid #1a73e8;
+  outline-offset: 2px;
+}
+
+/* "Following the user" icon: blue */
+.recenter-btn.active {
+  color: #1a73e8;
+}
+
+/* User location dot */
+:global(.me-dot-wrap) {
+  position: relative;
+  width: 40px;
+  height: 40px;
+}
+
+:global(.me-dot-core) {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  background: #1a73e8;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 4px rgb(0 0 0 / 0.4);
+}
+
+/* Heading cone: a wedge pointing up (north); JS will rotate it */
+:global(.me-dot-cone) {
+  position: absolute;
+  inset: 0;
+  display: none;
+  transform-origin: 50% 50%;
+  background: radial-gradient(
+    circle at 50% 50%,
+    rgb(26 115 232 / 0.55) 0%,
+    rgb(26 115 232 / 0) 70%
+  );
+  clip-path: polygon(50% 50%, 15% 0%, 85% 0%);
+}
+
+/* Map fills everything below the navbar */
+.map-page {
+  --nav-h: 56px; /* navbar height: check in DevTools and adjust if different */
+  position: fixed;
+  top: var(--nav-h);
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+.map-stage {
+  position: relative; /* anchors the recenter button and loading overlay */
+  height: 100%;
+}
+
+/* Make Leaflet fill the stage with square corners */
+.map-stage :deep(.leaflet-container) {
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  background: #f1efe9;
+}
+
+/* Lift the zoom buttons so they sit just above the recenter button */
+.map-stage :deep(.leaflet-control-zoom) {
+  margin-bottom: 60px;
+  margin-right: 14px;
+}
+
+/* Bottom sheet */
+.sheet {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 1050; /* above Leaflet controls (1000), below the loading overlay (1100) */
+  background: #fff;
+  border-radius: 16px 16px 0 0;
+  box-shadow: 0 -2px 12px rgb(0 0 0 / 0.15);
+}
+
+.sheet-handle {
+  display: flex;
+  justify-content: center;
+  padding: 10px 0 8px;
+  cursor: grab;
+  touch-action: none; /* lets us handle the drag instead of the browser scrolling */
+}
+
+.sheet-grip {
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: #c9ccd1;
+}
+
+.sheet-peek {
+  padding-bottom: 12px;
+}
+
+/* Drive / Walk segmented control */
+.mode-toggle {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  margin: 0 16px;
+  padding: 4px;
+  background: #f1f3f6;
+  border-radius: 12px;
+}
+
+.mode-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 0;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #555;
+  font-weight: 600;
+}
+
+.mode-btn.active {
+  background: #2563eb;
+  color: #fff;
+}
+
+.mode-btn:disabled {
+  opacity: 0.7;
+}
+
+.sheet-details {
+  padding: 4px 16px 16px;
+}
+
+.sheet-title {
+  font-size: 1.1rem;
+}
+
+/* Icon on the left, text on the right */
+.route-summary {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.route-icon {
+  flex: 0 0 auto;
+  width: 64px;
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  background: #2563eb;
+  color: #fff;
+  font-size: 1.9rem;
+  margin-left: 5px;
+}
+
+.route-min {
+  font-size: 1.8rem;
+  line-height: 1.1;
+  color: #2563eb;
+}
+
+.route-km {
+  margin-left: 8px;
+  font-size: 0.9rem;
+  color: #666;
+}
+/* Move Leaflet's bottom controls (zoom + attribution) up with the sheet */
+.map-stage :deep(.leaflet-bottom) {
+  bottom: var(--sheet-h, 0px);
+}
+
+/* Animate everything together, but not while the finger is dragging */
+.map-stage.sheet-anim:not(.is-dragging) .sheet {
+  transition: transform 0.25s ease;
+}
+
+.map-stage.sheet-anim:not(.is-dragging) .recenter-btn {
+  transition: bottom 0.25s ease, background-color 0.15s, box-shadow 0.15s, color 0.15s;
+}
+
+.map-stage.sheet-anim:not(.is-dragging) :deep(.leaflet-bottom) {
+  transition: bottom 0.25s ease;
+}
+
+/* Desktop: no drag. Show the same content as a card at the top left */
+@media (min-width: 992px) {
+  .map-stage {
+    --sheet-h: 0px !important; /* controls stay where they were */
+  }
+  .sheet {
+    top: 12px;
+    bottom: auto;
+    left: 12px;
+    right: auto;
+    width: 400px;
+    border-radius: 12px;
+    transform: none !important; /* always fully open */
+  }
+  .sheet-handle {
+    display: none;
+  }
+  .sheet-peek {
+    padding-top: 16px;
+  }
+}
+
+/* Hide hairline seams between map tiles */
+.map-stage :deep(.leaflet-tile) {
+  outline: 1px solid transparent; /* forces the browser to snap tile edges together */
+  max-width: none !important; /* stop CSS (e.g. img rules) from shrinking tiles */
+  max-height: none !important;
+}
+
+/* "xx min" pill on the route */
+:global(.route-label-pill) {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  padding: 3px 10px;
+  border-radius: 12px;
+  background: #fff;
+  color: #2563eb;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.3);
+  pointer-events: none;
 }
 </style>
