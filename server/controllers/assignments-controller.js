@@ -50,7 +50,7 @@ exports.runAssignments = async (req,res) => {
             let schools = await School.findByShow(show);
             let result = scarcityFirst(volunteers,schools,show); // scarcityFirst -- temporary using greedy to be more efficient when vol < schools
             await Assignments.createMany(result);
-            console.log(volunteers, show);
+            // console.log(volunteers, show);
         }
         const assignments = await Assignments.retrieveAll();
         res.json(assignments);

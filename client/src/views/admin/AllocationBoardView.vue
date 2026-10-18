@@ -21,6 +21,7 @@ const assignments = ref([])
 const shows = ["NE Show 1","NE Show 2","NE Show 3","NE Show 4"]
 const selectedShow = ref("")
 const searchbar = ref('')
+const runningAlloc = ref(false)
 const groupedAssignments = computed(() => {
   // Step 1: build { show: { schools: [...], unassigned: [...] } }
   const byShow = {};
@@ -82,8 +83,10 @@ async function loadData(){
 }
 
 async function runAllocation(){
+  runningAlloc.value = true;
   const response = await axios.get(API_URL+"assignments/run");
   assignments.value = response.data;
+  runningAlloc.value = false;
 }
 
 loadData();
@@ -99,7 +102,10 @@ loadData();
       
   </section>
   <body>
-    <button class="btn btn-brand btn-lg w-100 mt-2 tap-target" @click = "runAllocation">
+    <div v-if="runningAlloc" class="alert alert-info py-2" role="alert" >
+            Allocating...
+    </div>
+    <button class="btn btn-brand btn-lg w-100 mt-2 tap-target" :disabled="runningAlloc" @click = "runAllocation">
         Run Allocations
      </button> <br>
 
@@ -121,8 +127,13 @@ loadData();
           </p>
 
           <div v-for="volunteer in school.volunteers" class="border border-1 rounded p-2 m-1 d-flex justify-content-between">
-            <span><span class="badge rounded-pill text-bg-warning"> {{  volunteer.status }} </span>
-               {{  volunteer.name }} ({{ volunteer.phone }}) </span>
+            <span>
+              <span class="badge rounded-pill" 
+              :class="{'text-bg-warning':volunteer.status == 'Pending','text-bg-success':volunteer.status == 'Accepted'}"> 
+              {{  volunteer.status }} 
+              </span>
+              {{  volunteer.name }} ({{ volunteer.phone }}) 
+            </span>
             <span> Distance: {{ volunteer.distance }}</span>
           </div>
         </div>
