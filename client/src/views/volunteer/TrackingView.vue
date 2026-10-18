@@ -15,6 +15,10 @@ const GLIDE_MS = 1000 // how long the marker takes to glide between GPS fixes
 const BIG_JUMP_M = 500 // jumps larger than this snap instead of gliding
 const REROUTE_M = 10 // re-fetch the route after moving this many metres
 const HEADING_MIN_MOVE_M = 3 // ignore GPS jitter smaller than this when computing heading
+const REPORT_MOVE_M = 25 // send to the server after moving this far...
+const REPORT_HEARTBEAT_MS = 30000 // ...or after this long without sending, 30s
+const REPORT_MAX_ACCURACY_M = 100 // skip fixes less accurate than this
+const REPORT_MAX_FIX_AGE_MS = 120000 // don't re-send a fix older than this
 
 // Phones/tablets have a coarse (finger) primary pointer; desktops don't.
 // Used to show the heading cone only on devices that can report a direction.
@@ -29,7 +33,9 @@ const MODES = [
 /* Vue state (reactive, used by the template)                          */
 /* ------------------------------------------------------------------ */
 const loading = ref(true) // waiting for the first GPS fix
-const error = ref('') // geolocation or route error message
+const geoError = ref('') // location problem (permission denied, timeout, ...)
+const routeError = ref('') // route could not be loaded
+const showTrackingInfo = ref(false) // brief "tracking is on" message
 const location = ref(null) // latest position: { lat, lng, accuracy }
 const routeInfo = ref(null) // last fetched route summary: { minutes, km }
 const following = ref(true) // true = map camera follows the user's marker
@@ -37,6 +43,35 @@ const travelMode = ref('drive') // 'drive' or 'walk'
 const loadingRoute = ref(false) // shows the "Fetching Routes..." overlay
 
 const activeMode = computed(() => MODES.find((m) => m.key === travelMode.value))
+
+// The single message shown in the popup. Errors take priority over the info message.
+const notice = computed(() => {
+  if (geoError.value) {
+    return {
+      type: 'error',
+      icon: 'bi-exclamation-triangle-fill',
+      title: 'Location unavailable',
+      text: geoError.value,
+    }
+  }
+  if (routeError.value) {
+    return {
+      type: 'error',
+      icon: 'bi-exclamation-triangle-fill',
+      title: 'Route problem',
+      text: routeError.value,
+    }
+  }
+  if (showTrackingInfo.value) {
+    return {
+      type: 'info',
+      icon: 'bi-geo-alt-fill',
+      title: 'Location tracking is on',
+      text: 'Organisers can see your location while this page is open.',
+    }
+  }
+  return null
+})
 
 /* ------------------------------------------------------------------ */
 /* Non-reactive state (Leaflet objects and bookkeeping)                */
@@ -58,6 +93,12 @@ let heading = null // degrees clockwise from north, null if unknown
 let prevFix = null // last position used for the bearing fallback
 let routeBase = null // snapshot of the last route, used for live estimates
 let routeRequestId = 0 // guards against slow responses overwriting newer ones
+let lastFixAt = 0 // time the latest GPS fix arrived
+let lastReported = null // { lat, lng, time } of the last position sent to the server
+let reporting = true // turns false if the server says this volunteer isn't tracked
+let reportInFlight = false // true while a send is in progress
+let reportTimer = null // interval that sends the heartbeat
+let catchUp = false // true = send the next fix straight away (set when the tab becomes visible again)
 
 /* ------------------------------------------------------------------ */
 /* Distance and direction helpers                                      */
@@ -313,7 +354,7 @@ async function drawRoute(background = false) {
   const { lat, lng } = location.value
 
   try {
-    // Backend calls the OneMap API for the route
+    // Calls the OneMap API for the route
     const res = await axios.get('/api/users/route', {
       params: {
         startLat: lat,
@@ -326,7 +367,7 @@ async function drawRoute(background = false) {
 
     if (requestId !== routeRequestId) return // a newer request replaced this one
 
-    error.value = '' // route found, clear any old error
+    routeError.value = '' // route found, clear any old error
 
     // Draw the new line first, then remove the old one so the route never blinks out
     const coords = polyline.decode(res.data.route_geometry)
@@ -351,7 +392,7 @@ async function drawRoute(background = false) {
     placeRouteLabel(coords, Math.round(s.total_time / 60))
   } catch (err) {
     if (requestId !== routeRequestId) return
-    error.value = err.response?.data?.message || 'Could not load route.'
+    routeError.value = err.response?.data?.message || 'Could not load route.'
   } finally {
     // Only hide the overlay if this is still the latest request;
     // if a newer one is in flight, it keeps the overlay on.
@@ -376,8 +417,7 @@ const liveInfo = computed(() => {
 })
 
 // Keep the pill's minutes in step with the sheet as the user moves
-watch(
-  () => liveInfo.value?.minutes,
+watch(() => liveInfo.value?.minutes,
   (min) => {
     if (routeLabel && min != null) routeLabel.setIcon(createRouteLabelIcon(min))
   },
@@ -391,6 +431,48 @@ function setTravelMode(mode) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Reporting to the server                                             */
+/* ------------------------------------------------------------------ */
+
+// Sends the latest position to the server so admins can see it on the Live Board.
+// Skips the send if the fix is poor or old, or if nothing has changed enough.
+// force = true skips the distance/time check (used for the first fix).
+async function reportLocation(force = false) {
+  if (!reporting || reportInFlight || !location.value) return
+  if (Date.now() - lastFixAt > REPORT_MAX_FIX_AGE_MS) return // stale fix: don't present it as live
+
+  const { lat, lng, accuracy } = location.value
+  if (accuracy > REPORT_MAX_ACCURACY_M) return
+
+  if (!force && lastReported) {
+    const moved = distanceMeters(lastReported, location.value)
+    const waited = Date.now() - lastReported.time
+    if (moved < REPORT_MOVE_M && waited < REPORT_HEARTBEAT_MS) return
+  }
+
+  reportInFlight = true
+  try {
+    await axios.put('/api/locations/me', { lat, lng, accuracy })
+    lastReported = { lat, lng, time: Date.now() }
+  } catch (err) {
+    const status = err.response?.status
+    // Not logged in or no confirmed assignment: retrying won't help, so stop
+    if (status === 401 || status === 403) reporting = false
+    // Anything else (429, network, 500): ignore, the next check tries again
+  } finally {
+    reportInFlight = false
+  }
+}
+
+// When the tab becomes visible again, get a fresh GPS fix and send it right away
+function onVisibilityChange() {
+  if (document.visibilityState !== 'visible') return
+  reporting = true // retry once, in case the assignment was confirmed while away
+  catchUp = true
+  startTracking(onPosition, onGeoError) // restarts the watch, which delivers a fresh fix
+}
+
+/* ------------------------------------------------------------------ */
 /* Geolocation callbacks                                               */
 /* ------------------------------------------------------------------ */
 
@@ -401,20 +483,26 @@ function onPosition(pos) {
     lng: pos.coords.longitude,
     accuracy: pos.coords.accuracy, // metres
   }
-  error.value = ''
+  geoError.value = '' // a fix arrived, clear any location error
   loading.value = false
+  lastFixAt = Date.now()
+  const forceReport = catchUp // true only for the first fix after returning to the tab
+  catchUp = false
 
   updateHeading(pos)
 
   if (firstFix) {
     // First fix: center the map and draw the initial route
     firstFix = false
+    showTrackingNotice()
+    reportLocation(true) // update volunteer's location in the server right away
     drawMyMarker(true)
     drawRoute()
     lastRouteLoc = { ...location.value }
   } else {
     // Later fixes: glide the marker, and quietly re-route after enough movement
     drawMyMarker(false)
+    reportLocation(forceReport) // normally only sends after 25 m or 30 s; forced to send after returning to the tab
     if (distanceMeters(lastRouteLoc, location.value) > REROUTE_M) {
       drawRoute(true)
       lastRouteLoc = { ...location.value }
@@ -424,8 +512,27 @@ function onPosition(pos) {
 
 // Called by watchPosition when location fails (permission denied, timeout, etc.)
 function onGeoError(err) {
-  error.value = geolocationMessage(err)
+  geoError.value = geolocationMessage(err)
   loading.value = false
+}
+
+/* ------------------------------------------------------------------ */
+/* Notice popup                                                        */
+/* ------------------------------------------------------------------ */
+let noticeTimer = null
+
+// Shows the "tracking is on" message, then hides it after 5 seconds
+function showTrackingNotice() {
+  showTrackingInfo.value = true
+  clearTimeout(noticeTimer)
+  noticeTimer = setTimeout(() => (showTrackingInfo.value = false), 5000)
+}
+
+// Close button: dismisses whatever message is currently showing
+function dismissNotice() {
+  if (geoError.value) geoError.value = ''
+  else if (routeError.value) routeError.value = ''
+  else showTrackingInfo.value = false
 }
 
 /* ------------------------------------------------------------------ */
@@ -497,7 +604,9 @@ function onSheetPointerUp() {
 
 // Start tracking once the page is on screen
 onMounted(() => {
+  document.addEventListener('visibilitychange', onVisibilityChange)
   startTracking(onPosition, onGeoError)
+  reportTimer = setInterval(() => reportLocation(), 5000) // heartbeat check every 5s (sends only if 30 s have passed)
   measureSheet()
   sheetObserver = new ResizeObserver(measureSheet) // re-measure when the content changes height
   sheetObserver.observe(sheetEl.value)
@@ -506,14 +615,16 @@ onMounted(() => {
 
 // Stop tracking and any running animation when leaving the page
 onUnmounted(() => {
+  document.removeEventListener('visibilitychange', onVisibilityChange)
   stopTracking()
   cancelAnimationFrame(animFrame)
   sheetObserver?.disconnect()
+  clearTimeout(noticeTimer)
+  clearInterval(reportTimer)
 })
 </script>
 
 <template>
-  <!-- <div v-if="error" class="alert alert-danger py-2" role="alert">{{ error }}</div> -->
   <div class="map-page">
     <div
       class="map-stage"
@@ -536,6 +647,35 @@ onUnmounted(() => {
       <div v-if="loadingRoute" class="map-loading" role="status" aria-live="polite">
         <div class="spinner-border text-primary" aria-hidden="true"></div>
         <div class="mt-2 fw-semibold">Fetching Location Data...</div>
+      </div>
+
+      <!-- Popup: "tracking is on" message and errors -->
+      <div class="notice-wrap">
+        <Transition name="notice">
+          <div
+            v-if="notice"
+            :key="notice.type + notice.text"
+            class="notice"
+            :class="notice.type"
+            :role="notice.type === 'error' ? 'alert' : 'status'"
+          >
+            <div class="notice-icon" aria-hidden="true">
+              <i class="bi" :class="notice.icon"></i>
+            </div>
+            <div class="notice-body">
+              <div class="notice-title">{{ notice.title }}</div>
+              <div class="notice-text">{{ notice.text }}</div>
+            </div>
+            <button
+              type="button"
+              class="notice-close"
+              aria-label="Dismiss message"
+              @click="dismissNotice"
+            >
+              <i class="bi bi-x-lg"></i>
+            </button>
+          </div>
+        </Transition>
       </div>
 
       <!-- Bottom sheet: Drive/Walk always visible, route details when expanded -->
@@ -912,6 +1052,11 @@ onUnmounted(() => {
   .sheet-peek {
     padding-top: 16px;
   }
+  /* Desktop: the route card sits top left, so put the popup top right instead */
+  .notice-wrap {
+    left: 424px; /* clears the 400px card plus its 12px margin */
+    justify-content: flex-end;
+  }
 }
 
 /* Hide hairline seams between map tiles */
@@ -934,5 +1079,99 @@ onUnmounted(() => {
   white-space: nowrap;
   box-shadow: 0 1px 4px rgb(0 0 0 / 0.3);
   pointer-events: none;
+}
+
+/* Popup message (tracking info and errors) */
+.notice-wrap {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  right: 12px;
+  z-index: 1150; /* above the loading overlay (1100) so errors stay visible */
+  display: flex;
+  justify-content: center;
+  pointer-events: none; /* only the card itself takes clicks */
+}
+
+.notice {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 420px;
+  padding: 10px 8px 10px 12px;
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 2px 12px rgb(0 0 0 / 0.2);
+}
+
+.notice.error {
+  border: 1px solid #f5c2c0;
+}
+
+.notice-icon {
+  flex: 0 0 auto;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: #e8f0fe;
+  color: #1a73e8;
+  font-size: 1.1rem;
+}
+
+.notice.error .notice-icon {
+  background: #fce8e6;
+  color: #d93025;
+}
+
+.notice-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.notice-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.notice-text {
+  margin-top: 2px;
+  font-size: 0.8rem;
+  line-height: 1.3;
+  color: #666;
+}
+
+.notice-close {
+  flex: 0 0 auto;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #777;
+}
+
+.notice-close:hover {
+  background: #f1f3f6;
+}
+
+/* Slide down and fade */
+.notice-enter-active,
+.notice-leave-active {
+  transition: transform 0.25s ease, opacity 0.25s ease;
+}
+
+.notice-enter-from,
+.notice-leave-to {
+  transform: translateY(-12px);
+  opacity: 0;
 }
 </style>
