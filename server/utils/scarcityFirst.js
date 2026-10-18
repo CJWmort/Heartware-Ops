@@ -166,6 +166,7 @@ function scarcityFirst(volunteers, locations, show) {
       pairs.push({
         volunteer: volunteer._id,
         school: location._id,
+        name: volunteer.name,
         show: location.show,
         distance: Number(distanceBetween(volunteer, location).toFixed(2)),
       });

@@ -5,7 +5,7 @@ const STATUS_ORDER = { new: 0, acknowledged: 1, resolved: 2 };
 const SEVERITY_ORDER = { high: 0, medium: 1, low: 2 };
 const NEXT_STATUS = { new: "acknowledged", acknowledged: "resolved" };
 const { emit } = require("../sockets"); // emit is declared here to use sockets
-const onemap = require("../../client/src/services/onemap"); // this will access onemap service for reverseGeocoding
+const onemap = require("../services/onemap"); // this will access onemap service for reverseGeocoding
 
 // GET /api/incidents/templates
 exports.listTemplates = (req, res) => res.json(TEMPLATES);

@@ -1,6 +1,7 @@
 const mongoose = require("mongoose");
 const Schools = require('./schools-model');
 const Account = require('./account-model');
+const CONFIRMED_STATUS = "Accepted"; // The status that counts as volunteer accepted the allocation
 
 // Create a new 'assignment' schema
 // One document = one volunteer tagged to one school for one show
@@ -13,6 +14,10 @@ const AssignmentsSchema = new mongoose.Schema({
   school: {
     type: mongoose.Schema.Types.ObjectId,
     ref: "Schools",
+  },
+  name: {
+    type: String,
+    required: true,
   },
   // same value as the school's show (e.g. 'NE Show 1'); kept here so that
   // the unique index below can enforce one school per volunteer per show
@@ -97,6 +102,48 @@ exports.findByShow = function (show) {
   return Assignments.find({ show: show.trim() }).populate("school").populate("volunteer").sort({ show: 1 });
 };
 
+// True if the volunteer has at least one "Accepted" assignment (any show) - Jun Wen
+exports.hasConfirmed = async function (volunteerId) {
+  return !!(await Assignments.exists({ volunteer: volunteerId, status: CONFIRMED_STATUS }));
+};
+
+
+// ===== LIVE BOARD ===== - Jun Wen
+
+// The list of valid shows, taken from the schema's enum (fills the admin's dropdown)
+exports.SHOWS = AssignmentsSchema.path("show").enumValues;
+
+// Confirmed volunteers of a show, each with their name, allocated school and
+// latest location (if any). Volunteers who haven't reported yet are included,
+// with no lat/lng/updatedAt.
+exports.findBoard = function (show) {
+  return Assignments.aggregate([
+    { $match: { show: show.trim(), status: CONFIRMED_STATUS } },
+    { $lookup: { from: "accounts", localField: "volunteer", foreignField: "_id", as: "account" } },
+    { $unwind: "$account" },
+    { $lookup: { from: "schools", localField: "school", foreignField: "_id", as: "sch" } },
+    { $unwind: { path: "$sch", preserveNullAndEmptyArrays: true } }, // keep the volunteer even if the school is missing
+    { $lookup: { from: "locations", localField: "volunteer", foreignField: "volunteer", as: "loc" } },
+    { $unwind: { path: "$loc", preserveNullAndEmptyArrays: true } }, // keep volunteers with no location
+    {
+      $project: {
+        _id: 0,
+        volunteerId: "$volunteer",
+        name: "$account.name",
+        school: {
+          name: "$sch.name",
+          lat: "$sch.lat",
+          lng: "$sch.lng",
+          p5Classes: "$sch.p5Classes",
+        },
+        lat: "$loc.lat",
+        lng: "$loc.lng",
+        accuracy: "$loc.accuracy",
+        updatedAt: "$loc.updatedAt",
+      },
+    },
+    { $sort: { name: 1 } },
+  ]);
 // Fetch the logged in volunteer's own assignments, with the school filled in.
 // Volunteer is not populated so the account (and password hash) is never sent back.
 exports.findMine = function (volunteerId) {
