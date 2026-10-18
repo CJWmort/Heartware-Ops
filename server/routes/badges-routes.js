@@ -8,5 +8,7 @@ router.get("/me", requireLogin, badgesController.listMyAwards);
 router.post("/award", requireRole('admin'), badgesController.awardBadge);
 router.put("/design/me", requireRole('volunteer'), badgesController.saveMyDesign);
 router.post("/orders", requireRole('volunteer'), badgesController.placeOrder);
+router.get("/design/me", requireRole('volunteer'), badgesController.getMyDesign);
+router.get("/orders/me", requireRole('volunteer'), badgesController.listMyOrders);
 
 module.exports = router;

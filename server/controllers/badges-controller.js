@@ -97,3 +97,21 @@ exports.placeOrder = async (req, res) => {
      res.status(400).json({ message: error.message })
   }
 }
+
+exports.getMyDesign = async (req, res) => {
+  try {
+    const design = await BadgeDesign.findByVolunteer(req.session.userId)
+    res.status(200).json(design)
+  } catch (error) {
+    res.status(500).json({ message: error.message })
+  }
+}
+
+exports.listMyOrders = async (req, res) => {
+  try {
+    const orders = await BadgeOrder.findByVolunteer(req.session.userId)
+    res.status(200).json(orders)
+  } catch (error) {
+    res.status(500).json({ message: error.message })
+  }
+}
