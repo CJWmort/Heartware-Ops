@@ -19,7 +19,7 @@ const todos = [
 
 const assignments = ref([])
 const shows = ["NE Show 1","NE Show 2","NE Show 3","NE Show 4"]
-const selectedShow = ref("")
+const selectedShow = ref("NE Show 1")
 const searchbar = ref('')
 const runningAlloc = ref(false)
 const groupedAssignments = computed(() => {

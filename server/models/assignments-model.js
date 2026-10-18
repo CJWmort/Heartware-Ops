@@ -107,6 +107,37 @@ exports.hasConfirmed = async function (volunteerId) {
   return !!(await Assignments.exists({ volunteer: volunteerId, status: CONFIRMED_STATUS }));
 };
 
+// Fetch the logged in volunteer's own assignments, with the school filled in.
+// Volunteer is not populated so the account (and password hash) is never sent back.
+exports.findMine = function (volunteerId) {
+  return Assignments.find({ volunteer: volunteerId }).populate("school").sort({ show: 1 });
+};
+
+
+// ===== UPDATE =====
+
+// Volunteer accepts their own pending assignment.
+// Only matches if the assignment belongs to this volunteer and is still 'Pending',
+// so returns null otherwise.
+exports.acceptMine = function (assignmentId, volunteerId) {
+  return Assignments.findOneAndUpdate(
+    { _id: assignmentId, volunteer: volunteerId, status: "Pending" },
+    { status: "Accepted" },
+    { new: true, runValidators: true } // return the updated doc
+  ).populate("school");
+};
+
+// Volunteer pulls out of a show they had already accepted.
+// Only matches if the assignment belongs to this volunteer and is 'Accepted',
+// so returns null otherwise.
+exports.withdrawMine = function (assignmentId, volunteerId, reason) {
+  return Assignments.findOneAndUpdate(
+    { _id: assignmentId, volunteer: volunteerId, status: "Accepted" },
+    { status: "Withdrawn", withdrawReason: reason },
+    { new: true, runValidators: true } // return the updated doc
+  ).populate("school");
+};
+
 
 // ===== LIVE BOARD ===== - Jun Wen
 
@@ -144,33 +175,4 @@ exports.findBoard = function (show) {
     },
     { $sort: { name: 1 } },
   ]);
-// Fetch the logged in volunteer's own assignments, with the school filled in.
-// Volunteer is not populated so the account (and password hash) is never sent back.
-exports.findMine = function (volunteerId) {
-  return Assignments.find({ volunteer: volunteerId }).populate("school").sort({ show: 1 });
-};
-
-
-// ===== UPDATE =====
-
-// Volunteer accepts their own pending assignment.
-// Only matches if the assignment belongs to this volunteer and is still 'Pending',
-// so returns null otherwise.
-exports.acceptMine = function (assignmentId, volunteerId) {
-  return Assignments.findOneAndUpdate(
-    { _id: assignmentId, volunteer: volunteerId, status: "Pending" },
-    { status: "Accepted" },
-    { new: true, runValidators: true } // return the updated doc
-  ).populate("school");
-};
-
-// Volunteer pulls out of a show they had already accepted.
-// Only matches if the assignment belongs to this volunteer and is 'Accepted',
-// so returns null otherwise.
-exports.withdrawMine = function (assignmentId, volunteerId, reason) {
-  return Assignments.findOneAndUpdate(
-    { _id: assignmentId, volunteer: volunteerId, status: "Accepted" },
-    { status: "Withdrawn", withdrawReason: reason },
-    { new: true, runValidators: true } // return the updated doc
-  ).populate("school");
-};
+}
