@@ -1,3 +1,5 @@
+
+// one-time request for the user's location
 export function getUserLocation() {
   return new Promise((resolve, reject) => {
     if (!navigator.geolocation) {
@@ -22,5 +24,26 @@ export function geolocationMessage(err) {
       return 'Getting your location timed out. Try again.'
     default:
       return err.message || 'Could not get your location.'
+  }
+}
+
+// Continuously tracks changes over time
+let watchId = null;
+
+export function startTracking(onPosition, onError, options = { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }) {
+  // Clear any existing watch before starting a new one
+  if (watchId !== null) {
+    stopTracking();
+  }
+
+  watchId = navigator.geolocation.watchPosition(onPosition, onError, options);
+  return watchId;
+}
+
+// Stop watching the user's location.
+export function stopTracking() {
+  if (watchId !== null) {
+    navigator.geolocation.clearWatch(watchId);
+    watchId = null;
   }
 }

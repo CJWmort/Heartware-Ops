@@ -9,7 +9,7 @@ import AppNavbar from '@/components/AppNavbar.vue'
       <RouterView />
     </div>
   </main>
-  <footer class="app-footer text-center small py-3">
+  <!-- <footer class="app-footer text-center small py-3">
     IS216 G5T1 · Built for Heartware NDP Volunteers
-  </footer>
+  </footer> -->
 </template>
