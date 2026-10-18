@@ -24,6 +24,8 @@ exports.userCreate = async (req, res) => {
         }
         // Hash before saving, never store the plain password
         const hashedPassword = await bcrypt.hash(password, 10);
+        const coordinates = await onemap.geocodePostal(postalCode);
+        console.log(coordinates);
 
         const user = await Account.create({
             name,
@@ -32,7 +34,9 @@ exports.userCreate = async (req, res) => {
             postalCode,
             phone,
             password: hashedPassword,
-            role
+            role,
+            lat: coordinates.lat,
+            lng: coordinates.lng
         });
 
         // Send back only safe fields, never the password hash

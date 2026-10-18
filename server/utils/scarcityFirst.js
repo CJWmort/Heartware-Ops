@@ -8,14 +8,63 @@
 //             show = the school's show (e.g. "NE Show 4"), distance = km.
 //             `status` is left out so the model's default ("reserve") applies.
 //             one record for each (volunteer, school) pair that was matched.
-//             Volunteers with no school, and schools left short, simply
-//             have no record.
+//             After those, one record for each volunteer who got no school,
+//             using the `show` argument (the show this run is for):
+//             { volunteer, school: null, show, distance: null }.
+// show:       the show name this run is for (e.g. "NE Show 1").
+//             Schools left short simply have fewer records.
 
 const { haversine } = require("./haversine");
 
 // Distance in km between any two records that have `lat` and `lng`.
 function distanceBetween(a, b) {
   return haversine([a.lat, a.lng], [b.lat, b.lng]);
+}
+
+// True if the value is a real, finite number (rejects undefined, null, "", NaN, Infinity).
+// Numeric strings such as "1.39" are rejected on purpose: they usually mean
+// the data was not parsed properly.
+function isFiniteNumber(value) {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+// Check every record up front so bad data fails loudly instead of turning
+// into NaN distances that quietly break sorting and scoring.
+// Throws one Error listing every problem found.
+function validateInputs(volunteers, locations, show) {
+  const problems = [];
+
+  if (typeof show !== "string" || show.trim() === "") {
+    problems.push("show: missing or not a non-empty string");
+  }
+
+  for (const volunteer of volunteers) {
+    const label = `volunteer ${volunteer._id} (${volunteer.name})`;
+    if (!isFiniteNumber(volunteer.lat) || !isFiniteNumber(volunteer.lng)) {
+      problems.push(`${label}: lat/lng missing or not a number`);
+    } else if (Math.abs(volunteer.lat) > 90 || Math.abs(volunteer.lng) > 180) {
+      problems.push(`${label}: lat/lng out of range`);
+    }
+  }
+
+  for (const location of locations) {
+    const label = `location ${location._id} (${location.name})`;
+    if (!isFiniteNumber(location.lat) || !isFiniteNumber(location.lng)) {
+      problems.push(`${label}: lat/lng missing or not a number`);
+    } else if (Math.abs(location.lat) > 90 || Math.abs(location.lng) > 180) {
+      problems.push(`${label}: lat/lng out of range`);
+    }
+    if (!isFiniteNumber(location.p5Classes) || location.p5Classes < 0) {
+      problems.push(`${label}: p5Classes missing or not a non-negative number`);
+    }
+  }
+
+  if (problems.length > 0) {
+    throw new Error(
+      `scarcityFirst: invalid input (${problems.length} problem(s)):\n- ` +
+        problems.join("\n- ")
+    );
+  }
 }
 
 // Scarcity score of a location: the average of the shortest `need` distances
@@ -41,7 +90,9 @@ function scarcityScore(location, freeVolunteers) {
   return total / k;
 }
 
-function scarcityFirst(volunteers, locations) {
+function scarcityFirst(volunteers, locations, show) {
+  validateInputs(volunteers, locations, show);
+
   // Work on copies so the lists passed in are not changed.
   let freeVolunteers = [];
   for (const volunteer of volunteers) {
@@ -121,6 +172,19 @@ function scarcityFirst(volunteers, locations) {
       });
     }
   }
+
+  // Add the volunteers who are still free, meaning they never got a school.
+  // Results are keyed on (volunteer, show), so each one gets a record for the
+  // show this run is for. They have no school and so no distance, so those
+  // two are null.
+  for (const volunteer of freeVolunteers) {
+    pairs.push({
+      volunteer: volunteer._id,
+      school: null,
+      show,
+      distance: null,
+    });
+  }
   return pairs;
 }
 
@@ -145,6 +209,11 @@ if (require.main === module) {
     { _id: "6ac9eb467d500bef729c7482", name: "Anchor Green Primary School", address: "31 Anchorvale Drive", postalCode: "544969", zone: "NORTH", lat: 1.39037, lng: 103.887165, p5Classes: 4, reportingTime: "2:30pm", show: "NE Show 1" },
   ];
 
-  const result = scarcityFirst(volunteers, locations);
+  const show = "NE Show 1";
+  const result = scarcityFirst(
+    volunteers,
+    locations.filter((l) => l.show === show),
+    show
+  );
   console.log(result);
 }

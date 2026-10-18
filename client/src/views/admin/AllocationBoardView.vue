@@ -20,27 +20,40 @@ const todos = [
 const assignments = ref([])
 const shows = ["NE Show 1","NE Show 2","NE Show 3","NE Show 4"]
 const selectedShow = ref("")
-const schools = ref([])
 const searchbar = ref('')
+const runningAlloc = ref(false)
 const groupedAssignments = computed(() => {
-  // Step 1: build { show: { schools: [...] } }
+  // Step 1: build { show: { schools: [...], unassigned: [...] } }
   const byShow = {};
-
+ 
   for (const a of assignments.value) {
     if (!byShow[a.show]) {
-      byShow[a.show] = { schools: [] };
+      byShow[a.show] = { schools: [], unassigned: [] };
     }
-    const schools = byShow[a.show].schools;
+ 
+    // A free volunteer has no school: list them separately and move on
+    // (assignmentId identifies the record so a drag can update it;
+    //  distance is null, so it is left out)
+    if (!a.school) {
+      byShow[a.show].unassigned.push({
+        ...a.volunteer,
+        assignmentId: a._id,
+        status: a.status,
+      });
+      continue;
+    }
+
+    const showSchools = byShow[a.show].schools;
 
     // Find the school inside this show, or add it
     // ({ ...a.school } copies every school field unchanged)
     let schoolEntry = null;
-    for (const s of schools) {
+    for (const s of showSchools) {
       if (s._id === a.school._id) schoolEntry = s;
     }
     if (!schoolEntry) {
       schoolEntry = { ...a.school, volunteers: [] };
-      schools.push(schoolEntry);
+      showSchools.push(schoolEntry);
     }
 
     // Add the volunteer: every volunteer field unchanged,
@@ -62,55 +75,18 @@ const groupedAssignments = computed(() => {
 
 const API_URL = "/api/"
 
-// warnings shown as badges on a school card, keyed by reportingLoc
-const warnings = ref({})
 
 async function loadData(){
   const response = await axios.get(API_URL+"assignments");
   assignments.value = response.data;  
-  console.log(assignments.value);
-
-  const schools = await axios.get(API_URL+"schools")
-  schools.value = schools.data;
+  // console.log(assignments.value);
 }
 
 async function runAllocation(){
+  runningAlloc.value = true;
   const response = await axios.get(API_URL+"assignments/run");
   assignments.value = response.data;
-}
-
-function addWarning(school, msg) {
-  if (!warnings.value[school.reportingLoc]) warnings.value[school.reportingLoc] = []
-  warnings.value[school.reportingLoc].push(msg)
-}
-
-function clearWarnings(school) {
-  warnings.value[school.reportingLoc] = []
-}
-
-// Fires on every list involved in a drag: evt.added / evt.removed / evt.moved
-async function onChange(evt, school) {
-  if (evt.added) {
-    const vol = evt.added.element
-    clearWarnings(school)
-
-    // TODO: call reassignSlot() here and push each returned warning with addWarning(school, w)
-    // e.g. const res = await reassignSlot({ volunteerId: vol.v_id, toSchool: school.reportingLoc })
-    //      res.warnings.forEach(w => addWarning(school, w))
-
-    // over capacity -> warning badge (not a hard block)
-    if (school.volunteers.length > school.p5Classes) {
-      addWarning(school, `Over capacity (${school.volunteers.length}/${school.p5Classes})`)
-    }
-    // same volunteer already placed at another school in this show -> double-booked
-    console.log(`${vol.v_name} moved to ${school.reportingLoc}`)
-  }
-  if (evt.removed) {
-    clearWarnings(school)
-    if (school.volunteers.length > school.p5Classes) {
-      addWarning(school, `Over capacity (${school.volunteers.length}/${school.p5Classes})`)
-    }
-  }
+  runningAlloc.value = false;
 }
 
 loadData();
@@ -126,7 +102,10 @@ loadData();
       
   </section>
   <body>
-    <button class="btn btn-brand btn-lg w-100 mt-2 tap-target" @click = "runAllocation">
+    <div v-if="runningAlloc" class="alert alert-info py-2" role="alert" >
+            Allocating...
+    </div>
+    <button class="btn btn-brand btn-lg w-100 mt-2 tap-target" :disabled="runningAlloc" @click = "runAllocation">
         Run Allocations
      </button> <br>
 
@@ -148,8 +127,14 @@ loadData();
           </p>
 
           <div v-for="volunteer in school.volunteers" class="border border-1 rounded p-2 m-1 d-flex justify-content-between">
-            <span> {{  volunteer.name }} ({{ volunteer.phone }}) </span>
-            <span class="badge rounded-pill text-bg-warning"> {{  volunteer.status }} </span>
+            <span>
+              <span class="badge rounded-pill" 
+              :class="{'text-bg-warning':volunteer.status == 'Pending','text-bg-success':volunteer.status == 'Accepted'}"> 
+              {{  volunteer.status }} 
+              </span>
+              {{  volunteer.name }} ({{ volunteer.phone }}) 
+            </span>
+            <span> Distance: {{ volunteer.distance }}</span>
           </div>
         </div>
       </div>
