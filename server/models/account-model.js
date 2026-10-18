@@ -42,6 +42,14 @@ const AccountSchema = new mongoose.Schema({
     availableShows: {
         type: [String],
         default: []
+    },
+    lat: {
+        type: Number,
+        required: true
+    },
+    lng: {
+        type: Number,
+        required: true
     }
 }, {
     timestamps: true // auto timestamp management (createdAt, updatedAt) will update automatically based on methods used
@@ -69,7 +77,7 @@ exports.findById = function (id) {
 
 // Fetch all volunteers (name, postalCode)
 exports.retrieveVolunteers = function () {
-    return Account.find({ role: 'volunteer' }).select('name postalCode address');
+    return Account.find({ role: 'volunteer' }).select('name postalCode address lat lng');
 };
 
 // Update the shows a volunteer is available for
