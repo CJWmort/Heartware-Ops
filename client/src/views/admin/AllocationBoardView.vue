@@ -3,9 +3,10 @@
 // Spec: docs/FEATURES.md   ·   API calls: src/services/   ·   Tests: e2e/
 import PageHeader from '@/components/PageHeader.vue'
 import FeaturePlaceholder from '@/components/FeaturePlaceholder.vue'
-import { ref, computed } from 'vue'
+import { ref, computed, watch} from 'vue'
 import draggable from "vuedraggable";
 import axios from 'axios';
+import BaseMap from '@/components/BaseMap.vue'
 
 // TODO(Fanny): build this page, then delete FeaturePlaceholder below.
 const todos = [
@@ -89,6 +90,82 @@ async function runAllocation(){
   runningAlloc.value = false;
 }
 
+let L = null
+let map = null
+let markersGroup = null;
+let linesGroup = null;
+
+function onMapReady(m, leaflet) {
+  map = m
+  L = leaflet
+
+  markersGroup = L.layerGroup().addTo(map);
+  linesGroup = L.layerGroup().addTo(map);
+}
+
+
+function renderMapElements() {
+  if (!map || !L || !selectedShow.value) return;
+
+  const currentShowData = groupedAssignments.value[selectedShow.value];
+  if (!currentShowData) return;
+
+  // 1. Clear both markers and connecting lines from previous renders
+  if (markersGroup) markersGroup.clearLayers();
+  if (linesGroup) linesGroup.clearLayers();
+
+  const redDefaultIcon = L.divIcon({
+    className: 'red-pin-filter',
+    html: `<img src="https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png" style="width:25px;height:41px;"/>`,
+    iconSize: [25, 41],
+    iconAnchor: [12, 41],
+    popupAnchor: [1, -34],
+    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
+    shadowSize: [41, 41]
+  });
+
+
+  currentShowData.schools.forEach((school) => {
+    // Check school coordinates
+    if (school.lat && school.lng) {
+      const schoolMarker = L.marker([school.lat, school.lng], {icon: redDefaultIcon}).bindPopup(`<b>${school.name}</b>`);
+      markersGroup.addLayer(schoolMarker);
+
+      // Loop through assigned volunteers
+      school.volunteers.forEach((vol) => {
+        if (vol.lat && vol.lng) {
+          // Add Volunteer Marker
+          const volMarker = L.marker([vol.lat, vol.lng]).bindPopup(`<b>${vol.name}</b> (Volunteer)`);
+          markersGroup.addLayer(volMarker);
+
+          // 2. Draw connecting line between Volunteer and School
+          const line = L.polyline(
+            [
+              [vol.lat, vol.lng],     // Start: Volunteer coordinates
+              [school.lat, school.lng] // End: School coordinates
+            ],
+            {
+              color: '#0066ff', // Line color
+              weight: 2,        // Line thickness
+              opacity: 0.3
+            }
+          );
+
+          linesGroup.addLayer(line);
+        }
+      });
+    }
+  });
+}
+
+watch(
+  [selectedShow],
+  () => {
+    renderMapElements();
+  },
+  { deep: true } // Ensures updates trigger when pushing or modifying array items
+);
+
 loadData();
 </script>
 
@@ -101,7 +178,9 @@ loadData();
      
       
   </section>
+  <BaseMap :zoom="12" @ready="onMapReady"/>
   <body>
+    <!-- <p>{{ groupedAssignments }}</p> -->
     <div v-if="runningAlloc" class="alert alert-info py-2" role="alert" >
             Allocating...
     </div>
@@ -109,14 +188,14 @@ loadData();
         Run Allocations
      </button> <br>
 
-    <div class="bg-dark-subtle border border-1 rounded p-2" >
-    <label for="show"> Select show:</label>
-    <select name="show" id="show" class="form-select" v-model="selectedShow" data-testid="alloc-event-select">
-      <option v-for="show in shows" :value="show">{{ show }}</option>
-    </select>
-    <input type="text" class=" form-control my-2" placeholder="School search" v-model="searchbar">
+     <label for="show"> Select show:</label>
+     <select name="show" id="show" class="form-select" v-model="selectedShow" data-testid="alloc-event-select">
+       <option v-for="show in shows" :value="show">{{ show }}</option>
+     </select>
+     <input type="text" class=" form-control my-2" placeholder="School search" v-model="searchbar">
+    <div class="row" >
         
-    <div v-if="groupedAssignments[selectedShow]">
+    <div v-if="groupedAssignments[selectedShow]" class="col-12 col-lg-9">
       <span v-for="school in groupedAssignments[selectedShow].schools">
       <div class="card text-start my-2" v-if="searchbar == '' || school.name.toUpperCase().includes(searchbar.toUpperCase())">
         <div class="card-body">
@@ -141,6 +220,21 @@ loadData();
       </span>
     </div>
     <p v-else> There are no assignments.</p>
+    <div v-if="groupedAssignments[selectedShow]" class="col-12 col-lg-3">
+
+    <div class="card text-start my-2">
+      <div class="card-body">
+        <h4 class="card-title pb-2">Unassigned Volunteers</h4>
+        <p class="card-text">
+          <div v-for="volunteer in groupedAssignments[selectedShow].unassigned" class="bg-body border border-1 rounded p-2 m-1 d-flex justify-content-between"> 
+            {{ volunteer.name }} ({{ volunteer.phone }})
+          </div>
+        </p>
+      </div>
+    </div>
+    </div>
+    
+   
     </div>
 
   </body>

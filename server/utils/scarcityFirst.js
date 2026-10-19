@@ -182,6 +182,7 @@ function scarcityFirst(volunteers, locations, show) {
       school: null,
       show,
       distance: null,
+      status: "Reserve"
     });
   }
   return pairs;
