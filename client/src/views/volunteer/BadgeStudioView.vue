@@ -2,10 +2,14 @@
 // Feature 5 – Badge Studio — owner: Hanafi
 // Spec: docs/FEATURES.md   ·   API calls: src/services/   ·   Tests: e2e/
 import PageHeader from '@/components/PageHeader.vue'
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
+import { getMyDesign, getMyOrders, saveMyDesign, placeOrder } from '@/services/badges.js'
+import { timeAgo } from '@/utils/time.js'
+
 const colour = ref('#d6001c')
 const shape = ref('circle')
 const ribbonText = ref('')
+const locked = ref(false)
 const secondaryColour = ref('#ffffff')
 function contrastColour(hex) {
   const red = parseInt(hex.slice(1,3), 16)
@@ -28,8 +32,89 @@ const emblems = [
   { key: 'balloon',  label: 'Balloon',  icon: 'bi-balloon-heart-fill', glyph: '\uF707' },
 ]
 const selectedEmblem = computed(() => emblems.find(e => e.key === emblem.value) || emblems[0])
-
 const ribbonFontSize = computed(() => Math.min(16, 180/(ribbonText.value.length)))
+
+const errorMessage = ref('')
+const successMessage = ref('')
+
+const orders = ref([])
+const loading = ref(true)
+const showOrderForm = ref(false)
+const addressLine1 = ref('')
+const unit = ref('')
+const postalCode = ref('')
+const submitting = ref(false)
+const statusLabels = {
+  placed: 'Placed', in_production: 'In Production', shipped: 'Shipped', delivered: 'Delivered'
+}
+function designFromPage() {
+  return {
+    shape: shape.value,
+    primaryColor: colour.value,  
+    secondaryColor: secondaryColour.value, 
+    emblem: emblem.value,
+    ribbonText: ribbonText.value, 
+    }
+}
+
+async function save() {
+  errorMessage.value = ''      
+  successMessage.value = ''
+  try {
+    await saveMyDesign(designFromPage())
+    successMessage.value = 'Design saved!'
+  } catch (error) {
+    errorMessage.value = error.friendlyMessage || 'Something went wrong. Please try again.'
+    console.error(error)
+  }
+}
+
+async function placeMyOrder() {
+  errorMessage.value = ''      
+  successMessage.value = ''
+  submitting.value = true
+  try {
+    await saveMyDesign(designFromPage())
+
+    const newOrder = await placeOrder({
+      line1:      addressLine1.value,
+      unit:       unit.value,
+      postalCode: postalCode.value,
+    })
+
+    orders.value.unshift(newOrder)
+
+    locked.value = true
+    showOrderForm.value = false
+    successMessage.value = 'Order placed!'
+  } catch (error) {
+    errorMessage.value = error.friendlyMessage || 'Something went wrong. Please try again.'
+    console.error(error)
+  } finally {
+    submitting.value = false 
+  }
+}
+
+onMounted(async () => {
+  try {
+    const [saved, order] = await Promise.all([getMyDesign(), getMyOrders()])
+    if (saved) {                          
+      colour.value = saved.primaryColor   
+      shape.value = saved.shape
+      ribbonText.value = saved.ribbonText
+      secondaryColour.value = saved.secondaryColor
+      emblem.value = saved.emblem
+      locked.value = saved.locked
+    }                         
+    orders.value = order   
+  } catch (error) {
+    errorMessage.value = error.friendlyMessage || 'Something went wrong. Please try again.'
+    console.error(error)
+  } finally {
+    loading.value = false
+  }
+  
+})
 </script>
 
 <template>
@@ -40,7 +125,12 @@ const ribbonFontSize = computed(() => Math.min(16, 180/(ribbonText.value.length)
       </template>
     </PageHeader>
 
-    <div class="row g-4">
+    <div v-if="errorMessage" class="alert alert-danger" data-testid="studio-error">{{ errorMessage }}</div>
+    <div v-if="loading" class="text-center py-5">
+      <div class="spinner-border" aria-hidden="true"></div>
+      <div class="mt-2">Loading your design...</div>
+    </div>
+    <div v-else class="row g-4">
       <!-- LEFT: preview -->
       <div class="col-12 col-md-6">
         <div class="card sticky-md-top bg-secondary-subtle" style="top: 1rem">
@@ -62,6 +152,7 @@ const ribbonFontSize = computed(() => Math.min(16, 180/(ribbonText.value.length)
       <div class="col-12 col-md-6">
         <div class="card">
           <div class="card-body">
+          <fieldset :disabled="locked">
             <div class="mb-3">
               <div class="form-label">Shape</div>
               <label class="me-3"><input class="form-check-input me-1" type="radio" value="circle" v-model="shape" data-testid="studio-shape-circle" /> Circle</label>
@@ -89,6 +180,61 @@ const ribbonFontSize = computed(() => Math.min(16, 180/(ribbonText.value.length)
               <input id="ribbon-text" class="form-control" type="text" v-model="ribbonText" data-testid="studio-ribbon" maxlength="20" />
               <span class="form-text d-block" data-testid="studio-ribbon-count">{{ ribbonText.length }}/20</span>
             </div>
+          </fieldset>
+          <div class="d-flex align-items-center flex-wrap gap-2">
+              <button v-if="!locked" type="button" class="btn btn-outline-secondary" data-testid="studio-save" @click="save">Save</button>
+              <button v-if="!locked && !showOrderForm" type="button" class="btn btn-brand" data-testid="studio-lock" @click="showOrderForm = true">Lock in and order</button>
+              <span v-if="successMessage" class="text-success small" role="status">
+                <i class="bi bi-check-circle me-1"></i>{{ successMessage }}
+              </span>
+          </div>
+          </div>
+        </div>
+        <div v-if="showOrderForm" class="card mt-3" data-testid="order-form">
+          <div class="card-body">
+            <h2 class="h6 mb-1">Where should we send your badge?</h2>
+            <p class="form-text mb-3">Once you order, your design is locked.</p>
+
+            <div class="mb-3">
+              <label for="order-line1" class="form-label">Address</label>
+              <input id="order-line1" class="form-control" type="text" v-model="addressLine1"
+                    placeholder="Blk 201 Tampines St 21" autocomplete="address-line1" data-testid="order-address" />
+            </div>
+            <div class="row g-3 mb-3">
+              <div class="col-6">
+                <label for="order-unit" class="form-label">Unit <span class="text-body-secondary">(optional)</span></label>
+                <input id="order-unit" class="form-control" type="text" v-model="unit"
+                      placeholder="#05-123" autocomplete="address-line2" data-testid="order-unit" />
+              </div>
+              <div class="col-6">
+                <label for="order-postal" class="form-label">Postal code</label>
+                <input id="order-postal" class="form-control" type="text" v-model="postalCode" inputmode="numeric"
+                      maxlength="6" placeholder="520201" autocomplete="postal-code" data-testid="order-postal" />
+              </div>
+            </div>
+
+            <div class="d-flex gap-2">
+              <button type="button" class="btn btn-brand" :disabled="submitting" @click="placeMyOrder" data-testid="order-submit">
+                {{ submitting ? 'Placing order...' : 'Place order' }}
+              </button>
+              <button type="button" class="btn btn-outline-secondary" :disabled="submitting" @click="showOrderForm = false">Cancel</button>
+            </div>
+          </div>
+        </div>
+        <div class="card mt-3" data-testid="order-list">
+          <div class="card-body">
+            <h2 class="h6 mb-3">My Orders</h2>
+            <p v-if="orders.length === 0" class="text-body-secondary mb-0">You haven't ordered a badge yet.</p>
+            <ul v-else class="list-unstyled mb-0">
+              <li v-for="order in orders" :key="order._id"
+                  class="d-flex justify-content-between align-items-center gap-3 py-2 border-top">
+                <div>
+                  <div class="fw-semibold">Ordered {{ timeAgo(order.createdAt) }}</div>          
+                  <div class="small text-body-secondary">{{ order.address.line1 }}</div>    
+                </div>
+                <span class="badge rounded-pill text-bg-secondary" data-testid="order-status">{{ statusLabels[order.status] || order.status }}</span>
+              </li>
+            </ul>
           </div>
         </div>
       </div>
