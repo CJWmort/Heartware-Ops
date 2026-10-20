@@ -2,27 +2,20 @@
 // Feature 1b – Smart Allocation (coordinator board) — owner: Fanny
 // Spec: docs/FEATURES.md   ·   API calls: src/services/   ·   Tests: e2e/
 import PageHeader from '@/components/PageHeader.vue'
-import FeaturePlaceholder from '@/components/FeaturePlaceholder.vue'
 import { ref, computed, watch} from 'vue'
 import draggable from "vuedraggable";
 import axios from 'axios';
 import BaseMap from '@/components/BaseMap.vue'
 
-// TODO(Fanny): build this page, then delete FeaturePlaceholder below.
-const todos = [
-  'Event picker → "Run allocation" button (runAllocation) → coverage summary',
-  'Board: one column/card per school, one row per bus slot; drag a volunteer chip between slots (HTML5 drag & drop or vuedraggable)',
-  'Each move calls reassignSlot(); show returned warnings as badges (too far / not available / double-booked)',
-  'Toggle to map view (BaseMap): schools coloured red/amber/green by % filled, lines volunteer → school',
-  'Publish button with confirmation; live accepted/declined status per slot',
-  'data-testids: alloc-event-select, alloc-run, alloc-summary, alloc-slot-<id>, alloc-volunteer-<id>, alloc-warning, alloc-view-toggle, alloc-publish',
-]
 
 const assignments = ref([])
 const shows = ["NE Show 1","NE Show 2","NE Show 3","NE Show 4"]
 const selectedShow = ref("NE Show 1")
 const searchbar = ref('')
 const runningAlloc = ref(false)
+const errorMessage = ref('') // NEW: shown in a red box, so a failed load/run no longer looks like "There are no assignments."
+const publishing = ref(false) // NEW: disables the Publish button while the request is running
+const notice = ref('') // NEW: green confirmation after publishing
 const groupedAssignments = computed(() => {
   // Step 1: build { show: { schools: [...], unassigned: [...] } }
   const byShow = {};
@@ -40,6 +33,7 @@ const groupedAssignments = computed(() => {
         ...a.volunteer,
         assignmentId: a._id,
         status: a.status,
+        published: a.published, // NEW: lets the board mark draft rows
       });
       continue;
     }
@@ -63,6 +57,7 @@ const groupedAssignments = computed(() => {
       ...a.volunteer,
       status: a.status,
       distance: a.distance,
+      published: a.published, // NEW: lets the board mark draft rows
     });
   }
 
@@ -76,18 +71,69 @@ const groupedAssignments = computed(() => {
 
 const API_URL = "/api/"
 
-
-async function loadData(){
-  const response = await axios.get(API_URL+"assignments");
-  assignments.value = response.data;  
-  // console.log(assignments.value);
+// NEW: Declined / Withdrawn volunteers no longer fill a place, so they are not counted in "Capacity x/y"
+// (otherwise a school would look full while it actually needs a replacement)
+function filledCount(school) {
+  return school.volunteers.filter(v => v.status !== 'Declined' && v.status !== 'Withdrawn').length
 }
 
-async function runAllocation(){
+
+// CHANGED: added try/catch. Before, any failure (e.g. 403 when not admin) left the page saying "There are no assignments."
+async function loadData(){
+  errorMessage.value = "";
+  try {
+    const response = await axios.get(API_URL+"assignments");
+    assignments.value = response.data;
+  } catch (error) {
+    errorMessage.value = error.response?.data?.message || "Could not load assignments.";
+  }
+}
+
+// CHANGED: was GET /run (anyone, even a link preview, could wipe the allocation); now a confirmed POST.
+// reset = false: accepted volunteers keep their school, everyone else is matched to the open places.
+// reset = true : erases EVERYTHING (including accepted) and starts again.
+async function runAllocation(reset = false){
+  const question = reset
+    ? "RESET: this erases ALL assignments, including volunteers who already accepted. Continue?"
+    : "Run allocation? Volunteers who already accepted keep their school; everyone else is matched again.";
+  if (!confirm(question)) return; // the run replaces data, so always ask first
   runningAlloc.value = true;
-  const response = await axios.get(API_URL+"assignments/run");
-  assignments.value = response.data;
-  runningAlloc.value = false;
+  errorMessage.value = "";
+  notice.value = "";
+  try {
+    const response = await axios.post(API_URL+"assignments/run", { reset });
+    assignments.value = response.data;
+  } catch (error) {
+    errorMessage.value = error.response?.data?.message || "Could not run the allocation.";
+  } finally {
+    runningAlloc.value = false; // finally: the button is re-enabled even when the request fails
+  }
+}
+
+// NEW (publish step): rows still marked as drafts (published = false) in the selected show
+const draftCount = computed(() => {
+  let n = 0;
+  for (const a of assignments.value) {
+    if (a.show === selectedShow.value && !a.published) n++;
+  }
+  return n;
+});
+
+// NEW (publish step): volunteers only see an allocation after this. It lets the admin review the result first.
+async function publishShow(){
+  if (!confirm(`Publish ${selectedShow.value}? Volunteers will see their school and can accept or decline.`)) return;
+  publishing.value = true;
+  errorMessage.value = "";
+  notice.value = "";
+  try {
+    await axios.post(API_URL+"assignments/publish", { show: selectedShow.value });
+    await loadData(); // reload so every row now shows as published
+    notice.value = `${selectedShow.value} is now visible to volunteers.`;
+  } catch (error) {
+    errorMessage.value = error.response?.data?.message || "Could not publish.";
+  } finally {
+    publishing.value = false;
+  }
 }
 
 let L = null
@@ -101,6 +147,9 @@ function onMapReady(m, leaflet) {
 
   markersGroup = L.layerGroup().addTo(map);
   linesGroup = L.layerGroup().addTo(map);
+  // FIX: the map was empty on first load because it was only drawn when the dropdown changed.
+  // Draw once here too, in case the assignments arrived before the map was ready.
+  renderMapElements();
 }
 
 
@@ -159,7 +208,8 @@ function renderMapElements() {
 }
 
 watch(
-  [selectedShow],
+  // FIX: also watch groupedAssignments, so the map redraws when data loads or after Run (not only on a dropdown change)
+  [selectedShow, groupedAssignments],
   () => {
     renderMapElements();
   },
@@ -173,25 +223,33 @@ loadData();
 <template>
   <section>
     <PageHeader title="Allocation" icon="bi-grid-3x3-gap" />
-    <FeaturePlaceholder feature="Feature 1b – Smart Allocation (coordinator board)" owner="Fanny" :todos="todos" />
-    <!-- Suggested layout: toolbar (event, run, filters, board/map toggle, publish) above a responsive grid of school cards -->
      
       
   </section>
   <BaseMap :zoom="12" @ready="onMapReady"/>
-  <body>
+  <!-- FIX: was a <body> tag, which is invalid inside a page component (a page already lives inside the real <body>) -->
+  <div>
     <!-- <p>{{ groupedAssignments }}</p> -->
+    <div v-if="errorMessage" class="alert alert-danger py-2" role="alert">{{ errorMessage }}</div>
+    <div v-if="notice" class="alert alert-success py-2" role="status">{{ notice }}</div>
     <div v-if="runningAlloc" class="alert alert-info py-2" role="alert" >
             Allocating...
     </div>
-    <button class="btn btn-brand btn-lg w-100 mt-2 tap-target" :disabled="runningAlloc" @click = "runAllocation">
+    <button class="btn btn-brand btn-lg w-100 mt-2 tap-target" :disabled="runningAlloc" @click = "runAllocation(false)">
         Run Allocations
+     </button>
+     <button class="btn btn-outline-danger btn-sm mt-2" :disabled="runningAlloc" data-testid="alloc-reset" @click="runAllocation(true)">
+        Reset everything (erases accepted)
      </button> <br>
 
      <label for="show"> Select show:</label>
      <select name="show" id="show" class="form-select" v-model="selectedShow" data-testid="alloc-event-select">
        <option v-for="show in shows" :value="show">{{ show }}</option>
      </select>
+     <!-- NEW: publish button for the show selected above. Disabled when nothing is waiting, so it cannot be pressed by accident. -->
+     <button class="btn btn-success btn-sm mt-2" :disabled="publishing || draftCount === 0" data-testid="alloc-publish" @click="publishShow">
+        Publish {{ selectedShow }} <span class="badge text-bg-light">{{ draftCount }} unpublished</span>
+     </button>
      <input type="text" class=" form-control my-2" placeholder="School search" v-model="searchbar">
     <div class="row" >
         
@@ -202,13 +260,15 @@ loadData();
           <h4 class="card-title">{{school.name}} </h4>
           <p class="card-text">
             Reporting time: {{school.reportingTime}} <br>
-            Capacity: {{school.volunteers.length}}/{{school.p5Classes}}
+            Capacity: {{filledCount(school)}}/{{school.p5Classes}}
           </p>
 
           <div v-for="volunteer in school.volunteers" class="border border-1 rounded p-2 m-1 d-flex justify-content-between">
             <span>
+              <!-- NEW: "Draft" = not published yet, volunteers cannot see it. Colours: red = Declined, dark = Withdrawn (they had none before). -->
+              <span v-if="!volunteer.published" class="badge text-bg-light border me-1">Draft</span>
               <span class="badge rounded-pill" 
-              :class="{'text-bg-warning':volunteer.status == 'Pending','text-bg-success':volunteer.status == 'Accepted'}"> 
+              :class="{'text-bg-warning':volunteer.status == 'Pending','text-bg-success':volunteer.status == 'Accepted','text-bg-danger':volunteer.status == 'Declined','text-bg-dark':volunteer.status == 'Withdrawn'}"> 
               {{  volunteer.status }} 
               </span>
               {{  volunteer.name }} ({{ volunteer.phone }}) 
@@ -237,5 +297,5 @@ loadData();
    
     </div>
 
-  </body>
+  </div>
 </template>

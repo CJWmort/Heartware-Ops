@@ -56,6 +56,17 @@ export async function acceptAssignment(assignmentId) {
   }
 }
 
+// NEW: decline a pending assignment (status: Pending -> Declined).
+// Before this, a volunteer who could not go had no way to give the place back.
+export async function declineAssignment(assignmentId, reason) {
+  try {
+    const { data } = await axios.patch(`/api/assignments/${assignmentId}/decline`, { reason }, { timeout: 15000 })
+    return data
+  } catch (error) {
+    throw addFriendlyMessage(error)
+  }
+}
+
 // Pull out of an accepted assignment (status: Accepted -> Withdrawn)
 export async function withdrawAssignment(assignmentId, reason) {
   try {
@@ -98,12 +109,13 @@ export function formatDate(date) {
 export function showStatus(show, availableShows) {
   if (show.assignment) return show.assignment.status // 'Pending' | 'Accepted' | 'Declined'
   if (!availableShows.includes(show.name)) return 'Not available'
+  if (show.onReserve) return 'On reserve list' // NEW: allocated but no school place was free (a published Reserve row)
   return 'Awaiting allocation'
 }
 
 // Bootstrap badge colour for each status
 export function statusClass(status) {
-  if (status === 'Not available') return 'text-bg-secondary'
+  if (status === 'Not available' || status === 'On reserve list') return 'text-bg-secondary' // grey: nothing for the volunteer to do'
   if (status === 'Awaiting allocation') return 'text-bg-info'
   if (status === 'Accepted') return 'text-bg-success'
   if (status === 'Declined') return 'text-bg-danger'
@@ -137,6 +149,7 @@ export function useMyAssignment() {
       shows.value = showList.map(s => ({
         ...s,
         assignment: assignments.find(a => a.show === s.name && a.school) || null,
+        onReserve: assignments.some(a => a.show === s.name && !a.school), // allocated, but no school free for them
       }))
       loaded.value = true
     } catch (error) {
@@ -160,13 +173,23 @@ export function useMyAssignment() {
     acceptingId.value = null
   }
 
-  // ===== Pull out popup =====
+  // ===== Decline / pull out popup (one popup, two modes) =====
+  // NEW: one popup serves two actions. Pending -> "decline", Accepted -> "withdraw" (they call different endpoints).
+  const pullOutMode = ref('withdraw') // 'decline' (Pending) or 'withdraw' (Accepted)
   const withdrawShow = ref(null) // show being pulled out of (popup is open when set)
   const withdrawReason = ref('')
   const withdrawing = ref(false)
   const withdrawError = ref('')
 
+  function openDeclineModal(show) {
+    pullOutMode.value = 'decline' // remember the mode so confirmWithdraw() calls the right endpoint'
+    withdrawShow.value = show
+    withdrawReason.value = ''
+    withdrawError.value = ''
+  }
+
   function openWithdrawModal(show) {
+    pullOutMode.value = 'withdraw'
     withdrawShow.value = show
     withdrawReason.value = ''
     withdrawError.value = ''
@@ -182,7 +205,9 @@ export function useMyAssignment() {
 
     try {
       const show = withdrawShow.value
-      show.assignment = await withdrawAssignment(show.assignment._id, withdrawReason.value) // updated status comes back
+      // pick the endpoint that matches the popup mode (decline = not accepted yet, withdraw = already accepted)
+      const send = pullOutMode.value === 'decline' ? declineAssignment : withdrawAssignment
+      show.assignment = await send(show.assignment._id, withdrawReason.value) // updated status comes back
       closeWithdrawModal()
     } catch (error) {
       withdrawError.value = error.friendlyMessage
@@ -216,7 +241,9 @@ export function useMyAssignment() {
       volAvailableShows.value = selectedShows.value
       closeAvailabilityModal()
     } catch (error) {
-      modalError.value = 'Failed to save your availability. Please try again.'
+      // NEW: show the server's reason when it has one (e.g. "You have accepted a place in NE Show 2. Press No-Show/Withdrawn first..."),
+      // otherwise the generic text
+      modalError.value = error.response?.data?.message || 'Failed to save your availability. Please try again.'
     }
 
     saving.value = false
@@ -227,7 +254,7 @@ export function useMyAssignment() {
     showAvailabilityModal, selectedShows, saving, modalError,
     openAvailabilityModal, closeAvailabilityModal, saveAvailability,
     acceptingId, acceptShow,
-    withdrawShow, withdrawReason, withdrawing, withdrawError,
-    openWithdrawModal, closeWithdrawModal, confirmWithdraw,
+    pullOutMode, withdrawShow, withdrawReason, withdrawing, withdrawError,
+    openDeclineModal, openWithdrawModal, closeWithdrawModal, confirmWithdraw,
   }
 }

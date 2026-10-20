@@ -8,9 +8,11 @@
   "scripts": {
     "dev": "nodemon server.js",
     "start": "node server.js",
+    "seed:shows": "node scripts/seed-shows.js",
     "seed:schools": "node scripts/seed-schools.js",
-    "seed:demo": "node scripts/seed-demo.js",
-    "simulate": "node scripts/simulate-pings.js",
+    "seed:admin": "node scripts/seed-admin.js",
+    "seed:volunteers": "node scripts/seed-volunteers.js",
+    "simulate:responses": "node scripts/simulate-responses.js",
     "test": "node --test \"tests/**/*.test.js\""
   },
   "dependencies": {
