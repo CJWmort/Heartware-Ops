@@ -4,8 +4,11 @@ const mongoose = require('mongoose');
 const AccountSchema = new mongoose.Schema({
     name: {
         type: String,
-        required: true,
-        unique: true
+        required: true
+        // FIX: removed `unique: true`. Two different people can share a name (e.g. two "Tan Wei Ming"), and the old rule
+        // made the second one's sign-up fail with "name already registered". Email and phone stay unique: they identify a person.
+        // NOTE: MongoDB keeps an existing unique index even after this line is removed. Run this once in mongosh / Compass:
+        //   db.accounts.dropIndex("name_1")
     },
     email: {
         type: String,
@@ -33,7 +36,9 @@ const AccountSchema = new mongoose.Schema({
     },
     role: {
         type: String,
-        required: true
+        required: true,
+        // FIX: any text could be saved as a role. Only the two roles the app understands are allowed now.
+        enum: { values: ['volunteer', 'admin'], message: 'Role must be volunteer or admin' }
     },
     password: {
         type: String,
@@ -42,6 +47,10 @@ const AccountSchema = new mongoose.Schema({
     availableShows: {
         type: [String],
         default: []
+    },
+    // NEW: when the volunteer ticked the location-sharing consent box at sign up (not required, so old accounts still load)
+    locationConsentAt: {
+        type: Date
     },
     lat: {
         type: Number,

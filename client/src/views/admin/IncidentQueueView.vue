@@ -1,9 +1,10 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, onUnmounted, ref } from 'vue'
 import PageHeader from '@/components/PageHeader.vue'
 import BaseMap from '@/components/BaseMap.vue'
 import { listIncidents, listTemplates, updateIncidentStatus } from '@/services/incidents'
 import IncidentCard from '@/components/IncidentCard.vue'
+import { connectSocket } from '@/services/socket' // NEW: live updates
 
 const incidents = ref([])
 const templatesByType = ref({}) // { STUDENT_UNWELL: {label, icon...}, BUS_DELAYED: {...}, ... }
@@ -14,7 +15,22 @@ let mapRef = null
 let leafletRef = null
 let incidentLayer = null
 
+// NEW: live updates. The server sends incident:new / incident:updated to admins only (the "hq" room).
+// Reloading the list (instead of patching one row) keeps the status/severity sort order identical to the first load.
+async function refreshIncidents() {
+  try {
+    incidents.value = await listIncidents()
+    plotIncidents()
+  } catch (error) {
+    errorMessage.value = error.friendlyMessage
+  }
+}
+let socket = null
+
 onMounted(async () => {
+  socket = connectSocket()
+  socket.on('incident:new', refreshIncidents)
+  socket.on('incident:updated', refreshIncidents)
   try {
     incidents.value = await listIncidents()
     const templates = await listTemplates()
@@ -29,7 +45,7 @@ onMounted(async () => {
 
 // Map ready, mapRef will be updated and
 function onMapReady(map, L) {
-  console.log('Map is ready')
+  // FIX: removed a debug console.log('Map is ready')
   mapRef = map
   leafletRef = L
 
@@ -76,9 +92,9 @@ function plotIncidents() {
   if (incidentPlots.length) mapRef.fitBounds(incidentPlots, { padding: [40, 40] })
 }
 
+// FIX: this only printed to the console. It now remembers the selected card (selectedId was declared but never set).
 function onSelect(incident) {
-  //need to follow up
-  console.log('selected', incident._id)
+  selectedId.value = incident._id
 }
 
 async function onAcknowledge(incident) {
@@ -102,6 +118,11 @@ async function onResolve(incident) {
     errorMessage.value = error.friendlyMessage
   }
 }
+// NEW: stop listening when the admin leaves the page, otherwise handlers pile up each time they come back
+onUnmounted(() => {
+  socket?.off('incident:new', refreshIncidents)
+  socket?.off('incident:updated', refreshIncidents)
+})
 </script>
 
 <template>
@@ -124,13 +145,14 @@ async function onResolve(incident) {
 
       <!-- status/cards will under map on iphone 16, left side on desktop -->
       <div class="col-12 col-lg-7 order-2 order-lg-1">
+        <!-- FIX: the card is marked selected by comparing _id (Mongo ids), the old `.id` was undefined so it never matched -->
         <div class="d-flex flex-column gap-3" data-testid="queue-new">
           <IncidentCard
             v-for="incident in incidents"
             :key="incident._id"
             :incident="incident"
             :template="templatesByType[incident.type]"
-            :selected="selectedId === incident.id"
+            :selected="selectedId === incident._id"
             @select="onSelect"
             @acknowledge="onAcknowledge"
             @resolve="onResolve"

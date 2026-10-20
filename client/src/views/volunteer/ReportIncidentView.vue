@@ -2,7 +2,6 @@
 // Feature 4 – Incident Reporting (volunteer side) — owner: Wei Ming
 // Spec: docs/FEATURES.md   ·   API calls: src/services/   ·   Tests: e2e/
 import PageHeader from '@/components/PageHeader.vue'
-import FeaturePlaceholder from '@/components/FeaturePlaceholder.vue'
 import { onMounted, ref } from 'vue'
 import { listTemplates, reportIncident, getAddressAt } from '@/services/incidents'
 import { getUserLocation, geolocationMessage } from '@/utils/geolocation'
@@ -17,14 +16,6 @@ const location = ref({}) // stores { lat, lng, accuracy } fetched from device
 const locationStatus = ref(null) // default shall be null to cater for gps errors
 const address = ref('') // address line to be pre-filled from GPS, volunteer can edit
 
-// TODO(Wei Ming): build this page, then delete FeaturePlaceholder below.
-const todos = [
-  'Big one-tap template buttons from listTemplates() (Student unwell, Bus delayed, Lost item, Other)',
-  'Optional note (max 500 chars with counter) + optional photo (camera input, resize before upload)',
-  'Location + your slot attached automatically; reportIncident() → success screen with "Report another"',
-  'Your recent reports with their status (new / ackno]wledged / resolved)',
-  'data-testids: incident-type-<TYPE>, incident-note, incident-photo, incident-submit, incident-success',
-]
 onMounted(async () => {
   try {
     templates.value = await listTemplates()
@@ -103,11 +94,6 @@ async function submitReport() {
 <template>
   <section>
     <PageHeader title="Incident Report" icon="bi-exclamation-triangle" />
-    <FeaturePlaceholder
-      feature="Feature 4 – Incident Reporting (volunteer side)"
-      owner="Wei Ming"
-      :todos="todos"
-    />
 
     <div v-if="errorMessage" class="alert alert-danger">{{ errorMessage }}</div>
     <div v-if="submitted" class="alert alert-success" data-testid="incident-success">

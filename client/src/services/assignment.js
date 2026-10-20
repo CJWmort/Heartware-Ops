@@ -270,7 +270,9 @@ export function useMyAssignment() {
       volAvailableShows.value = selectedShows.value
       closeAvailabilityModal()
     } catch (error) {
-      modalError.value = 'Failed to save your availability. Please try again.'
+      // NEW: show the server's reason when it has one (e.g. "You have accepted a place in NE Show 2. Press Can't make it first..."),
+      // otherwise the generic text
+      modalError.value = error.response?.data?.message || 'Failed to save your availability. Please try again.'
     }
 
     saving.value = false

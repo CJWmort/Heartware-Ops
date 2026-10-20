@@ -228,9 +228,41 @@ exports.undoMine = async function (assignmentId, volunteerId) {
     { new: true, runValidators: true }
   ).populate("school");
   if (!assignment) return { problem: "notfound" };
+
+  // FIX (race): two volunteers pressing Undo at the same instant could both pass the check in step 2 above and both
+  // take the last free place. So after saving, count again INCLUDING this volunteer. If the school is now over capacity,
+  // somebody else got in at the same moment: put this row back exactly as it was and report "full".
+  // (If both race together, both may roll back; the volunteers can simply press Undo again, so nobody is ever double-booked.)
+  const afterHolding = await Assignments.countDocuments({
+    show: row.show,
+    school: row.school,
+    status: { $in: ["Pending", "Accepted"] },
+  });
+  if (afterHolding > school.p5Classes) {
+    await Assignments.updateOne(
+      { _id: row._id, status: restoredStatus },
+      // only put the reason back if there was one (avoids saving "undefined")
+      { $set: { status: row.status, ...(row.withdrawReason ? { withdrawReason: row.withdrawReason } : {}) } }
+    );
+    return { problem: "full" };
+  }
   return { assignment };
 };
 
+
+// NEW (availability change): which of these shows has this volunteer ALREADY ACCEPTED? Returns e.g. ["NE Show 2"].
+// Used to block the volunteer from unticking a show they are committed to.
+exports.acceptedShowsAmong = async function (volunteerId, shows) {
+  const rows = await Assignments.find({ volunteer: volunteerId, show: { $in: shows }, status: CONFIRMED_STATUS }).select("show");
+  return rows.map((r) => r.show);
+};
+
+// NEW (availability change): the volunteer is no longer available for these shows, so drop the places that were
+// waiting for an answer (Pending) or on the reserve list. That frees the school place for the next allocation run.
+// Declined / Withdrawn rows are kept on purpose: they are the history of what the volunteer answered.
+exports.deleteOpenForShows = function (volunteerId, shows) {
+  return Assignments.deleteMany({ volunteer: volunteerId, show: { $in: shows }, status: { $in: ["Pending", "Reserve"] } });
+};
 
 // NEW (publish step): release the draft to volunteers. show = "NE Show 1" publishes that show only,
 // null publishes every show. $ne: true also catches old rows that have no "published" field at all.

@@ -28,6 +28,8 @@ RUN LOCALLY  (Node 22 or newer, pnpm installed)
          cd server
          pnpm install
          pnpm run seed:shows
+         pnpm run seed:schools        (loads the schools; only if the schools collection is empty. Uses server/data/schools.json (Compass export) if present, else DEMO shows/times)
+         pnpm run seed:schools -- --missing   (keeps schools already stored and ADDS the missing ones from primary_schools.json)
          ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='at-least-8-chars' pnpm run seed:admin
          pnpm run seed:volunteers      (optional: 400 DEMO volunteers around Singapore, password DemoPass123!)
          pnpm run seed:volunteers --remove   (deletes the demo volunteers and their assignments again)
@@ -60,3 +62,12 @@ NOTE ON client/vercel.json
   JSON files cannot hold comments, so: the first rule forwards every /api request from the Vercel site to your
   backend (replace YOUR-BACKEND-HOST). That keeps the browser talking to ONE origin, so the login cookie works
   without extra CORS or cookie settings. The second rule is the usual single-page-app fallback to index.html.
+
+Automated tests
+  Server (no database needed):   cd server  then  pnpm test
+  Client unit tests:             cd client  then  pnpm run test:unit -- --run
+  (CI in .github/workflows/ci.yml runs both on every pull request.)
+
+One-time database step after pulling the "remove-bugs" changes
+  The account "name" used to be unique. The code no longer requires that, but MongoDB keeps the old index.
+  In mongosh or Compass run:   db.accounts.dropIndex("name_1")

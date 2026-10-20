@@ -1,15 +1,7 @@
 // OneMap (external API) – live address preview on the registration form. Owner: Kuah (F1a)
 // Docs: https://www.onemap.gov.sg/apidocs/   (Search API needs no key)
 // The SERVER does the real geocoding when saving; this is only for the "📍 Found: ..." preview.
-// test
-// TODO(Kuah): call ONEMAP_SEARCH_URL with params
-//   { searchVal: postalCode, returnGeom: 'Y', getAddrDetails: 'Y', pageNum: 1 }
-// and return { address, lat, lng } for the first result, or null if none.
-// Tip: debounce calls (wait ~400 ms after the user stops typing) to avoid spamming the API.
-// export async function searchPostalCode(postalCode) {
-//   void axios // remove this line once you use axios
-//   throw new Error(`searchPostalCode not implemented yet (postal code ${postalCode})`)
-// }
+// FIX: removed a stale commented-out TODO block (the real postal lookup is implemented below).
 
 const axios = require('axios');
 
@@ -190,14 +182,14 @@ async function reverseGeocode(lat, lng) {
       res = await reverseSearch(lat, lng) //   …and try once more
     }
 
-    console.log(res.data) // 👈 TEMPORARY: so we can see what OneMap sends back
+    // FIX: removed a TEMPORARY console.log(res.data) that dumped OneMap's whole reply into the server log on every call
 
     // Piece 3 goes here
     const found = res.data.GeocodeInfo?.[0] // checks
     if (!found) return null // if nothing found from onemap, return null
     const addressParts = [found.BLOCK, found.ROAD, found.POSTALCODE, found.BUILDINGNAME]
     const address = addressParts.filter((part) => part && part !== 'NIL').join(' ') // any found.xxx is NIL will be skipped
-    console.log(address)
+    // FIX: removed a debug console.log(address) for the same reason
     return address || null
   } catch (error) {
     throw new Error(`OneMap reverse geocode failed (${error.response?.status || error.message})`)

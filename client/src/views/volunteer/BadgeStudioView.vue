@@ -2,9 +2,7 @@
 // Feature 5 – Badge Studio — owner: Hanafi
 // Spec: docs/FEATURES.md   ·   API calls: src/services/   ·   Tests: e2e/
 import PageHeader from '@/components/PageHeader.vue'
-import FeaturePlaceholder from '@/components/FeaturePlaceholder.vue'
 import { ref, computed } from 'vue'
-// TODO(Hanafi): build this page, then delete FeaturePlaceholder below.
 const colour = ref('#d6001c')
 const shape = ref('circle')
 const ribbonText = ref('')

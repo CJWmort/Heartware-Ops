@@ -16,7 +16,9 @@ server.use(express.json());
 
 // if running locally, “http://localhost:8000/index.html”
 // should load the home page of your application
-server.use("/", express.static("public"));
+// FIX: this served a "public" folder that does not exist in the project, so it was dead code. Removed; the Vue app is
+// built and hosted separately (Vercel), not by Express.
+// server.use("/", express.static("public"));
 
 // Specify the path to the environment variablef file 'config.env'
 dotenv.config({ path: "./config.env" });
