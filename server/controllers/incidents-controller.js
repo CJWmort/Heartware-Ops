@@ -48,7 +48,7 @@ exports.createIncident = async (req, res) => {
       volunteer: req.session.userId,
       history: [{ status: "new" }],
     });
-    emit("incident:new", incident); //new incident alert
+    emit("incident:new", incident, "hq"); //new incident alert. FIX: "hq" room = admins only (was sent to every connected browser)
     res.status(201).json(incident);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -90,7 +90,7 @@ exports.updateIncidentStatus = async (req, res) => {
     incident.status = status;
     incident.history.push({ status, note });
     await incident.save();
-    emit("incident:updated", incident); // this will be removed from the alert
+    emit("incident:updated", incident, "hq"); // this will be removed from the alert. FIX: admins only, same reason
     res.json(incident);
   } catch (error) {
     res.status(500).json({ message: error.message });

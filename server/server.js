@@ -27,8 +27,9 @@ const isProduction = process.env.NODE_ENV === "production";
 if (isProduction) server.set("trust proxy", 1);
 
 // Allow session storage while server is running
-server.use(
-  session({
+// FIX (sockets): the session settings are kept in a variable (not inlined) so Socket.IO can reuse the SAME login
+// cookie check. Before, sockets did no login check at all.
+const sessionMiddleware = session({
     secret: process.env.SECRET,
     resave: false,
     saveUninitialized: false,
@@ -38,8 +39,8 @@ server.use(
       secure: isProduction, // only send the cookie over HTTPS when deployed
       maxAge: 1000 * 60 * 60 * 8 // 8 hours
     }
-  }),
-);
+  });
+server.use(sessionMiddleware);
 
 // Routing
 server.use("/api/users", require("./routes/accounts-routes"));
@@ -68,7 +69,7 @@ function startServer() {
   const port = Number(process.env.PORT) || 8000;
 
   const httpServer = http.createServer(server); // wrap express for sockets by weiming
-  initSockets(httpServer); // start socket.io
+  initSockets(httpServer, sessionMiddleware); // start socket.io (FIX: pass the session so it can tell who connects)
 
   //start the http server and listen on specific hostname and port
   // The reason for the wrapper: httpServer is now the "door" on port 8000. Normal requests like GET /api/incidents get passed to Express (server),
