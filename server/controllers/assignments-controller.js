@@ -1,44 +1,43 @@
-const mongoose = require('mongoose');
-const Assignments = require('../models/assignments-model');
-const Account = require('../models/account-model');
-const School = require('../models/schools-model');
+const mongoose = require("mongoose");
+const Assignments = require("../models/assignments-model");
+const Account = require("../models/account-model");
+const School = require("../models/schools-model");
 const dotenv = require("dotenv");
 
-
-const { scarcityFirst } = require('../utils/scarcityFirst');
-const { greedyByPair } = require('../utils/greedy');
+const { scarcityFirst } = require("../utils/scarcityFirst");
+const { greedyByPair } = require("../utils/greedy");
 
 // dotenv.config({ path: "./config.env" }); //process.env.ONEMAP_TOKEN
 
 // GET /api/assignments/
 exports.getAssignments = async (req, res) => {
-    try {
-        const assignments = await Assignments.retrieveAll();
-        res.json(assignments);
-    } catch (error) {
-        res.status(500).json({message: error.message});
-    }
+  try {
+    const assignments = await Assignments.retrieveAll();
+    res.json(assignments);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 };
 
 // GET /api/assignments/me -- the logged in volunteer's assignments
 exports.getMyAssignments = async (req, res) => {
-    try {
-        const assignments = await Assignments.findMine(req.session.userId);
-        res.json(assignments);
-    } catch (error) {
-        res.status(500).json({message: error.message});
-    }
+  try {
+    const assignments = await Assignments.findMine(req.session.userId);
+    res.json(assignments);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 };
 
 // GET /api/assignments/show/:show
 exports.getShowAssignments = async (req, res) => {
-    try {
-        const show = req.params.show
-        const assignments = await Assignments.findByShow(show);
-        res.json(assignments);
-    } catch (error) {
-        res.status(500).json({message: error.message});
-    }
+  try {
+    const show = req.params.show;
+    const assignments = await Assignments.findByShow(show);
+    res.json(assignments);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 };
 
 // POST /api/assignments/run -- assigns volunteers to schools (admin only)
@@ -47,172 +46,155 @@ exports.getShowAssignments = async (req, res) => {
 // brand-new volunteers) are matched, to the places that are still open.
 // Body { reset: true } wipes everything instead (including accepted) for a fresh start.
 // The result is saved as a DRAFT (published = false); volunteers see it only after /publish.
-exports.runAssignments = async (req,res) => {
-    try {
-        // Only a real boolean true resets; the string "true" does not, so a typo can't erase accepted volunteers
-        const reset = req.body?.reset === true;
-        // Rows that must survive this run (Accepted / Declined / Withdrawn); nothing is kept on a reset
-        const kept = reset ? [] : await Assignments.findKept();
+exports.runAssignments = async (req, res) => {
+  try {
+    // Only a real boolean true resets; the string "true" does not, so a typo can't erase accepted volunteers
+    const reset = req.body?.reset === true;
+    // Rows that must survive this run (Accepted / Declined / Withdrawn); nothing is kept on a reset
+    const kept = reset ? [] : await Assignments.findKept();
 
-        // Work out every show first, so a bad record stops the run BEFORE anything is deleted
-        // (before: delete first, so one error halfway left the table empty)
-        const results = [];
-        // FIX: was `for (show of [...])` with no `const`, which created an accidental global variable.
-        // Assignments.SHOWS comes from the model's enum, so the list of shows lives in one place instead of four.
-        for (const show of Assignments.SHOWS){
-            const keptInShow = kept.filter(a => a.show === show);
+    // Work out every show first, so a bad record stops the run BEFORE anything is deleted
+    // (before: delete first, so one error halfway left the table empty)
+    const results = [];
+    // FIX: was `for (show of [...])` with no `const`, which created an accidental global variable.
+    // Assignments.SHOWS comes from the model's enum, so the list of shows lives in one place instead of four.
+    for (const show of Assignments.SHOWS) {
+      const keptInShow = kept.filter((a) => a.show === show);
 
-            // Volunteers who already have a final answer for this show are left out of the matching,
-            // otherwise they would get a second row for the same show (the database allows only one)
-            const locked = new Set(keptInShow.map(a => String(a.volunteer)));
+      // Volunteers who already have a final answer for this show are left out of the matching,
+      // otherwise they would get a second row for the same show (the database allows only one)
+      const locked = new Set(keptInShow.map((a) => String(a.volunteer)));
 
-            // Places already taken by accepted volunteers, per school (key = school id as text)
-            const taken = {};
-            for (const a of keptInShow) {
-                if (a.status === "Accepted" && a.school) {
-                    taken[String(a.school)] = (taken[String(a.school)] || 0) + 1;
-                }
-            }
-
-            const volunteers = (await Account.findVolunteersByShow(show))
-                .filter(v => !locked.has(String(v._id)));
-            // Give the algorithm each school with only its OPEN places (p5Classes minus accepted).
-            // Math.max(0, ...) stops a negative number if a school was over-filled.
-            const schools = (await School.findByShow(show)).map(s => ({
-                _id: s._id, name: s.name, lat: s.lat, lng: s.lng, show: s.show,
-                p5Classes: Math.max(0, s.p5Classes - (taken[String(s._id)] || 0)),
-            }));
-
-            results.push(...scarcityFirst(volunteers,schools,show));
+      // Places already taken by accepted volunteers, per school (key = school id as text)
+      const taken = {};
+      for (const a of keptInShow) {
+        if (a.status === "Accepted" && a.school) {
+          taken[String(a.school)] = (taken[String(a.school)] || 0) + 1;
         }
+      }
 
-        // Check every record BEFORE deleting, so a bad record can never leave the table empty
-        const problems = Assignments.validateMany(results);
-        if (problems.length > 0) {
-            return res.status(500).json({message: `Allocation not saved (${problems.length} invalid record(s)): ${problems[0]}`});
-        }
+      const volunteers = (await Account.findVolunteersByShow(show)).filter(
+        (v) => !locked.has(String(v._id)),
+      );
+      // Give the algorithm each school with only its OPEN places (p5Classes minus accepted).
+      // Math.max(0, ...) stops a negative number if a school was over-filled.
+      const schools = (await School.findByShow(show)).map((s) => ({
+        _id: s._id,
+        name: s.name,
+        lat: s.lat,
+        lng: s.lng,
+        show: s.show,
+        p5Classes: Math.max(0, s.p5Classes - (taken[String(s._id)] || 0)),
+      }));
 
-        // Remove only what is being re-calculated (or everything, on a reset), then save the new matches
-        if (reset) await Assignments.deleteAll();
-        else await Assignments.deleteReplaceable();
-        await Assignments.createMany(results);
-        const assignments = await Assignments.retrieveAll();
-        res.json(assignments);
-    } catch (error) {
-        res.status(500).json({message: error.message})
+      results.push(...scarcityFirst(volunteers, schools, show));
     }
-}
+
+    // Check every record BEFORE deleting, so a bad record can never leave the table empty
+    const problems = Assignments.validateMany(results);
+    if (problems.length > 0) {
+      return res.status(500).json({
+        message: `Allocation not saved (${problems.length} invalid record(s)): ${problems[0]}`,
+      });
+    }
+
+    // Remove only what is being re-calculated (or everything, on a reset), then save the new matches
+    if (reset) await Assignments.deleteAll();
+    else await Assignments.deleteReplaceable();
+    await Assignments.createMany(results);
+    const assignments = await Assignments.retrieveAll();
+    res.json(assignments);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
 
 // POST /api/assignments/publish -- release the draft allocation to volunteers (admin only)
 // body: { show?: "NE Show 1" }  (leave show out to publish every show)
 // Until this is called, volunteers see "Awaiting allocation", so the admin can review and fix first.
 exports.publishAssignments = async (req, res) => {
-    try {
-        const show = typeof req.body?.show === 'string' ? req.body.show.trim() : '';
-        // Reject unknown show names instead of silently publishing nothing
-        if (show && !Assignments.SHOWS.includes(show)) {
-            return res.status(400).json({message: 'Unknown show.'});
-        }
-
-        const result = await Assignments.publish(show || null);
-        // modifiedCount = how many rows were released (0 means everything was already published)
-        res.json({published: result.modifiedCount, show: show || 'all'});
-    } catch (error) {
-        res.status(500).json({message: error.message});
+  try {
+    const show = typeof req.body?.show === "string" ? req.body.show.trim() : "";
+    // Reject unknown show names instead of silently publishing nothing
+    if (show && !Assignments.SHOWS.includes(show)) {
+      return res.status(400).json({ message: "Unknown show." });
     }
+
+    const result = await Assignments.publish(show || null);
+    // modifiedCount = how many rows were released (0 means everything was already published)
+    res.json({ published: result.modifiedCount, show: show || "all" });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 };
 
 // PATCH /api/assignments/:id/accept -- logged in volunteer accepts their assignment
 exports.acceptMyAssignment = async (req, res) => {
-    try {
-        const { id } = req.params;
-        if (!mongoose.Types.ObjectId.isValid(id)) {
-            return res.status(400).json({message: 'Invalid assignment id'});
-        }
-
-        const assignment = await Assignments.acceptMine(id, req.session.userId);
-        if (!assignment) {
-            return res.status(404).json({message: 'No pending assignment found to accept.'});
-        }
-        res.json(assignment);
-    } catch (error) {
-        res.status(500).json({message: error.message});
+  try {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid assignment id" });
     }
+
+    const assignment = await Assignments.acceptMine(id, req.session.userId);
+    if (!assignment) {
+      return res.status(404).json({ message: "No pending assignment found to accept." });
+    }
+    res.json(assignment);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 };
 
 // PATCH /api/assignments/:id/decline -- logged in volunteer declines a pending assignment
 // NEW: before this, a volunteer who could not go had no way to give the place back.
 // body: { reason?: "..." }
 exports.declineMyAssignment = async (req, res) => {
-    try {
-        const { id } = req.params;
-        // a malformed id would make MongoDB throw, so answer 400 before querying
-        if (!mongoose.Types.ObjectId.isValid(id)) {
-            return res.status(400).json({message: 'Invalid assignment id'});
-        }
-
-        // reason is optional; trim() removes stray spaces, and a missing body (req.body undefined) gives ''
-        const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
-        if (reason.length > 300) {
-            return res.status(400).json({message: 'Reason must be 300 characters or fewer.'});
-        }
-
-        // the session user id (not a body field) decides whose row is changed, so nobody can decline for someone else
-        const assignment = await Assignments.declineMine(id, req.session.userId, reason);
-        // nothing matched = not yours, not Pending, or not published yet
-        if (!assignment) {
-            return res.status(404).json({message: 'No pending assignment found to decline.'});
-        }
-        res.json(assignment);
-    } catch (error) {
-        res.status(500).json({message: error.message});
+  try {
+    const { id } = req.params;
+    // a malformed id would make MongoDB throw, so answer 400 before querying
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid assignment id" });
     }
-};
 
-// NEW (undo): PATCH /api/assignments/:id/undo -- volunteer takes back a place they declined or withdrew from.
-// Works only while the place is still unfilled (see Assignments.undoMine for the rules).
-exports.undoMyAssignment = async (req, res) => {
-    try {
-        const { id } = req.params;
-        if (!mongoose.Types.ObjectId.isValid(id)) {
-            return res.status(400).json({message: 'Invalid assignment id'});
-        }
-
-        // session user id decides whose row is changed, so nobody can undo for someone else
-        const result = await Assignments.undoMine(id, req.session.userId);
-        if (result.problem === 'full') {
-            // 409 = the request is fine but clashes with the current state (someone else took the place)
-            return res.status(409).json({message: 'Sorry, this place has already been given to another volunteer, so it cannot be taken back.'});
-        }
-        if (result.problem) {
-            return res.status(404).json({message: 'No declined or withdrawn assignment found to undo.'});
-        }
-        res.json(result.assignment);
-    } catch (error) {
-        res.status(500).json({message: error.message});
+    // reason is optional; trim() removes stray spaces, and a missing body (req.body undefined) gives ''
+    const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+    if (reason.length > 300) {
+      return res.status(400).json({ message: "Reason must be 300 characters or fewer." });
     }
+
+    // the session user id (not a body field) decides whose row is changed, so nobody can decline for someone else
+    const assignment = await Assignments.declineMine(id, req.session.userId, reason);
+    // nothing matched = not yours, not Pending, or not published yet
+    if (!assignment) {
+      return res.status(404).json({ message: "No pending assignment found to decline." });
+    }
+    res.json(assignment);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 };
 
 // PATCH /api/assignments/:id/withdraw -- logged in volunteer pulls out of an accepted assignment
 // body: { reason?: "..." }
 exports.withdrawMyAssignment = async (req, res) => {
-    try {
-        const { id } = req.params;
-        if (!mongoose.Types.ObjectId.isValid(id)) {
-            return res.status(400).json({message: 'Invalid assignment id'});
-        }
-
-        const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
-        if (reason.length > 300) {
-            return res.status(400).json({message: 'Reason must be 300 characters or fewer.'});
-        }
-
-        const assignment = await Assignments.withdrawMine(id, req.session.userId, reason);
-        if (!assignment) {
-            return res.status(404).json({message: 'No accepted assignment found to pull out of.'});
-        }
-        res.json(assignment);
-    } catch (error) {
-        res.status(500).json({message: error.message});
+  try {
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid assignment id" });
     }
+
+    const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+    if (reason.length > 300) {
+      return res.status(400).json({ message: "Reason must be 300 characters or fewer." });
+    }
+
+    const assignment = await Assignments.withdrawMine(id, req.session.userId, reason);
+    if (!assignment) {
+      return res.status(404).json({ message: "No accepted assignment found to pull out of." });
+    }
+    res.json(assignment);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 };

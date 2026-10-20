@@ -10,14 +10,14 @@ const Assignments = require('../models/assignments-model'); // NEW: needed to ti
 // NEW (availability change): FIX for "stale allocations". Before, a volunteer could untick a show AFTER being allocated
 // to it, and the allocation stayed, so the school place was held by someone who said they could not come.
 // Call this with the shows being removed. Returns an error message if the change must be refused, otherwise ''.
-//  - already ACCEPTED a place in one of them -> refuse (they must press "Can't make it" first, so the withdrawal is recorded
+//  - already ACCEPTED a place in one of them -> refuse (they must press "No-Show/Withdrawn" first, so the withdrawal is recorded
 //    with a reason and can be offered to a replacement)
 //  - Pending / Reserve rows -> deleted, which frees the place
 async function releaseRemovedShows(userId, removedShows) {
     if (removedShows.length === 0) return '';
     const accepted = await Assignments.acceptedShowsAmong(userId, removedShows);
     if (accepted.length > 0) {
-        return `You have accepted a place in ${accepted.join(', ')}. Press "Can't make it" on My Assignment first, then remove the show.`;
+        return `You have accepted a place in ${accepted.join(', ')}. Press "No-Show/Withdrawn" on My Assignment first, then remove the show.`;
     }
     await Assignments.deleteOpenForShows(userId, removedShows);
     return '';

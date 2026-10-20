@@ -23,8 +23,6 @@ const {
   saveAvailability,
   acceptingId,
   acceptShow,
-  undoingId,
-  undoShow, // NEW: Undo button state + action
   pullOutMode,
   withdrawShow,
   withdrawReason,
@@ -105,8 +103,8 @@ onMounted(loadData)
               </td>
               <!-- Action column. Which buttons appear depends on the status:
                    Pending  -> Accept / Decline (volunteer has not answered yet)
-                   Accepted -> "No-Show/Withdrawn (pull out, the place is reopened)
-                   Declined / Withdrawn
+                   Accepted -> "No-Show/Withdrawn" (pull out; the place is reopened)
+                   Declined / Withdrawn -> no button: the answer is final (there is no Undo)
                    anything else (reserve, not available) -> nothing to do -->
               <td class="text-center text-nowrap">
                 <template v-if="show.assignment?.status === 'Pending'">
@@ -166,8 +164,10 @@ onMounted(loadData)
         <div class="modal-dialog modal-dialog-centered">
           <div class="modal-content">
             <div class="modal-header">
+              <!-- CHANGED: the Accepted wording was "Pull out of ...?". It now uses the same words as the row button
+                   ("No-Show/Withdrawn") so the volunteer sees one name for one action. Decline wording is unchanged. -->
               <h5 class="modal-title" id="pullout-title">
-                {{ pullOutMode === 'decline' ? 'Decline' : 'Pull out of' }} {{ withdrawShow.name }}?
+                {{ pullOutMode === 'decline' ? 'Decline' : 'No-Show/Withdrawn for' }} {{ withdrawShow.name }}?
               </h5>
               <button
                 type="button"
@@ -207,6 +207,7 @@ onMounted(loadData)
               >
                 Keep my slot
               </button>
+              <!-- CHANGED: confirm button text was "Pull out"; now matches the row button, "No-Show/Withdrawn". -->
               <button
                 type="button"
                 class="btn btn-danger"
@@ -219,7 +220,7 @@ onMounted(loadData)
                   class="spinner-border spinner-border-sm me-1"
                   aria-hidden="true"
                 ></span>
-                {{ pullOutMode === 'decline' ? 'Decline' : 'Pull out' }}
+                {{ pullOutMode === 'decline' ? 'Decline' : 'No-Show/Withdrawn' }}
               </button>
             </div>
           </div>

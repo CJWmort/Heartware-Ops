@@ -190,66 +190,6 @@ exports.withdrawMine = function (assignmentId, volunteerId, reason) {
 };
 
 
-// NEW (undo / change of mind): a volunteer who Declined or Withdrew can take the place back,
-// BUT only while nobody else has been given it. Rules:
-//  - Declined  -> goes back to Pending   (they still have to press Accept, exactly as before they declined)
-//  - Withdrawn -> goes back to Accepted  (they had accepted before pulling out)
-// Returns { assignment } on success, or { problem: "notfound" | "full" } so the controller can pick the message.
-exports.undoMine = async function (assignmentId, volunteerId) {
-  // 1. The row must be this volunteer's own, released (published), and currently Declined or Withdrawn.
-  const row = await Assignments.findOne({
-    _id: assignmentId,
-    volunteer: volunteerId,
-    published: true,
-    status: { $in: ["Declined", "Withdrawn"] },
-    school: { $ne: null }, // a Reserve row has no school, so there is no place to take back
-  });
-  if (!row) return { problem: "notfound" };
-
-  // 2. Is the place still free? Count the OTHER people holding a place at this school for this show.
-  //    Only Pending and Accepted rows hold a place (Declined / Withdrawn / Reserve do not).
-  //    Drafts count too, because they will become real places when the admin publishes them.
-  const school = await Schools.findById(row.school);
-  if (!school) return { problem: "notfound" };
-  const holding = await Assignments.countDocuments({
-    show: row.show,
-    school: row.school,
-    _id: { $ne: row._id },
-    status: { $in: ["Pending", "Accepted"] },
-  });
-  if (holding >= school.p5Classes) return { problem: "full" };
-
-  // 3. Restore the old status. The filter repeats the CURRENT status so that two quick clicks (or a re-run that
-  //    changed the row in between) cannot overwrite something newer. $unset clears the old decline/pull-out reason.
-  const restoredStatus = row.status === "Declined" ? "Pending" : "Accepted";
-  const assignment = await Assignments.findOneAndUpdate(
-    { _id: row._id, status: row.status },
-    { $set: { status: restoredStatus }, $unset: { withdrawReason: "" } },
-    { new: true, runValidators: true }
-  ).populate("school");
-  if (!assignment) return { problem: "notfound" };
-
-  // FIX (race): two volunteers pressing Undo at the same instant could both pass the check in step 2 above and both
-  // take the last free place. So after saving, count again INCLUDING this volunteer. If the school is now over capacity,
-  // somebody else got in at the same moment: put this row back exactly as it was and report "full".
-  // (If both race together, both may roll back; the volunteers can simply press Undo again, so nobody is ever double-booked.)
-  const afterHolding = await Assignments.countDocuments({
-    show: row.show,
-    school: row.school,
-    status: { $in: ["Pending", "Accepted"] },
-  });
-  if (afterHolding > school.p5Classes) {
-    await Assignments.updateOne(
-      { _id: row._id, status: restoredStatus },
-      // only put the reason back if there was one (avoids saving "undefined")
-      { $set: { status: row.status, ...(row.withdrawReason ? { withdrawReason: row.withdrawReason } : {}) } }
-    );
-    return { problem: "full" };
-  }
-  return { assignment };
-};
-
-
 // NEW (availability change): which of these shows has this volunteer ALREADY ACCEPTED? Returns e.g. ["NE Show 2"].
 // Used to block the volunteer from unticking a show they are committed to.
 exports.acceptedShowsAmong = async function (volunteerId, shows) {

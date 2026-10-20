@@ -67,17 +67,6 @@ export async function declineAssignment(assignmentId, reason) {
   }
 }
 
-// NEW (undo): take back a declined / withdrawn place. Declined -> Pending, Withdrawn -> Accepted.
-// The server answers 409 with a friendly message if the place was already given to someone else.
-export async function undoAssignment(assignmentId) {
-  try {
-    const { data } = await axios.patch(`/api/assignments/${assignmentId}/undo`, {}, { timeout: 15000 })
-    return data
-  } catch (error) {
-    throw addFriendlyMessage(error)
-  }
-}
-
 // Pull out of an accepted assignment (status: Accepted -> Withdrawn)
 export async function withdrawAssignment(assignmentId, reason) {
   try {
@@ -184,24 +173,6 @@ export function useMyAssignment() {
     acceptingId.value = null
   }
 
-  // ===== Undo (change of mind) =====
-  // NEW: lets a volunteer reverse a Decline / "Can't make it" while the place is still free.
-  const undoingId = ref(null) // assignment being restored (disables its button so it cannot be double-clicked)
-
-  async function undoShow(show) {
-    errorMessage.value = ''
-    undoingId.value = show.assignment._id
-
-    try {
-      show.assignment = await undoAssignment(show.assignment._id) // new status comes back (Pending or Accepted)
-    } catch (error) {
-      // e.g. 409 "place already given to another volunteer": show the message, leave the row as it was
-      errorMessage.value = error.friendlyMessage
-    }
-
-    undoingId.value = null
-  }
-
   // ===== Decline / pull out popup (one popup, two modes) =====
   // NEW: one popup serves two actions. Pending -> "decline", Accepted -> "withdraw" (they call different endpoints).
   const pullOutMode = ref('withdraw') // 'decline' (Pending) or 'withdraw' (Accepted)
@@ -270,7 +241,7 @@ export function useMyAssignment() {
       volAvailableShows.value = selectedShows.value
       closeAvailabilityModal()
     } catch (error) {
-      // NEW: show the server's reason when it has one (e.g. "You have accepted a place in NE Show 2. Press Can't make it first..."),
+      // NEW: show the server's reason when it has one (e.g. "You have accepted a place in NE Show 2. Press No-Show/Withdrawn first..."),
       // otherwise the generic text
       modalError.value = error.response?.data?.message || 'Failed to save your availability. Please try again.'
     }
@@ -283,7 +254,6 @@ export function useMyAssignment() {
     showAvailabilityModal, selectedShows, saving, modalError,
     openAvailabilityModal, closeAvailabilityModal, saveAvailability,
     acceptingId, acceptShow,
-    undoingId, undoShow,
     pullOutMode, withdrawShow, withdrawReason, withdrawing, withdrawError,
     openDeclineModal, openWithdrawModal, closeWithdrawModal, confirmWithdraw,
   }

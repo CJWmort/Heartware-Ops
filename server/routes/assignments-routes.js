@@ -22,8 +22,7 @@ router.patch("/:id/accept", requireLogin, assignmentsController.acceptMyAssignme
 // NEW: the spec says volunteers "accept or decline"; only accept and withdraw existed before.
 router.patch("/:id/decline", requireLogin, assignmentsController.declineMyAssignment); // endpoint - logged in volunteer declines a pending assignment
 router.patch("/:id/withdraw", requireLogin, assignmentsController.withdrawMyAssignment); // endpoint - logged in volunteer pulls out of an accepted assignment
-// NEW (undo): change of mind. Declined -> Pending, Withdrawn -> Accepted, only if the place is still free (else 409).
-router.patch("/:id/undo", requireLogin, assignmentsController.undoMyAssignment); // endpoint - logged in volunteer takes back a declined/withdrawn assignment
+// NOTE: there is no Undo endpoint. The team decided a Declined / Withdrawn answer is final (the Undo code was removed).
 
 // router.post("/reassign/:school", allocationsController.reassignSlots); // endpoint - find replacement volunteer for school
 // router.get("/volAssignemnt/:v_id", allocationsController.getVolAssignment); // endpoint - get assignment for session volunteer (WJ)
