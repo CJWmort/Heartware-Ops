@@ -32,16 +32,16 @@ if (isProduction) server.set("trust proxy", 1);
 // FIX (sockets): the session settings are kept in a variable (not inlined) so Socket.IO can reuse the SAME login
 // cookie check. Before, sockets did no login check at all.
 const sessionMiddleware = session({
-    secret: process.env.SECRET,
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-      httpOnly: true, // JS can't read it
-      sameSite: 'lax', // fine while the browser talks to ONE origin (see client/vercel.json rewrite)
-      secure: isProduction, // only send the cookie over HTTPS when deployed
-      maxAge: 1000 * 60 * 60 * 8 // 8 hours
-    }
-  });
+  secret: process.env.SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    httpOnly: true, // JS can't read it
+    sameSite: "lax", // fine while the browser talks to ONE origin (see client/vercel.json rewrite)
+    secure: isProduction, // only send the cookie over HTTPS when deployed
+    maxAge: 1000 * 60 * 60 * 8, // 8 hours
+  },
+});
 server.use(sessionMiddleware);
 
 // Routing
@@ -52,6 +52,7 @@ server.use("/api/badges", require("./routes/badges-routes"));
 server.use("/api/assignments", require("./routes/assignments-routes"));
 server.use("/api/locations", require("./routes/locations-routes"));
 server.use("/api/shows", require("./routes/shows-routes"));
+server.use("/api/messages", require("./routes/messages-routes"));
 
 // async function to connect to DB
 async function connectDB() {
