@@ -2,6 +2,9 @@ const mongoose = require("mongoose");
 const Schools = require('./schools-model');
 const Account = require('./account-model');
 const CONFIRMED_STATUS = "Accepted"; // The status that counts as volunteer accepted the allocation
+// FIX (security): .populate("volunteer") used to copy the WHOLE account into the response, including the
+// password hash. We now list only the fields the admin board needs (lat/lng are for the map).
+const VOLUNTEER_FIELDS = "name phone email postalCode address lat lng";
 
 // Create a new 'assignment' schema
 // One document = one volunteer tagged to one school for one show
@@ -40,12 +43,20 @@ const AssignmentsSchema = new mongoose.Schema({
     type: String,
     required: true,
     enum: {
-      values: ["Pending", "Accepted", "Declined", "Reserve"],
-      message: "Status must be Pending, Accepted, Declined or Reserve",
+      // FIX: "Withdrawn" was missing, so withdrawMine() failed validation and the server answered 500.
+      values: ["Pending", "Accepted", "Declined", "Withdrawn", "Reserve"],
+      message: "Status must be Pending, Accepted, Declined, Withdrawn or Reserve",
     },
     default: "Pending",
   },
-  // why the volunteer pulled out after accepting (only set when status is 'Withdrawn')
+  // NEW (publish step): a new allocation starts as a DRAFT that only the admin can see.
+  // Volunteers see (and can accept/decline) a row only after the admin presses "Publish".
+  // Rows saved before this field existed have no value, so they stay hidden until published once.
+  published: {
+    type: Boolean,
+    default: false,
+  },
+  // why the volunteer declined or pulled out (only set when status is 'Declined' or 'Withdrawn')
   withdrawReason: {
     type: String,
     trim: true,
@@ -71,7 +82,33 @@ exports.deleteAll = function () {
 };
 
 
+// NEW (re-run safety): assignments that must SURVIVE a re-run, because the volunteer already gave a
+// final answer (Accepted, Declined or Withdrawn). The controller keeps these and only fills what is left.
+exports.findKept = function () {
+  return Assignments.find({ status: { $in: [CONFIRMED_STATUS, "Declined", "Withdrawn"] } })
+    .select("volunteer school show status") // only what the run needs
+    .lean(); // plain objects: faster, and we never save them back
+};
+
+// NEW (re-run safety): delete ONLY what a re-run recalculates (Pending and Reserve).
+// Accepted / Declined / Withdrawn rows are left alone, so nobody who accepted is ever re-assigned.
+exports.deleteReplaceable = function () {
+  return Assignments.deleteMany({ status: { $in: ["Pending", "Reserve"] } });
+};
+
+
 // ===== CREATE =====
+
+// Check records against the schema WITHOUT saving them. Returns a list of problems (empty = all fine).
+// The controller calls this before deleteAll(), so a bad record can never leave the table empty.
+exports.validateMany = function (assignments) {
+  const problems = [];
+  for (const record of assignments) {
+    const error = new Assignments(record).validateSync();
+    if (error) problems.push(Object.values(error.errors).map((e) => e.message).join("; "));
+  }
+  return problems;
+};
 
 // Save many assignments at once, e.g. the result of scarcityFirst():
 //   [{ volunteer, school, show, distance }, ...]
@@ -84,22 +121,22 @@ exports.createMany = function (assignments) {
 
 // Fetch all assignments, newest first
 exports.retrieveAll = function () {
-  return Assignments.find().populate("school").populate("volunteer").sort({ _id: -1 });
+  return Assignments.find().populate("school").populate("volunteer", VOLUNTEER_FIELDS).sort({ _id: -1 }); // volunteer limited: no password hash
 };
 
 // Fetch all assignments of a volunteer (across shows)
 exports.findByVolunteer = function (volunteerId) {
-  return Assignments.find({ volunteer: volunteerId }).populate("school").populate("volunteer").sort({ show: 1 });
+  return Assignments.find({ volunteer: volunteerId }).populate("school").populate("volunteer", VOLUNTEER_FIELDS).sort({ show: 1 }); // volunteer limited: no password hash
 };
 
 // Fetch all assignments of a school, optionally only one status
 exports.findBySchool = function (schoolId) {
-  return Assignments.find({ school: schoolId }).populate("school").populate("volunteer").sort({ _id: 1 });
+  return Assignments.find({ school: schoolId }).populate("school").populate("volunteer", VOLUNTEER_FIELDS).sort({ _id: 1 }); // volunteer limited: no password hash
 };
 
 // Fetch all assignments in a show (e.g. 'NE Show 1')
 exports.findByShow = function (show) {
-  return Assignments.find({ show: show.trim() }).populate("school").populate("volunteer").sort({ show: 1 });
+  return Assignments.find({ show: show.trim() }).populate("school").populate("volunteer", VOLUNTEER_FIELDS).sort({ show: 1 }); // volunteer limited: no password hash
 };
 
 // True if the volunteer has at least one "Accepted" assignment (any show) - Jun Wen
@@ -110,7 +147,8 @@ exports.hasConfirmed = async function (volunteerId) {
 // Fetch the logged in volunteer's own assignments, with the school filled in.
 // Volunteer is not populated so the account (and password hash) is never sent back.
 exports.findMine = function (volunteerId) {
-  return Assignments.find({ volunteer: volunteerId }).populate("school").sort({ show: 1 });
+  // published: true -> a volunteer never sees a draft allocation the admin has not released yet
+  return Assignments.find({ volunteer: volunteerId, published: true }).populate("school").sort({ show: 1 });
 };
 
 
@@ -121,8 +159,21 @@ exports.findMine = function (volunteerId) {
 // so returns null otherwise.
 exports.acceptMine = function (assignmentId, volunteerId) {
   return Assignments.findOneAndUpdate(
-    { _id: assignmentId, volunteer: volunteerId, status: "Pending" },
+    // published: true -> cannot accept a draft (e.g. from a stale page or a hand-made request)
+    { _id: assignmentId, volunteer: volunteerId, status: "Pending", published: true },
     { status: "Accepted" },
+    { new: true, runValidators: true } // return the updated doc
+  ).populate("school");
+};
+
+// Volunteer declines an assignment they have not accepted yet.
+// Only matches if the assignment belongs to this volunteer and is still 'Pending',
+// so returns null otherwise.
+exports.declineMine = function (assignmentId, volunteerId, reason) {
+  return Assignments.findOneAndUpdate(
+    // published: true -> same reason as accept: only a released assignment can be answered
+    { _id: assignmentId, volunteer: volunteerId, status: "Pending", published: true },
+    { status: "Declined", withdrawReason: reason }, // reason is saved in withdrawReason too
     { new: true, runValidators: true } // return the updated doc
   ).populate("school");
 };
@@ -136,6 +187,36 @@ exports.withdrawMine = function (assignmentId, volunteerId, reason) {
     { status: "Withdrawn", withdrawReason: reason },
     { new: true, runValidators: true } // return the updated doc
   ).populate("school");
+};
+
+
+// NEW (availability change): which of these shows has this volunteer ALREADY ACCEPTED? Returns e.g. ["NE Show 2"].
+// Used to block the volunteer from unticking a show they are committed to.
+exports.acceptedShowsAmong = async function (volunteerId, shows) {
+  const rows = await Assignments.find({ volunteer: volunteerId, show: { $in: shows }, status: CONFIRMED_STATUS }).select("show");
+  return rows.map((r) => r.show);
+};
+
+// NEW (availability change): the volunteer is no longer available for these shows, so drop the places that were
+// waiting for an answer (Pending) or on the reserve list. That frees the school place for the next allocation run.
+// Declined / Withdrawn rows are kept on purpose: they are the history of what the volunteer answered.
+exports.deleteOpenForShows = function (volunteerId, shows) {
+  return Assignments.deleteMany({ volunteer: volunteerId, show: { $in: shows }, status: { $in: ["Pending", "Reserve"] } });
+};
+
+// NEW (publish step): release the draft to volunteers. show = "NE Show 1" publishes that show only,
+// null publishes every show. $ne: true also catches old rows that have no "published" field at all.
+exports.publish = function (show) {
+  const filter = { published: { $ne: true } };
+  if (show) filter.show = show;
+  return Assignments.updateMany(filter, { $set: { published: true } });
+};
+
+// How many rows of a show (or all shows) are still drafts - lets the board show "N unpublished".
+exports.countDrafts = function (show) {
+  const filter = { published: { $ne: true } };
+  if (show) filter.show = show;
+  return Assignments.countDocuments(filter);
 };
 
 

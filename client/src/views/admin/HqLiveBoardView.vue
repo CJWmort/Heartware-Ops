@@ -10,17 +10,30 @@ import { SINGAPORE_CENTER, INNER_RING, OUTER_RING } from '@/utils/constants'
 const POLL_MS = 15000 // how often the board is refreshed
 const TICK_MS = 30000 // how often "x min ago" text is recalculated
 const LIVE_MS = 2 * 60 * 1000 // updated within 2 min = live
-const STALE_MS = 10 * 60 * 1000 // within 10 min = stale, older = not reporting
+const STALE_MS = 10 * 60 * 1000 // within 2-10 min = stale, older = not reporting
 const FOCUS_ZOOM = 17 // max zoom when focusing a volunteer
 const GLIDE_MS = 2000 // how long a marker takes to glide to its new position
 const BIG_JUMP_M = 500 // jumps larger than this snap instead of gliding
 
 const STATUS = {
-  live: { label: 'Live' },
-  stale: { label: 'Stale' },
-  offline: { label: 'Not reporting' },
+  live: { label: 'Live' }, // < 2min since last updated location
+  stale: { label: 'Stale' }, // > 2min since last updated location
+  offline: { label: 'Not reporting' }, // > 10min since last updated location
   none: { label: 'Not started' }, // confirmed, but no location received yet
 }
+
+// The zone bands shown as chips (each volunteer is in exactly one)
+const ZONES = [
+  { key: 'inner', label: 'Inner', hint: 'Inside the inner ring' },
+  { key: 'outer', label: 'Outer', hint: 'Inside the outer ring, outside the inner ring' },
+  { key: 'outside', label: 'Outside', hint: 'Outside both rings' },
+  { key: 'none', label: 'Not started', hint: 'No location received yet' },
+]
+
+const IMMEDIATE_M = 10 // alert on the first sighting if this far (in metres) past a ring edge (or the GPS accuracy, if larger)
+const MAX_TOASTS = 3 // alert cards visible at once
+const TOAST_MS = 8000 // how long an alert card stays
+const ZONE_RANK = { outside: 0, outer: 1, inner: 2 } // higher = closer to the venue
 
 /* ------------------------------------------------------------------ */
 /* Vue state (reactive, used by the template)                          */
@@ -58,9 +71,62 @@ function statusOf(v) {
   return 'offline'
 }
 
+// True if the point is inside the ring (ray casting). ring = [[lat, lng], ...]
+// Ray casting: stand at the volunteer’s spot, shoot a straight line to the right forever, and count how many times it crosses the polygon’s edge
+function inRing(lat, lng, ring) {
+  let inside = false
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    const [yi, xi] = ring[i]
+    const [yj, xj] = ring[j]
+    if ((yi > lat) !== (yj > lat) && lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) {
+      inside = !inside
+    }
+  }
+  return inside
+}
+
+// Which band a volunteer is in: inner takes priority, so nobody is counted twice
+function zoneOf(v) {
+  if (v.lat == null || v.lng == null) return 'none'
+  if (inRing(v.lat, v.lng, INNER_RING)) return 'inner' // First test, the ray is counted against the inner ring’s edges ONLY
+  if (inRing(v.lat, v.lng, OUTER_RING)) return 'outer' // Second test, only if the first test failed. If the count is odd, the volunteer is inside the outer ring
+  return 'outside' // Both counts were even means the volunteer is Outside.
+}
+
+// Shortest distance in metres from a point to the edge of a ring.
+// Works in a flat local grid (metres), which is accurate enough at this size.
+function distToRing(lat, lng, ring) {
+  const mLat = 111320 // metres per degree of latitude
+  const mLng = 111320 * Math.cos((lat * Math.PI) / 180) // metres per degree of longitude here
+  let best = Infinity
+
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+    // The edge from point j to point i, measured from the volunteer at (0, 0)
+    const ax = (ring[j][1] - lng) * mLng
+    const ay = (ring[j][0] - lat) * mLat
+    const dx = (ring[i][1] - lng) * mLng - ax
+    const dy = (ring[i][0] - lat) * mLat - ay
+
+    // Closest point on that edge to the volunteer
+    const len2 = dx * dx + dy * dy
+    const t = len2 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len2)) : 0
+    best = Math.min(best, Math.hypot(ax + t * dx, ay + t * dy))
+  }
+  return best
+}
+
+// How far a volunteer is from the ring edge that decides their zone
+function zoneDepth(v) {
+  if (v.zone === 'inner') return distToRing(v.lat, v.lng, INNER_RING)
+  if (v.zone === 'outer') {
+    return Math.min(distToRing(v.lat, v.lng, INNER_RING), distToRing(v.lat, v.lng, OUTER_RING))
+  }
+  return distToRing(v.lat, v.lng, OUTER_RING) // outside
+}
+
 // Board data plus the computed status and "ago" text
 const rows = computed(() =>
-  volunteers.value.map((v) => ({ ...v, status: statusOf(v), ago: agoText(v) })),
+  volunteers.value.map((v) => ({ ...v, status: statusOf(v), ago: agoText(v), zone: zoneOf(v) }))
 )
 
 // Search results: filtered by name only. Shows everyone when the box is empty
@@ -75,6 +141,13 @@ const results = computed(() => {
 const selected = computed(() => rows.value.find((v) => v.volunteerId === selectedId.value) ?? null)
 const liveCount = computed(() => rows.value.filter((v) => v.status === 'live').length)
 const locatedCount = computed(() => rows.value.filter((v) => v.lat != null).length)
+
+// How many volunteers are in each band
+const zoneCounts = computed(() => {
+  const c = { inner: 0, outer: 0, outside: 0, none: 0 }
+  rows.value.forEach((v) => c[v.zone]++)
+  return c
+})
 
 // Small message shown when there is nothing to see on the map
 const emptyMsg = computed(() => {
@@ -92,6 +165,9 @@ let L = null // Leaflet library, passed in by BaseMap
 let zoneLayer = null
 let volunteerLayer = null
 let schoolMarker = null // marker for the selected volunteer's school
+let linkLine = null // dashed line from the selected volunteer to their school
+let pinnedId = null // volunteer whose tooltip is pinned open while selected
+let lineRenderer = null // canvas renderer so the line stays visible while zooming
 const markers = new Map() // volunteerId -> { marker, status, frame }
 
 let needFit = false // fit the map to all volunteers once the next board arrives
@@ -106,37 +182,70 @@ const isDesktop = () => window.matchMedia('(min-width: 992px)').matches
 /* Map icons                                                           */
 /* ------------------------------------------------------------------ */
 
-// Coloured dot for a volunteer (colour comes from their status)
+// Round badge with a person icon for a volunteer (colour comes from their status)
 function createVolIcon(status) {
   return L.divIcon({
     className: 'vol-marker',
-    html: `<div class="vol-dot ${status}"></div>`,
-    iconSize: [22, 22],
-    iconAnchor: [11, 11],
-    tooltipAnchor: [0, -12],
+    html: `<div class="vol-dot ${status}"><i class="bi bi-person-fill"></i></div>`,
+    iconSize: [34, 34],
+    iconAnchor: [17, 17],
+    tooltipAnchor: [0, -18],
   })
 }
 
-// Red location pin resting on a small grey dot (the school)
+// Rounded badge with a graduation cap (the school)
 function createSchoolIcon() {
   return L.divIcon({
     className: 'school-marker',
-    html: `
-      <div class="school-pin">
-        <span class="school-dot"></span>
-        <i class="bi bi-geo-alt-fill"></i>
-      </div>`,
-    iconSize: [32, 40],
-    iconAnchor: [16, 32],
-    tooltipAnchor: [0, -34],
+    html: `<div class="school-badge"><i class="bi bi-mortarboard-fill"></i></div>`,
+    iconSize: [36, 36],
+    iconAnchor: [18, 18],
+    tooltipAnchor: [0, -20],
   })
 }
 
-// Tooltip content built with textContent so names can't inject HTML
-function nameTip(text) {
+// Tooltip card in the same style as the volunteer card: icon badge + name only.
+// Built with the DOM (textContent) so names can't inject HTML.
+function tipCard({ icon, tone, title }) {
   const el = document.createElement('div')
-  el.textContent = text
+  el.className = 'tip'
+
+  const badge = document.createElement('div')
+  badge.className = `tip-icon ${tone}`
+  const i = document.createElement('i')
+  i.className = `bi ${icon}`
+  badge.appendChild(i)
+
+  const t = document.createElement('div')
+  t.className = 'tip-title'
+  t.textContent = title
+
+  el.append(badge, t)
   return el
+}
+
+// Volunteer tooltip: the badge colour follows their status
+function volTip(v) {
+  return tipCard({ icon: 'bi-person-fill', tone: v.status, title: v.name })
+}
+
+// School tooltip
+function schoolTip(s) {
+  return tipCard({ icon: 'bi-mortarboard-fill', tone: 'school', title: s.name || 'School' })
+}
+
+// Attaches a tooltip card to a marker, replacing any tooltip it already has.
+// pinned = stays open until the tooltip is rebound; otherwise it shows on hover only.
+function bindTip(marker, content, { pinned = false, direction = 'top' } = {}) {
+  marker.unbindTooltip()
+  marker.bindTooltip(content, {
+    className: 'hq-tip',
+    direction,
+    offset: [0, direction === 'bottom' ? 26 : -6], // keeps the card clear of the marker
+    opacity: 1,
+    permanent: pinned,
+  })
+  if (pinned) marker.openTooltip()
 }
 
 /* ------------------------------------------------------------------ */
@@ -149,6 +258,7 @@ function onMapReady(m, leaflet) {
   L = leaflet
   zoneLayer = L.layerGroup().addTo(map)
   volunteerLayer = L.layerGroup().addTo(map)
+  lineRenderer = L.canvas() // reused for the dashed line
 
   map.zoomControl?.setPosition('bottomright') // move +/- buttons to the bottom right
   map.on('click', () => {
@@ -196,16 +306,21 @@ function drawMarkers() {
     const entry = markers.get(v.volunteerId)
 
     if (!entry) {
-      const marker = L.marker([v.lat, v.lng], { icon: createVolIcon(v.status) })
-        .bindTooltip(nameTip(v.name), { direction: 'top' })
+      const marker = L.marker([v.lat, v.lng], {
+        icon: createVolIcon(v.status),
+        zIndexOffset: 500,
+        keyboard: false, // not focusable, so a focus/blur can't close the pinned tooltip
+      })
         .on('click', () => selectVolunteer(v.volunteerId))
         .addTo(volunteerLayer)
+      bindTip(marker, volTip(v))
       markers.set(v.volunteerId, { marker, status: v.status, frame: null })
       return
     }
 
     if (entry.status !== v.status) {
       entry.marker.setIcon(createVolIcon(v.status))
+      entry.marker.setTooltipContent(volTip(v)) // badge colour follows the new status
       entry.status = v.status
     }
     glideTo(entry, v.lat, v.lng)
@@ -218,6 +333,8 @@ function drawMarkers() {
     volunteerLayer.removeLayer(entry.marker)
     markers.delete(id)
   })
+
+  updateLink()
 }
 
 // Animates a marker to a new position so it glides instead of jumping
@@ -237,6 +354,7 @@ function glideTo(entry, lat, lng) {
   const step = (t) => {
     const p = Math.min((t - start) / GLIDE_MS, 1) // progress from 0 to 1
     entry.marker.setLatLng([from.lat + (to.lat - from.lat) * p, from.lng + (to.lng - from.lng) * p])
+    updateLink() // keep the dashed line attached to the moving marker
     if (p < 1) entry.frame = requestAnimationFrame(step)
   }
   entry.frame = requestAnimationFrame(step)
@@ -280,10 +398,11 @@ function focusOn(v) {
   if (v.school?.lat != null) pts.push([v.school.lat, v.school.lng])
   if (!pts.length) return
 
-  const bottom = isDesktop() ? 40 : cardH.value + 40 // keep clear of the bottom card on mobile
+  const bottom = isDesktop() ? 70 : cardH.value + 70 // room for the tooltip and the bottom card
+  const left = isDesktop() ? 440 : 60 // on desktop, stay clear of the top-left cards
   map.flyToBounds(pts, {
-    paddingTopLeft: [40, 90],
-    paddingBottomRight: [40, bottom],
+    paddingTopLeft: [left, 150],
+    paddingBottomRight: [60, bottom],
     maxZoom: FOCUS_ZOOM,
     duration: 1,
   })
@@ -293,19 +412,53 @@ function focusOn(v) {
 /* Selecting a volunteer                                               */
 /* ------------------------------------------------------------------ */
 
-// Shows the volunteer's school on the map
+// Pins tooltips on the selected volunteer and their school, with a dashed line between them
 function showSchool(v) {
   clearSchool()
   const s = v.school
-  if (!map || s?.lat == null || s?.lng == null) return
-  schoolMarker = L.marker([s.lat, s.lng], { icon: createSchoolIcon() })
-    .bindTooltip(nameTip(s.name || 'School'), { direction: 'top' })
-    .addTo(volunteerLayer)
+  const entry = markers.get(v.volunteerId)
+  const hasSchool = s?.lat != null && s?.lng != null
+
+  // The marker further north gets its tooltip above and the other below, so they never overlap
+  const schoolNorth = hasSchool && (v.lat == null || s.lat >= v.lat)
+
+  if (entry) {
+    pinnedId = v.volunteerId
+    bindTip(entry.marker, volTip(v), { pinned: true, direction: schoolNorth ? 'bottom' : 'top' })
+  }
+
+  if (!map || !hasSchool) return
+
+  schoolMarker = L.marker([s.lat, s.lng], { icon: createSchoolIcon() }).addTo(volunteerLayer)
+  bindTip(schoolMarker, schoolTip(s), { pinned: true, direction: schoolNorth ? 'top' : 'bottom' })
+
+  if (v.lat != null) {
+    linkLine = L.polyline(
+      [[v.lat, v.lng], [s.lat, s.lng]],
+      { color: '#4f46e5', weight: 3, dashArray: '6 8', opacity: 0.85, interactive: false, renderer: lineRenderer },
+    ).addTo(volunteerLayer)
+  }
 }
 
+// Moves the line's volunteer end to the marker's current position
+function updateLink() {
+  const v = selected.value
+  const entry = v && markers.get(v.volunteerId)
+  if (!linkLine || !entry || v.school?.lat == null) return
+  linkLine.setLatLngs([entry.marker.getLatLng(), [v.school.lat, v.school.lng]])
+}
+
+// Removes the school marker and line, and turns the volunteer's tooltip back into hover-only
 function clearSchool() {
   if (schoolMarker) volunteerLayer.removeLayer(schoolMarker)
+  if (linkLine) volunteerLayer.removeLayer(linkLine)
   schoolMarker = null
+  linkLine = null
+
+  const entry = markers.get(pinnedId)
+  const v = rows.value.find((r) => r.volunteerId === pinnedId)
+  if (entry && v) bindTip(entry.marker, volTip(v))
+  pinnedId = null
 }
 
 // Selects a volunteer (from the list or by tapping their marker)
@@ -359,6 +512,99 @@ function clearQuery() {
 }
 
 /* ------------------------------------------------------------------ */
+/* Zone alerts                                                         */
+/* ------------------------------------------------------------------ */
+const toasts = ref([]) // alert cards currently showing, newest first
+const toastTimers = new Map() // toast id -> its auto-dismiss timer
+let toastSeq = 0
+
+const lastZone = new Map() // volunteerId -> zone we last confirmed
+const pendingZone = new Map() // volunteerId -> new zone seen once, waiting for a second sighting
+
+// Compares every volunteer's zone with the last confirmed one and raises an alert
+// when it has really changed. Called after every board refresh.
+function detectZoneChanges() {
+  const seen = new Set()
+
+  rows.value.forEach((v) => {
+    seen.add(v.volunteerId)
+    if (v.zone === 'none') return // no location yet: nothing to compare
+
+    const last = lastZone.get(v.volunteerId)
+    if (last === undefined) {
+      lastZone.set(v.volunteerId, v.zone) // first time seen: record it, no alert
+      return
+    }
+    if (v.zone === last) {
+      pendingZone.delete(v.volunteerId) // back where they were, so it was just a wobble
+      return
+    }
+     // Far enough past the edge that GPS wobble can't explain it: alert on the first sighting
+    const clearCut = zoneDepth(v) > Math.max(IMMEDIATE_M, v.accuracy ?? 0)
+
+    if (!clearCut && pendingZone.get(v.volunteerId) !== v.zone) {
+      pendingZone.set(v.volunteerId, v.zone) // close to the edge: wait for a second sighting
+      return
+    }
+
+    // Seen in the new zone on two refreshes in a row: it's real
+    pendingZone.delete(v.volunteerId)
+    lastZone.set(v.volunteerId, v.zone)
+    addAlert(v, last, v.zone)
+  })
+
+  // Forget volunteers who are no longer on the board
+  ;[lastZone, pendingZone].forEach((m) =>
+    m.forEach((_, id) => {
+      if (!seen.has(id)) m.delete(id)
+    }),
+  )
+}
+
+// Turns a zone change into an alert card
+function addAlert(v, from, to) {
+  const enter = ZONE_RANK[to] > ZONE_RANK[from]
+  const ring = enter ? to : to === 'outer' ? 'inner' : 'outer' // the ring that was entered or left
+  showToast({
+    volunteerId: v.volunteerId,
+    name: v.name,
+    enter,
+    text: `${enter ? 'Entered' : 'Left'} the ${ring} ring`,
+  })
+}
+
+// Adds a card to the top of the stack and drops the oldest if there are too many
+function showToast(t) {
+  const toast = { id: ++toastSeq, ...t }
+  const next = [toast, ...toasts.value]
+
+  next.slice(MAX_TOASTS).forEach((old) => {
+    clearTimeout(toastTimers.get(old.id))
+    toastTimers.delete(old.id)
+  })
+  toasts.value = next.slice(0, MAX_TOASTS)
+  toastTimers.set(toast.id, setTimeout(() => dismissToast(toast.id), TOAST_MS))
+}
+
+function dismissToast(id) {
+  clearTimeout(toastTimers.get(id))
+  toastTimers.delete(id)
+  toasts.value = toasts.value.filter((t) => t.id !== id)
+}
+
+// Tapping a card selects that volunteer
+function openToast(t) {
+  dismissToast(t.id)
+  selectVolunteer(t.volunteerId)
+}
+
+function clearToasts() {
+  toastTimers.forEach((timer) => clearTimeout(timer))
+  toastTimers.clear()
+  toasts.value = []
+}
+
+/* ------------------------------------------------------------------ */
 /* Loading data                                                        */
 /* ------------------------------------------------------------------ */
 
@@ -374,6 +620,7 @@ async function loadBoard() {
     clockOffset = new Date(res.data.serverTime).getTime() - Date.now()
     now.value = Date.now()
     volunteers.value = res.data.volunteers
+    detectZoneChanges() // zone alerts
     error.value = ''
     boardLoaded = true
 
@@ -390,6 +637,9 @@ async function loadBoard() {
 // Admin picked a different show: reset and load it
 function onShowChange() {
   clearSelection(false)
+  lastZone.clear() // new show: start from a fresh baseline, so no alerts for the first load
+  pendingZone.clear()
+  clearToasts()
   volunteers.value = []
   loading.value = true
   boardLoaded = false
@@ -404,7 +654,7 @@ function onVisibilityChange() {
 
 onMounted(async () => {
   try {
-    const res = await axios.get('/api/locations/shows')
+    const res = await axios.get('/api/locations/shows') // Fetch all existing shows
     shows.value = res.data
     selectedShow.value = shows.value[0] ?? ''
   } catch (err) {
@@ -429,6 +679,7 @@ onUnmounted(() => {
   clearInterval(tickTimer)
   document.removeEventListener('visibilitychange', onVisibilityChange)
   markers.forEach((entry) => cancelAnimationFrame(entry.frame))
+  clearToasts()
 })
 </script>
 
@@ -474,6 +725,14 @@ onUnmounted(() => {
           </div>
         </div>
 
+        <!-- Zone counts -->
+        <div v-if="rows.length" class="zone-row" aria-label="Volunteers by zone">
+          <span v-for="z in ZONES" :key="z.key" class="zone-chip" :title="z.hint">
+            <span class="zone-dot" :class="z.key"></span>{{ z.label }}
+            <strong>{{ zoneCounts[z.key] }}</strong>
+          </span>
+        </div>
+
         <div v-if="searchOpen" class="results" role="listbox">
           <div class="results-head">{{ liveCount }} live · {{ rows.length }} volunteers</div>
           <button
@@ -515,23 +774,50 @@ onUnmounted(() => {
           </div>
 
           <div class="vol-card-body">
-            <div class="vol-fact">
-              <i class="bi bi-mortarboard" aria-hidden="true"></i>
-              <div>
-                <div class="fact-label">Allocated school</div>
-                <div class="fact-value">{{ selected.school?.name || '—' }}</div>
+            <div class="info-card">
+              <div class="info-label">
+                <i class="bi bi-mortarboard-fill" aria-hidden="true"></i>Allocated school
               </div>
+              <div class="info-value">{{ selected.school?.name || '—' }}</div>
             </div>
-            <div class="vol-fact">
-              <i class="bi bi-people" aria-hidden="true"></i>
-              <div>
-                <div class="fact-label">P5 classes</div>
-                <div class="fact-value">{{ selected.school?.p5Classes ?? '—' }}</div>
+            <div class="info-card">
+              <div class="info-label">
+                <i class="bi bi-people-fill" aria-hidden="true"></i>P5 classes
               </div>
+              <div class="info-value info-number">{{ selected.school?.p5Classes ?? '—' }}</div>
             </div>
           </div>
         </div>
       </Transition>
+
+      <!-- Zone alerts -->
+      <TransitionGroup name="toast" tag="div" class="toast-stack">
+        <div
+          v-for="t in toasts"
+          :key="t.id"
+          class="toast-card"
+          role="status"
+          tabindex="0"
+          @click="openToast(t)"
+          @keydown.enter="openToast(t)"
+        >
+          <div class="toast-icon" :class="t.enter ? 'enter' : 'leave'" aria-hidden="true">
+            <i class="bi" :class="t.enter ? 'bi-box-arrow-in-right' : 'bi-box-arrow-right'"></i>
+          </div>
+          <div class="toast-body">
+            <div class="toast-title">{{ t.name }}</div>
+            <div class="toast-text">{{ t.text }}</div>
+          </div>
+          <button
+            type="button"
+            class="icon-btn"
+            aria-label="Dismiss alert"
+            @click.stop="dismissToast(t.id)"
+          >
+            <i class="bi bi-x-lg"></i>
+          </button>
+        </div>
+      </TransitionGroup>
 
       <div v-if="emptyMsg" class="empty-pill bg-danger text-white">{{ emptyMsg }}</div>
 
@@ -614,10 +900,10 @@ onUnmounted(() => {
 .bar-row {
   display: flex;
   align-items: center;
-  gap: 4px;
-  padding: 6px;
+  gap: 3px;
+  padding: 4px;
   background: #fff;
-  border-radius: 14px;
+  border-radius: 12px;
   box-shadow: 0 2px 12px rgb(0 0 0 / 0.2);
 }
 
@@ -626,9 +912,9 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 40px;
+  height: 34px;
   padding: 0 10px;
-  border-radius: 10px;
+  border-radius: 9px;
   color: #555;
 }
 
@@ -674,6 +960,11 @@ onUnmounted(() => {
 
 .icon-btn:hover {
   background: #f1f3f6;
+}
+
+.search-box .icon-btn {
+  width: 26px;
+  height: 26px;
 }
 
 /* Search results list */
@@ -751,58 +1042,66 @@ onUnmounted(() => {
 }
 .status-dot.live { background: #16a34a; }
 .status-dot.stale { background: #f59e0b; }
-.status-dot.offline { background: #9aa0a6; }
+.status-dot.offline { background: #dc2626; }
 .status-dot.none { background: #d3d6da; }
 
-/* Marker dot on the map */
+/* Volunteer marker: round badge with a person icon */
 :global(.vol-dot) {
-  width: 22px;
-  height: 22px;
-  box-sizing: border-box;
-  border: 3px solid #fff;
-  border-radius: 50%;
-  background: #9aa0a6;
-  box-shadow: 0 1px 4px rgb(0 0 0 / 0.4);
-}
-:global(.vol-dot.live) {
-  background: #16a34a;
-  box-shadow: 0 0 0 6px rgb(22 163 74 / 0.2), 0 1px 4px rgb(0 0 0 / 0.4);
-}
-:global(.vol-dot.stale) { background: #f59e0b; }
-:global(.vol-dot.offline) { background: #9aa0a6; }
-
-/* School marker: red pin on a grey dot */
-:global(.school-pin) {
   position: relative;
-  width: 32px;
-  height: 40px;
-}
-
-:global(.school-dot) {
-  position: absolute;
-  left: 11px;
-  top: 27px; /* center sits on the marker's anchor */
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: #9aa0a6;
-  border: 2px solid #fff;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
-}
-
-:global(.school-pin i) {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 32px;
-  height: 32px;
+  width: 34px;
+  height: 34px;
+  box-sizing: border-box;
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #ea4335;
-  font-size: 32px;
-  line-height: 1;
-  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.35));
+  border: 3px solid #fff;
+  border-radius: 50%;
+  background: #9aa0a6;
+  color: #fff;
+  font-size: 1.05rem;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.4);
+}
+:global(.vol-dot.live) { background: #16a34a; }
+:global(.vol-dot.stale) { background: #f59e0b; }
+:global(.vol-dot.offline) { background: #dc2626; }
+
+/* Pulsing ring on live volunteers */
+:global(.vol-dot.live::after) {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 2px solid #16a34a;
+  /* use the "vol-pulse" animation defined below */
+  animation: vol-pulse 1s ease-out infinite;
+}
+
+/* The pulse animation */
+@keyframes vol-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(1.8);
+    opacity: 0;
+  }
+}
+
+/* School marker: indigo rounded badge with a graduation cap */
+:global(.school-badge) {
+  width: 36px;
+  height: 36px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 3px solid #fff;
+  border-radius: 11px;
+  background: #4f46e5;
+  color: #fff;
+  font-size: 1.1rem;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.4);
 }
 
 /* Selected volunteer card (bottom on mobile) */
@@ -838,6 +1137,7 @@ onUnmounted(() => {
 }
 .vol-avatar.live { background: #16a34a; }
 .vol-avatar.stale { background: #f59e0b; }
+.vol-avatar.offline { background: #dc2626; }
 
 .vol-card-title {
   flex: 1 1 auto;
@@ -859,34 +1159,45 @@ onUnmounted(() => {
   color: #666;
 }
 
+/* School and P5 classes cards */
 .vol-card-body {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid #eceef1;
-}
-
-.vol-fact {
-  display: flex;
+  grid-template-columns: 1.5fr 1fr;
   gap: 10px;
+  margin-top: 12px;
+}
+
+.info-card {
   min-width: 0;
+  padding: 10px 12px;
+  background: #f6f8fb;
+  border: 1px solid #e6eaf0;
+  border-radius: 12px;
 }
 
-.vol-fact > i {
-  font-size: 1.2rem;
-  color: #2563eb;
+.info-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  color: #777;
 }
 
-.fact-label {
-  font-size: 0.75rem;
-  color: #888;
+.info-label i {
+  font-size: 0.95rem;
+  color: #4f46e5;
 }
 
-.fact-value {
-  font-size: 0.9rem;
+.info-value {
+  margin-top: 4px;
+  font-size: 0.95rem;
   font-weight: 600;
+  line-height: 1.25;
+}
+
+.info-number {
+  font-size: 1.5rem;
+  line-height: 1.1;
 }
 
 .card-enter-active,
@@ -932,7 +1243,7 @@ onUnmounted(() => {
 /* Error popup */
 .notice-wrap {
   position: absolute;
-  top: 72px; /* just below the top bar */
+  top: 96px; /* just below the top bar and zone chips */
   left: 12px;
   right: 12px;
   z-index: 1150;
@@ -996,6 +1307,164 @@ onUnmounted(() => {
   opacity: 0;
 }
 
+/* Tooltip cards (same look as the volunteer card, name only) */
+:global(.leaflet-tooltip.hq-tip) {
+  padding: 6px 12px 6px 6px;
+  background: #fff;
+  border: 1px solid #fff;
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgb(0 0 0 / 0.25);
+  color: #222;
+  white-space: nowrap;
+}
+
+:global(.tip) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+:global(.tip-icon) {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: #9aa0a6;
+  color: #fff;
+  font-size: 0.95rem;
+}
+
+:global(.tip-icon.live) { background: #16a34a; }
+:global(.tip-icon.stale) { background: #f59e0b; }
+:global(.tip-icon.offline) { background: #dc2626; }
+:global(.tip-icon.school) { background: #4f46e5; }
+
+:global(.tip-title) {
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+/* Zone count chips */
+.zone-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+  overflow-x: auto;
+  scrollbar-width: none; /* scrolls sideways on very narrow phones */
+}
+.zone-row::-webkit-scrollbar {
+  display: none;
+}
+
+.zone-chip {
+  flex: 1 1 auto; /* share the row evenly instead of overflowing */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 8px;
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 1px 6px rgb(0 0 0 / 0.2);
+  font-size: 0.78rem;
+  color: #555;
+  white-space: nowrap;
+}
+
+.zone-chip strong {
+  font-size: 0.85rem;
+  color: #222;
+}
+
+/* Dots match the rings drawn on the map */
+.zone-dot {
+  box-sizing: border-box;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #d3d6da;
+}
+.zone-dot.inner { background: #0d6efd; }
+.zone-dot.outer { background: #cfe0fb; border: 2px solid #6c757d; }
+.zone-dot.outside { background: #fff; border: 2px solid #9aa0a6; }
+
+/* Zone alert cards */
+.toast-stack {
+  position: absolute;
+  top: 96px; /* just below the top bar and zone chips */
+  left: 12px;
+  right: 12px;
+  z-index: 1055; /* below the top bar (1060) so the search list covers them */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none; /* only the cards take clicks */
+}
+
+.toast-card {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  max-width: 340px;
+  padding: 8px 6px 8px 8px;
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 2px 12px rgb(0 0 0 / 0.2);
+  cursor: pointer;
+}
+
+.toast-icon {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  color: #fff;
+  font-size: 1.05rem;
+}
+.toast-icon.enter { background: #16a34a; }
+.toast-icon.leave { background: #f59e0b; }
+
+.toast-body {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.toast-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.toast-text {
+  margin-top: 2px;
+  font-size: 0.8rem;
+  color: #666;
+}
+
+.toast-enter-active,
+.toast-leave-active {
+  transition: transform 0.25s ease, opacity 0.25s ease;
+}
+.toast-enter-from,
+.toast-leave-to {
+  transform: translateY(-10px);
+  opacity: 0;
+}
+
 /* Desktop: the bar and the volunteer card stack at the top left */
 @media (min-width: 992px) {
   .map-stage {
@@ -1006,7 +1475,7 @@ onUnmounted(() => {
     width: 400px;
   }
   .vol-card {
-    top: 72px;
+    top: 96px;
     bottom: auto;
     right: auto;
     width: 400px;
@@ -1018,5 +1487,42 @@ onUnmounted(() => {
   .empty-pill {
     bottom: 24px;
   }
+  .toast-stack {
+    top: 12px; /* desktop: top right corner */
+    left: auto;
+    right: 12px;
+    width: 340px;
+  }
 }
+
+/* Phones: compact chips that share the row evenly so all four fit */
+@media (max-width: 575.98px) {
+  .zone-row {
+    gap: 4px;
+  }
+  .zone-chip {
+    flex: 1 1 auto; /* grow to fill the row instead of leaving a gap at the end */
+    justify-content: center;
+    gap: 4px;
+    height: 26px;
+    padding: 0 8px;
+    font-size: 0.72rem;
+  }
+  .zone-chip strong {
+    font-size: 0.78rem;
+  }
+  .zone-dot {
+    width: 8px;
+    height: 8px;
+  }
+}
+
+/* Very narrow phones: drop the dots to save space */
+@media (max-width: 359.98px) {
+  .zone-dot {
+    display: none;
+  }
+}
+
+
 </style>

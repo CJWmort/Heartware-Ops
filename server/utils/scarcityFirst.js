@@ -6,11 +6,11 @@
 //             the same field names as the Assignments model:
 //             volunteer = volunteer _id, school = school _id,
 //             show = the school's show (e.g. "NE Show 4"), distance = km.
-//             `status` is left out so the model's default ("reserve") applies.
+//             `status` is left out so the model's default ("Pending") applies.
 //             one record for each (volunteer, school) pair that was matched.
 //             After those, one record for each volunteer who got no school,
 //             using the `show` argument (the show this run is for):
-//             { volunteer, school: null, show, distance: null }.
+//             { volunteer, school: null, name, show, distance: null, status: "Reserve" }.
 // show:       the show name this run is for (e.g. "NE Show 1").
 //             Schools left short simply have fewer records.
 
@@ -181,8 +181,10 @@ function scarcityFirst(volunteers, locations, show) {
     pairs.push({
       volunteer: volunteer._id,
       school: null,
+      name: volunteer.name, // FIX: the model requires `name`; without it the whole run failed whenever volunteers outnumbered places
       show,
       distance: null,
+      status: "Reserve"
     });
   }
   return pairs;

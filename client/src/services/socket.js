@@ -5,14 +5,15 @@
 //   socket.on('incident:new', (incident) => { ... })
 //   onUnmounted(() => socket.off('incident:new'))
 import { io } from 'socket.io-client'
-import { getToken } from './api'
+// FIX: removed `import { getToken } from './api'`. That file no longer exists, so importing this module crashed the
+// build. The app uses cookie sessions (no token), so the browser's login cookie is sent instead (withCredentials).
 
 let socket = null
 
 export function connectSocket() {
   if (socket) return socket
   const url = import.meta.env.VITE_SOCKET_URL || undefined // undefined = same origin (Vite proxy)
-  socket = io(url, { auth: { token: getToken() } })
+  socket = io(url, { withCredentials: true })
   return socket
 }
 

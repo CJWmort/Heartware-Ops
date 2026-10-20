@@ -1,167 +1,45 @@
 <script setup>
 // Feature 1b – Smart Allocation (volunteer side) — owner: Fanny
-// Spec: docs/FEATURES.md   ·   API calls: src/services/   ·   Tests: e2e/
-import { computed, onMounted, ref } from 'vue'
-import axios from 'axios'
+// CHANGED: this page used to hard-code 3 shows with 2026 dates and never asked the server for the volunteer's
+// allocation, so every show said "Awaiting allocation" forever. It now uses useMyAssignment() (services/assignment.js),
+// which loads the real shows (4 shows, 2027 dates), the volunteer's PUBLISHED assignments, and handles
+// accept / decline / withdraw. Keeping that logic in the service keeps this file about the screen only.
+import { onMounted } from 'vue'
 import PageHeader from '@/components/PageHeader.vue'
-import FeaturePlaceholder from '@/components/FeaturePlaceholder.vue'
+import { useMyAssignment, showStatus, statusClass, formatDate } from '@/services/assignment'
 
-const API_URL = '/api/schools'
-const volunteerDataURL = '/api/users/me'
+const {
+  volAvailableShows,
+  shows,
+  errorMessage,
+  hasNoAvailability,
+  loadData,
+  showAvailabilityModal,
+  selectedShows,
+  saving,
+  modalError,
+  openAvailabilityModal,
+  closeAvailabilityModal,
+  saveAvailability,
+  acceptingId,
+  acceptShow,
+  pullOutMode,
+  withdrawShow,
+  withdrawReason,
+  withdrawing,
+  withdrawError,
+  openDeclineModal,
+  openWithdrawModal,
+  closeWithdrawModal,
+  confirmWithdraw,
+} = useMyAssignment()
 
-const schools = ref([])
-const volData = ref([])
-const volAvailableShows = ref([])
-const errorMessage = ref('')
-const loaded = ref(false) // true once volunteer data has arrived
-
-// Shows listed in the assignment table (time and location filled in once allocated)
-// allocation: null (not allocated yet) | 'pending' | 'accepted' | 'declined'
-const shows = ref([
-  { name: 'NE Show 1', date: '11 July 2026', time: '', location: '', allocation: null },
-  { name: 'NE Show 2', date: '18 July 2026', time: '', location: '', allocation: null },
-  { name: 'NE Show 3', date: '25 July 2026', time: '', location: '', allocation: null },
-])
-
-// True when the volunteer has not picked any show yet
-const hasNoAvailability = computed(
-  () => loaded.value && (volAvailableShows.value || []).length === 0,
-)
-
-// Work out each row's status from availability + allocation
-function showStatus(show) {
-  if (!(volAvailableShows.value || []).includes(show.name)) return 'Not available'
-  if (!show.allocation) return 'Awaiting allocation'
-  if (show.allocation === 'accepted') return 'Accepted'
-  if (show.allocation === 'declined') return 'Declined'
-  return 'Pending'
-}
-
-// Bootstrap badge colour for each status
-function statusClass(status) {
-  if (status === 'Not available') return 'text-bg-secondary'
-  if (status === 'Awaiting allocation') return 'text-bg-info'
-  if (status === 'Accepted') return 'text-bg-success'
-  if (status === 'Declined') return 'text-bg-danger'
-  return 'text-bg-warning'
-}
-
-onMounted(loadVolunteerData)
-
-// Load Data
-async function loadVolunteerData() {
-  errorMessage.value = ''
-
-  try {
-    const response = await axios.get(volunteerDataURL)
-    volData.value = response.data
-    volAvailableShows.value = volData.value.availableShows || []
-    loaded.value = true
-  } catch (error) {
-    errorMessage.value = 'Failed to load data.'
-  }
-}
-
-// Add availability of Volunteer who did not choose a show during registration
-async function updateAvailableShows() {
-  errorMessage.value = ''
-
-  const updatedShows = []
-  for (const s of volAvailableShows.value) {
-    updatedShows.push(s)
-  }
-
-  for (const s of shows) {
-    if (!updatedShows.includes(s)) {
-      updatedShows.push(s)
-    }
-  }
-
-  try {
-    await axios.put(volunteerDataURL, {
-      availableShows: updatedShows,
-    })
-    volAvailableShows.value = updatedShows
-  } catch (error) {
-    errorMessage.value = 'Failed to update available shows.'
-  }
-}
-
-// Remove availability of Volunteer
-async function removeAvailableShows() {
-  errorMessage.value = ''
-
-  try {
-    // axios.delete sends a body through the 'data' option
-    const response = await axios.delete(volunteerDataURL, {
-      data: { availableShows: shows },
-    })
-    volAvailableShows.value = response.data.availableShows
-  } catch (error) {
-    errorMessage.value = 'Failed to update available shows.'
-  }
-}
-
-// ===== Change Availability popup =====
-const showAvailabilityModal = ref(false)
-const selectedShows = ref([]) // ticked checkboxes in the popup
-const saving = ref(false)
-const modalError = ref('')
-
-function openAvailabilityModal() {
-  selectedShows.value = [...volAvailableShows.value]
-  modalError.value = ''
-  showAvailabilityModal.value = true
-}
-
-function closeAvailabilityModal() {
-  showAvailabilityModal.value = false
-}
-
-async function saveAvailability() {
-  modalError.value = ''
-  saving.value = true
-
-  try {
-    await axios.put(volunteerDataURL, { availableShows: selectedShows.value })
-    volAvailableShows.value = selectedShows.value
-    closeAvailabilityModal()
-  } catch (error) {
-    modalError.value = 'Failed to save your availability. Please try again.'
-  }
-
-  saving.value = false
-}
-
-// Update status when Volunteer clicks Accept
-// async function acceptAllocation() {
-//     errorMessage.value = '';
-
-//     try{
-//         const response = await axios.put(API_URL);
-//         schools.value = response.data;
-//         console.log(schools.value)
-
-//     } catch (error) {
-//         errorMessage.value = "Failed to load data."
-//     }
-// }
-
-// TODO(Fanny): build this page, then delete FeaturePlaceholder below.
-const todos = [
-  'Load getMyAssignment() and show school, bus, class, venue, date, teacher contact',
-  'Small map (BaseMap) with your home → school',
-  'Accept / Decline buttons (respondToSlot) with a confirm step for Decline',
-  '"I can\'t make it" button linking to Feature 2 drop-out (coordinate with Yap)',
-  'Empty state when nothing is published yet',
-  'data-testids: assignment-card, assignment-school, assignment-accept, assignment-decline, assignment-status',
-]
+onMounted(loadData)
 </script>
 
 <template>
   <section>
     <PageHeader title="My Assignment" icon="bi-geo-alt" />
-    <!-- <FeaturePlaceholder feature="Feature 1b – Smart Allocation (volunteer side)" owner="Fanny" :todos="todos" /> -->
     <div v-if="errorMessage" class="alert alert-danger" role="alert">{{ errorMessage }}</div>
 
     <div
@@ -186,6 +64,7 @@ const todos = [
       </button>
     </div>
 
+    <!-- One row per show from the database. The row shows the school only once the admin has published the allocation. -->
     <div class="card shadow-sm" data-testid="assignment-card">
       <div class="table-responsive">
         <table class="table table-hover align-middle mb-0">
@@ -197,29 +76,158 @@ const todos = [
               <th scope="col">Reporting Time</th>
               <th scope="col">Reporting Location</th>
               <th scope="col" class="text-center">Status</th>
+              <th scope="col" class="text-center">Action</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(show, index) in shows" :key="show.name">
+            <tr v-for="(show, index) in shows" :key="show._id || show.name">
               <td class="text-center text-muted">{{ index + 1 }}</td>
               <td class="fw-semibold">{{ show.name }}</td>
-              <td>{{ show.date }}</td>
-              <td>{{ show.time || '—' }}</td>
-              <td>{{ show.location || '—' }}</td>
+              <td>{{ formatDate(show.date) }}</td>
+              <td>{{ show.assignment?.school?.reportingTime || '—' }}</td>
+              <td data-testid="assignment-school">
+                <template v-if="show.assignment?.school">
+                  {{ show.assignment.school.name }}
+                  <div class="small text-muted">{{ show.assignment.school.address }}</div>
+                </template>
+                <template v-else>—</template>
+              </td>
               <td class="text-center">
                 <span
                   class="badge rounded-pill"
-                  :class="statusClass(showStatus(show))"
+                  :class="statusClass(showStatus(show, volAvailableShows))"
                   data-testid="assignment-status"
                 >
-                  {{ showStatus(show) }}
+                  {{ showStatus(show, volAvailableShows) }}
                 </span>
+              </td>
+              <!-- Action column. Which buttons appear depends on the status:
+                   Pending  -> Accept / Decline (volunteer has not answered yet)
+                   Accepted -> "No-Show/Withdrawn" (pull out; the place is reopened)
+                   Declined / Withdrawn -> no button: the answer is final (there is no Undo)
+                   anything else (reserve, not available) -> nothing to do -->
+              <td class="text-center text-nowrap">
+                <template v-if="show.assignment?.status === 'Pending'">
+                  <button
+                    type="button"
+                    class="btn btn-sm btn-success me-1"
+                    :disabled="acceptingId === show.assignment._id"
+                    data-testid="assignment-accept"
+                    @click="acceptShow(show)"
+                  >
+                    <span
+                      v-if="acceptingId === show.assignment._id"
+                      class="spinner-border spinner-border-sm me-1"
+                      aria-hidden="true"
+                    ></span>
+                    Accept
+                  </button>
+                  <button
+                    type="button"
+                    class="btn btn-sm btn-outline-danger"
+                    data-testid="assignment-decline"
+                    @click="openDeclineModal(show)"
+                  >
+                    Decline
+                  </button>
+                </template>
+                <button
+                  v-else-if="show.assignment?.status === 'Accepted'"
+                  type="button"
+                  class="btn btn-sm btn-outline-danger"
+                  data-testid="assignment-withdraw"
+                  @click="openWithdrawModal(show)"
+                >
+                  No-Show/Withdrawn
+                </button>
+
+                <span v-else class="text-muted">—</span>
               </td>
             </tr>
           </tbody>
         </table>
       </div>
     </div>
+
+    <!-- Decline / pull out popup. ONE popup for both actions: the wording and the endpoint change with pullOutMode.
+         The reason is optional and limited to 300 characters (the server enforces the same limit). -->
+    <template v-if="withdrawShow">
+      <div
+        class="modal d-block"
+        tabindex="-1"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="pullout-title"
+        data-testid="pullout-modal"
+        @click.self="closeWithdrawModal"
+      >
+        <div class="modal-dialog modal-dialog-centered">
+          <div class="modal-content">
+            <div class="modal-header">
+              <!-- CHANGED: the Accepted wording was "Pull out of ...?". It now uses the same words as the row button
+                   ("No-Show/Withdrawn") so the volunteer sees one name for one action. Decline wording is unchanged. -->
+              <h5 class="modal-title" id="pullout-title">
+                {{ pullOutMode === 'decline' ? 'Decline' : 'No-Show/Withdrawn for' }} {{ withdrawShow.name }}?
+              </h5>
+              <button
+                type="button"
+                class="btn-close"
+                aria-label="Close"
+                :disabled="withdrawing"
+                @click="closeWithdrawModal"
+              ></button>
+            </div>
+            <div class="modal-body">
+              <p class="text-muted">
+                {{
+                  pullOutMode === 'decline'
+                    ? 'Your slot will be given to someone else.'
+                    : 'You already accepted this show. Your slot will be opened for a replacement.'
+                }}
+              </p>
+              <label for="pullout-reason" class="form-label">Reason (optional)</label>
+              <textarea
+                id="pullout-reason"
+                v-model="withdrawReason"
+                class="form-control"
+                rows="3"
+                maxlength="300"
+                data-testid="pullout-reason"
+              ></textarea>
+              <div v-if="withdrawError" class="alert alert-danger mt-3 mb-0" role="alert">
+                {{ withdrawError }}
+              </div>
+            </div>
+            <div class="modal-footer">
+              <button
+                type="button"
+                class="btn btn-outline-secondary"
+                :disabled="withdrawing"
+                @click="closeWithdrawModal"
+              >
+                Keep my slot
+              </button>
+              <!-- CHANGED: confirm button text was "Pull out"; now matches the row button, "No-Show/Withdrawn". -->
+              <button
+                type="button"
+                class="btn btn-danger"
+                :disabled="withdrawing"
+                data-testid="pullout-confirm"
+                @click="confirmWithdraw"
+              >
+                <span
+                  v-if="withdrawing"
+                  class="spinner-border spinner-border-sm me-1"
+                  aria-hidden="true"
+                ></span>
+                {{ pullOutMode === 'decline' ? 'Decline' : 'No-Show/Withdrawn' }}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-backdrop fade show"></div>
+    </template>
 
     <!-- Change Availability popup -->
     <template v-if="showAvailabilityModal">
@@ -254,7 +262,7 @@ const todos = [
               <div class="list-group">
                 <label
                   v-for="show in shows"
-                  :key="show.name"
+                  :key="show._id || show.name"
                   class="list-group-item list-group-item-action d-flex align-items-center gap-3"
                 >
                   <input
@@ -266,7 +274,7 @@ const todos = [
                   />
                   <div>
                     <div class="fw-semibold">{{ show.name }}</div>
-                    <small class="text-muted">{{ show.date }}</small>
+                    <small class="text-muted">{{ formatDate(show.date) }}</small>
                   </div>
                 </label>
               </div>

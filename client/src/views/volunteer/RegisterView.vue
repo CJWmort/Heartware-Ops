@@ -2,22 +2,12 @@
 // Feature 1a – Registration — owner: Kuah
 // Spec: docs/FEATURES.md   ·   API calls: src/services/   ·   Tests: e2e/
 import PageHeader from '@/components/PageHeader.vue'
-import FeaturePlaceholder from '@/components/FeaturePlaceholder.vue'
 import { ref, watch, computed, nextTick, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import axios from 'axios'
 
 const route = useRoute()
 
-// TODO(Kuah): build this page, then delete FeaturePlaceholder below.
-const todos = [
-  'Multi-step form: details → available show dates → location consent → review',
-  'Postal code: live OneMap preview "📍 Found: …" (services/onemap.js, debounced)',
-  'Show dates as clickable chips (listEvents from services/volunteers.js)',
-  'Block submit until consent is ticked; show a clear message why',
-  'On submit: auth.register(payload) then go to /me/assignment',
-  'data-testids: reg-name, reg-email, reg-password, reg-postal, reg-postal-preview, reg-date-<n>, reg-consent, reg-submit, reg-error',
-]
 
 const submitted = ref(false)
 const name = ref('')
@@ -27,6 +17,9 @@ const postalCode = ref('')
 const address = ref('')
 const password = ref('')
 const confirmPassword = ref('')
+// NEW (spec: consent before tracking): the volunteer must agree to share their live location on event day.
+// Sign up stays disabled until ticked, and the server also refuses an account without it.
+const consent = ref(false)
 
 const showPassword = ref(false)
 const showConfirmPassword = ref(false)
@@ -317,7 +310,7 @@ const progress = computed(() => Math.round((filledCount.value / fieldNames.lengt
 // so the button switches itself on the moment the last field becomes valid.
 const fieldsLeft = computed(() => fieldNames.length - filledCount.value)
 const canSubmit = computed(
-  () => fieldsLeft.value === 0 && postalStatus.value !== 'loading' && !loading.value,
+  () => fieldsLeft.value === 0 && consent.value && postalStatus.value !== 'loading' && !loading.value,
 )
 
 // ---------- Email verification (6-digit code) ----------
@@ -425,6 +418,7 @@ async function verifyAndCreate() {
       phone: phone.value.replace(/\s+/g, ''),
       password: password.value,
       role: 'volunteer',
+      locationConsent: consent.value, // NEW: server stores the time the volunteer agreed
     }
     await axios.post('/api/users', body)
 
@@ -444,7 +438,6 @@ async function verifyAndCreate() {
 <template>
   <section>
     <PageHeader title="Volunteer sign-up" icon="bi-person-plus" />
-    <FeaturePlaceholder feature="Feature 1a – Registration" owner="Kuah" :todos="todos" />
   </section>
 
   <div class="container py-5">
@@ -674,6 +667,16 @@ async function verifyAndCreate() {
               </div>
             </div>
 
+            <!-- NEW: location consent. Required, so the button below stays disabled until it is ticked. -->
+            <div class="form-check mb-3">
+              <input id="locationConsent" v-model="consent" type="checkbox" class="form-check-input"
+                     data-testid="reg-consent" />
+              <label for="locationConsent" class="form-check-label small">
+                I agree that Heartware Ops can collect my phone's location on event day so coordinators can see my
+                progress and keep everyone safe. I can stop sharing at any time by closing the Event day page.
+              </label>
+            </div>
+
             <button type="submit" class="btn btn-brand btn-lg w-100 mt-2 tap-target" :disabled="!canSubmit"
                     data-testid="reg-submit">
               <span v-if="loading" class="spinner-border spinner-border-sm me-2"></span>
@@ -683,6 +686,8 @@ async function verifyAndCreate() {
             <!-- Tells the user WHY the button is still greyed out -->
             <p v-if="!canSubmit && !loading" class="small text-muted-hw text-center mt-2 mb-0" data-testid="reg-submit-hint">
               <template v-if="postalStatus === 'loading'">Checking your postal code…</template>
+              <!-- all fields done but the box is not ticked: say so, otherwise the greyed button looks broken -->
+              <template v-else-if="fieldsLeft === 0 && !consent">Tick the location consent box to sign up.</template>
               <template v-else>
                 Complete {{ fieldsLeft }} more {{ fieldsLeft === 1 ? 'field' : 'fields' }} to sign up.
               </template>
