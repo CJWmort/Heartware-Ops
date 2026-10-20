@@ -9,13 +9,31 @@ import PageHeader from '@/components/PageHeader.vue'
 import { useMyAssignment, showStatus, statusClass, formatDate } from '@/services/assignment'
 
 const {
-  volAvailableShows, shows, errorMessage, hasNoAvailability, loadData,
-  showAvailabilityModal, selectedShows, saving, modalError,
-  openAvailabilityModal, closeAvailabilityModal, saveAvailability,
-  acceptingId, acceptShow,
-  undoingId, undoShow, // NEW: Undo button state + action
-  pullOutMode, withdrawShow, withdrawReason, withdrawing, withdrawError,
-  openDeclineModal, openWithdrawModal, closeWithdrawModal, confirmWithdraw,
+  volAvailableShows,
+  shows,
+  errorMessage,
+  hasNoAvailability,
+  loadData,
+  showAvailabilityModal,
+  selectedShows,
+  saving,
+  modalError,
+  openAvailabilityModal,
+  closeAvailabilityModal,
+  saveAvailability,
+  acceptingId,
+  acceptShow,
+  undoingId,
+  undoShow, // NEW: Undo button state + action
+  pullOutMode,
+  withdrawShow,
+  withdrawReason,
+  withdrawing,
+  withdrawError,
+  openDeclineModal,
+  openWithdrawModal,
+  closeWithdrawModal,
+  confirmWithdraw,
 } = useMyAssignment()
 
 onMounted(loadData)
@@ -87,8 +105,8 @@ onMounted(loadData)
               </td>
               <!-- Action column. Which buttons appear depends on the status:
                    Pending  -> Accept / Decline (volunteer has not answered yet)
-                   Accepted -> "Can't make it" (pull out, the place is reopened)
-                   Declined / Withdrawn -> "Undo" (NEW: change of mind; the server refuses if the place was given away)
+                   Accepted -> "No-Show/Withdrawn (pull out, the place is reopened)
+                   Declined / Withdrawn
                    anything else (reserve, not available) -> nothing to do -->
               <td class="text-center text-nowrap">
                 <template v-if="show.assignment?.status === 'Pending'">
@@ -122,19 +140,9 @@ onMounted(loadData)
                   data-testid="assignment-withdraw"
                   @click="openWithdrawModal(show)"
                 >
-                  Can't make it
+                  No-Show/Withdrawn
                 </button>
-                <!-- NEW: Undo. Declined goes back to Pending, Withdrawn goes back to Accepted. -->
-                <button
-                  v-else-if="show.assignment?.status === 'Declined' || show.assignment?.status === 'Withdrawn'"
-                  type="button"
-                  class="btn btn-sm btn-outline-secondary"
-                  :disabled="undoingId === show.assignment._id"
-                  data-testid="assignment-undo"
-                  @click="undoShow(show)"
-                >
-                  Undo
-                </button>
+
                 <span v-else class="text-muted">—</span>
               </td>
             </tr>
@@ -206,7 +214,11 @@ onMounted(loadData)
                 data-testid="pullout-confirm"
                 @click="confirmWithdraw"
               >
-                <span v-if="withdrawing" class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span>
+                <span
+                  v-if="withdrawing"
+                  class="spinner-border spinner-border-sm me-1"
+                  aria-hidden="true"
+                ></span>
                 {{ pullOutMode === 'decline' ? 'Decline' : 'Pull out' }}
               </button>
             </div>
