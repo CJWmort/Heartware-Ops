@@ -22,8 +22,11 @@ const hash = (code) => crypto.createHash('sha256').update(code).digest('hex')
 const clean = (email) => String(email || '').trim().toLowerCase()
 
 // Test mode: no email is sent, the code is returned to the page instead.
-// On when OTP_MOCK=true, or when no Brevo key is set yet.
-const isMockMode = () => process.env.OTP_MOCK === 'true' || !process.env.BREVO_API_KEY
+// On when OTP_MOCK=true, or when no Brevo key is set AND we are not in production.
+// In production a missing key is an error (see requestCode), so the code can never leak to the browser.
+const isMockMode = () =>
+  process.env.OTP_MOCK === 'true' ||
+  (!process.env.BREVO_API_KEY && process.env.NODE_ENV !== 'production')
 
 // Send the email through Brevo's API (https://developers.brevo.com/reference/sendtransacemail)
 async function sendWithBrevo(email, code) {
@@ -79,6 +82,8 @@ async function requestCode(rawEmail) {
   if (isMockMode()) {
     console.log(`[OTP test mode] code for ${email}: ${code}`)
   } else {
+    // production without a key must fail loudly rather than fall back to test mode (which would reveal the code)
+    if (!process.env.BREVO_API_KEY) throw new Error('BREVO_API_KEY is not set on the server.')
     await sendWithBrevo(email, code)
   }
 

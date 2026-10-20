@@ -17,7 +17,8 @@ exports.usersGet = async (req,res) => {
 
 exports.userCreate = async (req, res) => {
     try {
-        const { name, email, address, postalCode, phone, password, role } = req.body;
+        // role is NOT read from the request: public sign-up can only ever create volunteers
+        const { name, email, address, postalCode, phone, password } = req.body;
         // Volunteers must have verified their email with the 6-digit code first
         if (!otp.useVerifiedEmail(email)) {
             return res.status(400).json({ message: 'Please verify your email with the 6-digit code first.' });
@@ -25,7 +26,10 @@ exports.userCreate = async (req, res) => {
         // Hash before saving, never store the plain password
         const hashedPassword = await bcrypt.hash(password, 10);
         const coordinates = await onemap.geocodePostal(postalCode);
-        console.log(coordinates);
+        // FIX: OneMap can find nothing for a postal code; before, `coordinates.lat` below crashed and the user saw a vague 500
+        if (!coordinates) {
+            return res.status(400).json({ message: 'We could not find that postal code. Please check it and try again.' });
+        }
 
         const user = await Account.create({
             name,
@@ -34,7 +38,7 @@ exports.userCreate = async (req, res) => {
             postalCode,
             phone,
             password: hashedPassword,
-            role,
+            role: 'volunteer', // fixed on the server: the sign-up form can no longer make itself an admin
             lat: coordinates.lat,
             lng: coordinates.lng
         });

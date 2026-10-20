@@ -43,7 +43,9 @@ exports.createIncident = async (req, res) => {
       note,
       location: lat != null ? { lat, lng } : undefined,
       address: address,
-      volunteer: req.session.user?._id,
+      // FIX: the session stores the id as req.session.userId (see accounts-controller login). The old
+      // req.session.user?._id was always undefined, so no incident ever recorded who reported it.
+      volunteer: req.session.userId,
       history: [{ status: "new" }],
     });
     emit("incident:new", incident); //new incident alert

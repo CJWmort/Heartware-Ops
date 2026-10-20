@@ -21,6 +21,11 @@ server.use("/", express.static("public"));
 // Specify the path to the environment variablef file 'config.env'
 dotenv.config({ path: "./config.env" });
 
+// Must come AFTER dotenv.config, so NODE_ENV written in config.env is also seen
+const isProduction = process.env.NODE_ENV === "production";
+// Behind a host's proxy (Render, Railway...) Express must trust it, otherwise "secure" cookies are dropped
+if (isProduction) server.set("trust proxy", 1);
+
 // Allow session storage while server is running
 server.use(
   session({
@@ -29,7 +34,8 @@ server.use(
     saveUninitialized: false,
     cookie: {
       httpOnly: true, // JS can't read it
-      sameSite: 'lax',             
+      sameSite: 'lax', // fine while the browser talks to ONE origin (see client/vercel.json rewrite)
+      secure: isProduction, // only send the cookie over HTTPS when deployed
       maxAge: 1000 * 60 * 60 * 8 // 8 hours
     }
   }),
@@ -57,8 +63,9 @@ async function connectDB() {
 }
 
 function startServer() {
-  const hostname = "localhost"; // Define server hostname
-  const port = 8000; // Define port number
+  // Hosts give us PORT and need 0.0.0.0; locally keep localhost:8000
+  const hostname = process.env.HOST || (isProduction ? "0.0.0.0" : "localhost");
+  const port = Number(process.env.PORT) || 8000;
 
   const httpServer = http.createServer(server); // wrap express for sockets by weiming
   initSockets(httpServer); // start socket.io
