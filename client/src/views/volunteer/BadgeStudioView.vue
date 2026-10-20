@@ -45,8 +45,21 @@ const unit = ref('')
 const postalCode = ref('')
 const submitting = ref(false)
 const statusLabels = {
-  placed: 'Placed', in_production: 'In Production', shipped: 'Shipped', delivered: 'Delivered'
+  placed: 'Placed', in_production: 'In production', shipped: 'Shipped', delivered: 'Delivered'
 }
+const shapes = [
+  { key: 'circle',  label: 'Circle' },
+  { key: 'hexagon', label: 'Hexagon' },
+  { key: 'star',    label: 'Star' },
+  { key: 'shield',  label: 'Shield' },
+]
+const statusSteps = ['placed', 'in_production', 'shipped', 'delivered']
+const postalCodeOk = computed(() => postalCode.value.match(/^\d{6}$/) ? true : false)
+
+function stepIndex(status) {
+  return statusSteps.indexOf(status)
+}
+
 function designFromPage() {
   return {
     shape: shape.value,
@@ -118,126 +131,544 @@ onMounted(async () => {
 </script>
 
 <template>
-  <section>
-    <PageHeader title="Badge Studio" icon="bi-palette">
+  <section class="studio">
+    <PageHeader title="Badge Studio" subtitle="Design your badge, then lock it in to order it." icon="bi-palette">
       <template #actions>
         <RouterLink to="/volunteer/badges" class="btn btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Back</RouterLink>
       </template>
     </PageHeader>
 
-    <div v-if="errorMessage" class="alert alert-danger" data-testid="studio-error">{{ errorMessage }}</div>
-    <div v-if="loading" class="text-center py-5">
+    <div v-if="errorMessage" class="alert alert-danger d-flex align-items-start gap-2" role="alert" data-testid="studio-error">
+      <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
+      <div>{{ errorMessage }}</div>
+    </div>
+
+    <div v-if="loading" class="text-center text-muted-hw py-5">
       <div class="spinner-border" aria-hidden="true"></div>
       <div class="mt-2">Loading your design...</div>
     </div>
-    <div v-else class="row g-4">
-      <!-- LEFT: preview -->
-      <div class="col-12 col-md-6">
-        <div class="card sticky-md-top bg-secondary-subtle" style="top: 1rem">
-          <div class="card-body text-center">
-            <svg viewBox="0 0 200 200" style="width: 100%; height: auto; max-width: 500px" data-testid="studio-preview">
+
+    <div v-else class="row g-4 align-items-start">
+      <!-- preview -->
+      <div class="col-12 col-md-6 col-lg-5 preview-col">
+        <div class="card-hw preview-card">
+          <div class="preview-stage">
+            <svg viewBox="0 0 200 200" class="preview-svg" role="img" :aria-label="`Preview: ${shape} badge with a ${emblem} emblem`" data-testid="studio-preview">
               <polygon data-part="primary" v-if="shape === 'hexagon'" points="180,100 140,169.3 60,169.3 20,100 60,30.7 140,30.7" :fill="colour" />
               <polygon data-part="primary" v-else-if="shape === 'star'" points="100,5 128.2,61.2 190.4,70.6 145.7,114.8 155.8,176.9 100,148 44.2,176.9 54.3,114.8 9.6,70.6 71.8,61.2" :fill="colour" />
               <path data-part="primary" v-else-if="shape === 'shield'" d="M 25 22 L 175 22 L 175 95 Q 175 155 100 182 Q 25 155 25 95 Z" :fill="colour" />
               <circle data-part="primary" v-else cx="100" cy="100" r="80" :fill="colour" />
               <rect data-part="secondary" x="0" y="125" width="200" height="30" rx="4" :fill="secondaryColour" />
-              <text x="100" y="145" text-anchor="middle" :font-size="ribbonFontSize" :fill="textColour">{{ ribbonText }}</text>
+              <text x="100" y="145" text-anchor="middle" font-weight="600" :font-size="ribbonFontSize" :fill="textColour">{{ ribbonText }}</text>
               <text x="100" y="112" text-anchor="middle" font-size="50" font-family="bootstrap-icons" :fill="emblemColour">{{ selectedEmblem.glyph }}</text>
             </svg>
+          </div>
+          <div class="preview-caption">
+            <template v-if="locked"><i class="bi bi-lock-fill me-1" aria-hidden="true"></i>Your ordered design</template>
+            <template v-else><i class="bi bi-eye me-1" aria-hidden="true"></i>Live preview</template>
           </div>
         </div>
       </div>
 
-      <!-- RIGHT: controls -->
-      <div class="col-12 col-md-6">
-        <div class="card">
-          <div class="card-body">
+      <!-- options, order form + orders -->
+      <div class="col-12 col-md-6 col-lg-7">
+        <div class="card-hw p-3 p-lg-4">
+          <div v-if="locked" class="locked-note mb-4" role="status" data-testid="studio-locked">
+            <i class="bi bi-lock-fill" aria-hidden="true"></i>
+            <div>
+              <div class="fw-semibold">Your design is locked</div>
+              <div class="small">You've ordered this badge, so it can't be changed.</div>
+            </div>
+          </div>
+
           <fieldset :disabled="locked">
-            <div class="mb-3">
-              <div class="form-label">Shape</div>
-              <label class="me-3"><input class="form-check-input me-1" type="radio" value="circle" v-model="shape" data-testid="studio-shape-circle" /> Circle</label>
-              <label class="me-3"><input class="form-check-input me-1" type="radio" value="hexagon" v-model="shape" data-testid="studio-shape-hexagon" /> Hexagon</label>
-              <label class="me-3"><input class="form-check-input me-1" type="radio" value="star" v-model="shape" data-testid="studio-shape-star" /> Star</label>
-              <label class="me-3"><input class="form-check-input me-1" type="radio" value="shield" v-model="shape" data-testid="studio-shape-shield" /> Shield</label>
+            <div class="studio-group">
+              <div id="shape-label" class="group-label">Shape</div>
+              <div class="tile-grid tile-grid-4" role="radiogroup" aria-labelledby="shape-label">
+                <template v-for="s in shapes" :key="s.key">
+                  <input :id="'shape-' + s.key" class="btn-check" type="radio" name="shape"
+                         :value="s.key" v-model="shape" :data-testid="'studio-shape-' + s.key" />
+                  <label class="option-tile" :for="'shape-' + s.key">
+                    <svg viewBox="0 0 200 200" class="tile-shape" aria-hidden="true">
+                      <polygon v-if="s.key === 'hexagon'" points="180,100 140,169.3 60,169.3 20,100 60,30.7 140,30.7" :fill="colour" />
+                      <polygon v-else-if="s.key === 'star'" points="100,5 128.2,61.2 190.4,70.6 145.7,114.8 155.8,176.9 100,148 44.2,176.9 54.3,114.8 9.6,70.6 71.8,61.2" :fill="colour" />
+                      <path v-else-if="s.key === 'shield'" d="M 25 22 L 175 22 L 175 95 Q 175 155 100 182 Q 25 155 25 95 Z" :fill="colour" />
+                      <circle v-else cx="100" cy="100" r="80" :fill="colour" />
+                    </svg>
+                    <span>{{ s.label }}</span>
+                  </label>
+                </template>
+              </div>
             </div>
-            <div class="mb-3">
-              <label for="primary-colour" class="form-label">Badge colour</label>
-              <input id="primary-colour" class="form-control form-control-color" type="color" v-model="colour" data-testid="studio-primary-color" />
+ 
+            <!-- Colours: swatch + hex, side by side -->
+            <div class="studio-group">
+              <div class="group-label">Colours</div>
+              <div class="row g-2">
+                <div class="col-6">
+                  <label for="primary-colour" class="colour-field">
+                    <input id="primary-colour" class="form-control form-control-color" type="color" v-model="colour" data-testid="studio-primary-color" />
+                    <span>
+                      <span class="d-block small fw-semibold">Badge</span>
+                      <span class="d-block small text-muted-hw font-monospace text-uppercase">{{ colour }}</span>
+                    </span>
+                  </label>
+                </div>
+                <div class="col-6">
+                  <label for="ribbon-colour" class="colour-field">
+                    <input id="ribbon-colour" class="form-control form-control-color" type="color" v-model="secondaryColour" data-testid="studio-secondary-color" />
+                    <span>
+                      <span class="d-block small fw-semibold">Ribbon</span>
+                      <span class="d-block small text-muted-hw font-monospace text-uppercase">{{ secondaryColour }}</span>
+                    </span>
+                  </label>
+                </div>
+              </div>
             </div>
-            <div class="mb-3">
-              <label for="ribbon-colour" class="form-label">Ribbon colour</label>
-              <input id="ribbon-colour" class="form-control form-control-color" type="color" v-model="secondaryColour" data-testid="studio-secondary-color" />
+ 
+            <!-- Emblem: icon tiles -->
+            <div class="studio-group">
+              <div id="emblem-label" class="group-label">Emblem</div>
+              <div class="tile-grid tile-grid-6" role="radiogroup" aria-labelledby="emblem-label">
+                <template v-for="e in emblems" :key="e.key">
+                  <input :id="'emblem-' + e.key" class="btn-check" type="radio" name="emblem"
+                         :value="e.key" v-model="emblem" :data-testid="'studio-emblem-' + e.key" />
+                  <label class="option-tile" :for="'emblem-' + e.key">
+                    <i :class="['bi', e.icon, 'tile-icon']" aria-hidden="true"></i>
+                    <span>{{ e.label }}</span>
+                  </label>
+                </template>
+              </div>
             </div>
-            <div class="mb-3">
-              <div class="form-label">Emblem</div>
-              <label v-for="e in emblems" :key="e.key" class="me-3">
-                <input type="radio" class="form-check-input me-1" :value="e.key" v-model="emblem" :data-testid="'studio-emblem-' + e.key" /> {{ e.label }}
-                <i :class="'bi ' + e.icon"></i>
-              </label>
-            </div>
-            <div class="mb-3">
-              <label for="ribbon-text" class="form-label">Ribbon text</label>
-              <input id="ribbon-text" class="form-control" type="text" v-model="ribbonText" data-testid="studio-ribbon" maxlength="20" />
-              <span class="form-text d-block" data-testid="studio-ribbon-count">{{ ribbonText.length }}/20</span>
+ 
+            <!-- Ribbon text: counter sits on the label's line -->
+            <div class="studio-group">
+              <div class="d-flex justify-content-between align-items-baseline">
+                <label for="ribbon-text" class="group-label">Ribbon text</label>
+                <span class="small text-muted-hw" data-testid="studio-ribbon-count">{{ ribbonText.length }}/20</span>
+              </div>
+              <input id="ribbon-text" class="form-control" type="text" v-model="ribbonText"
+                     placeholder="Your name or a short message" data-testid="studio-ribbon" maxlength="20" />
             </div>
           </fieldset>
-          <div class="d-flex align-items-center flex-wrap gap-2">
-              <button v-if="!locked" type="button" class="btn btn-outline-secondary" data-testid="studio-save" @click="save">Save</button>
-              <button v-if="!locked && !showOrderForm" type="button" class="btn btn-brand" data-testid="studio-lock" @click="showOrderForm = true">Lock in and order</button>
-              <span v-if="successMessage" class="text-success small" role="status">
-                <i class="bi bi-check-circle me-1"></i>{{ successMessage }}
-              </span>
-          </div>
-          </div>
-        </div>
-        <div v-if="showOrderForm" class="card mt-3" data-testid="order-form">
-          <div class="card-body">
-            <h2 class="h6 mb-1">Where should we send your badge?</h2>
-            <p class="form-text mb-3">Once you order, your design is locked.</p>
-
-            <div class="mb-3">
-              <label for="order-line1" class="form-label">Address</label>
-              <input id="order-line1" class="form-control" type="text" v-model="addressLine1"
-                    placeholder="Blk 201 Tampines St 21" autocomplete="address-line1" data-testid="order-address" />
-            </div>
-            <div class="row g-3 mb-3">
-              <div class="col-6">
-                <label for="order-unit" class="form-label">Unit <span class="text-body-secondary">(optional)</span></label>
-                <input id="order-unit" class="form-control" type="text" v-model="unit"
-                      placeholder="#05-123" autocomplete="address-line2" data-testid="order-unit" />
-              </div>
-              <div class="col-6">
-                <label for="order-postal" class="form-label">Postal code</label>
-                <input id="order-postal" class="form-control" type="text" v-model="postalCode" inputmode="numeric"
-                      maxlength="6" placeholder="520201" autocomplete="postal-code" data-testid="order-postal" />
-              </div>
-            </div>
-
-            <div class="d-flex gap-2">
-              <button type="button" class="btn btn-brand" :disabled="submitting" @click="placeMyOrder" data-testid="order-submit">
-                {{ submitting ? 'Placing order...' : 'Place order' }}
-              </button>
-              <button type="button" class="btn btn-outline-secondary" :disabled="submitting" @click="showOrderForm = false">Cancel</button>
-            </div>
+ 
+          <!-- Actions: set apart from the options (proximity), one filled button (emphasis) -->
+          <div v-if="!locked || successMessage" class="action-bar">
+            <button v-if="!locked && !showOrderForm" type="button" class="btn btn-brand px-4" data-testid="studio-lock" @click="showOrderForm = true">
+              <i class="bi bi-bag-check me-2" aria-hidden="true"></i>Lock in and order
+            </button>
+            <button v-if="!locked" type="button" class="btn btn-outline-secondary" data-testid="studio-save" @click="save">
+              <i class="bi bi-cloud-arrow-up me-2" aria-hidden="true"></i>Save
+            </button>
+            <span v-if="successMessage" class="save-note" role="status">
+              <i class="bi bi-check-circle-fill me-1" aria-hidden="true"></i>{{ successMessage }}
+            </span>
           </div>
         </div>
-        <div class="card mt-3" data-testid="order-list">
-          <div class="card-body">
-            <h2 class="h6 mb-3">My Orders</h2>
-            <p v-if="orders.length === 0" class="text-body-secondary mb-0">You haven't ordered a badge yet.</p>
-            <ul v-else class="list-unstyled mb-0">
-              <li v-for="order in orders" :key="order._id"
-                  class="d-flex justify-content-between align-items-center gap-3 py-2 border-top">
-                <div>
-                  <div class="fw-semibold">Ordered {{ timeAgo(order.createdAt) }}</div>          
-                  <div class="small text-body-secondary">{{ order.address.line1 }}</div>    
+ 
+        <!-- Order form: opens under the options; shows the consequence before the commit -->
+        <div v-if="showOrderForm" class="card-hw p-3 p-lg-4 mt-3" data-testid="order-form">
+          <h2 class="h6 mb-1"><i class="bi bi-truck me-2" aria-hidden="true"></i>Where should we send your badge?</h2>
+          <p class="small text-muted-hw mb-3">
+            You're ordering the badge in the preview<span class="d-md-none"> above</span><span class="d-none d-md-inline"> on the left</span>.
+            <strong class="text-body">Once you place the order, your design is locked.</strong>
+          </p>
+ 
+          <div class="mb-3">
+            <label for="order-line1" class="form-label small fw-semibold">Address</label>
+            <input id="order-line1" class="form-control" type="text" v-model="addressLine1"
+                   placeholder="Blk 201 Tampines St 21" autocomplete="address-line1" data-testid="order-address" />
+          </div>
+          <div class="row g-3 mb-4">
+            <div class="col-6">
+              <label for="order-unit" class="form-label small fw-semibold">Unit <span class="fw-normal text-muted-hw">(optional)</span></label>
+              <input id="order-unit" class="form-control" type="text" v-model="unit"
+                     placeholder="#05-123" autocomplete="address-line2" data-testid="order-unit" />
+            </div>
+            <div class="col-6">
+              <label for="order-postal" class="form-label small fw-semibold">Postal code</label>
+              <input id="order-postal" class="form-control" :class="{ 'is-invalid': postalCode && !postalCodeOk }"
+                     type="text" v-model="postalCode" inputmode="numeric" maxlength="6" placeholder="520201"
+                     autocomplete="postal-code" aria-describedby="order-postal-help" data-testid="order-postal" />
+              <div id="order-postal-help" class="invalid-feedback">Postal codes have 6 digits.</div>
+            </div>
+          </div>
+ 
+          <div class="d-flex flex-wrap gap-2">
+            <button type="button" class="btn btn-brand px-4" :disabled="submitting || !postalCodeOk || !addressLine1.trim()"
+                    @click="placeMyOrder" data-testid="order-submit">
+              <span v-if="submitting" class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>
+              {{ submitting ? 'Placing order...' : 'Place order' }}
+            </button>
+            <button type="button" class="btn btn-outline-secondary" :disabled="submitting" @click="showOrderForm = false">Cancel</button>
+          </div>
+        </div>
+ 
+        <!-- Orders: what was ordered, where it's going, and how far along it is -->
+        <div class="card-hw p-3 p-lg-4 mt-3" data-testid="order-list">
+          <h2 class="h6 mb-3"><i class="bi bi-box-seam me-2" aria-hidden="true"></i>My orders</h2>
+ 
+          <div v-if="orders.length === 0" class="empty-orders">
+            <i class="bi bi-bag" aria-hidden="true"></i>
+            <div>
+              <div class="fw-semibold">You haven't ordered a badge yet.</div>
+              <div class="small text-muted-hw">When your design is ready, choose Lock in and order.</div>
+            </div>
+          </div>
+ 
+          <ul v-else class="list-unstyled mb-0">
+            <li v-for="order in orders" :key="order._id" class="order-item">
+              <div class="d-flex justify-content-between align-items-start gap-3">
+                <div class="d-flex align-items-center gap-3 min-w-0">
+                  <span class="snapshot-dots" aria-hidden="true">
+                    <span :style="{ background: order.designSnapshot?.primaryColor }"></span>
+                    <span :style="{ background: order.designSnapshot?.secondaryColor }"></span>
+                  </span>
+                  <div class="min-w-0">
+                    <div class="fw-semibold text-capitalize">{{ order.designSnapshot?.shape }} · {{ order.designSnapshot?.emblem }}</div>
+                    <div class="small text-muted-hw text-truncate">Ordered {{ timeAgo(order.createdAt) }} · {{ order.address.line1 }}</div>
+                  </div>
                 </div>
-                <span class="badge rounded-pill text-bg-secondary" data-testid="order-status">{{ statusLabels[order.status] || order.status }}</span>
-              </li>
-            </ul>
-          </div>
+                <span class="status-pill" data-testid="order-status">{{ statusLabels[order.status] || order.status }}</span>
+              </div>
+ 
+              <ol class="tracker" :aria-label="'Order progress: ' + (statusLabels[order.status] || order.status)">
+                <li v-for="(step, i) in statusSteps" :key="step"
+                    :class="{ done: i < stepIndex(order.status), current: i === stepIndex(order.status) }">
+                  <span class="dot" aria-hidden="true"></span>
+                  <span class="step-label">{{ statusLabels[step] }}</span>
+                </li>
+              </ol>
+            </li>
+          </ul>
         </div>
       </div>
     </div>
   </section>
 </template>
+ 
+<style scoped>
+/* ---------- Preview ---------- */
+.preview-card {
+  overflow: hidden;
+}
+.preview-stage {
+  display: grid;
+  place-items: center;
+  padding: 1.75rem;
+  background: radial-gradient(circle at 50% 42%, #ffffff 0%, var(--hw-bg) 72%);
+}
+.preview-svg {
+  width: 100%;
+  max-width: 340px;
+  height: auto;
+  filter: drop-shadow(0 10px 18px rgb(20 33 61 / 0.18));
+}
+.preview-caption {
+  padding: 0.6rem 1rem;
+  border-top: 1px solid var(--bs-border-color);
+  font-size: 0.8rem;
+  color: var(--hw-muted);
+  text-align: center;
+}
+ 
+/* Desktop: the card sticks just below the sticky navbar */
+@media (min-width: 768px) {
+  .preview-card {
+    position: sticky;
+    top: calc(var(--studio-navbar-h) + 1rem);
+  }
+}
+/* Phone: the whole preview strip sticks under the navbar, smaller, so options stay in view */
+@media (max-width: 767.98px) {
+  .preview-col {
+    position: sticky;
+    top: var(--studio-navbar-h);
+    z-index: 5;
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+    background: var(--hw-bg);
+  }
+  .preview-stage {
+    padding: 0.75rem;
+  }
+  .preview-svg {
+    max-height: 22vh;
+  }
+  .preview-caption {
+    display: none;
+  }
+}
+.studio {
+  --studio-navbar-h: 56px; /* height of the team's sticky navbar */
+}
+/* main.css gives .btn-brand no disabled colours, so a disabled one turned into a grey
+   outline that looked like Cancel (similarity). Keep it red, just faded. */
+.studio .btn-brand {
+  --bs-btn-disabled-bg: var(--hw-red);
+  --bs-btn-disabled-border-color: var(--hw-red);
+  --bs-btn-disabled-color: #fff;
+}
+ 
+/* ---------- Option groups ---------- */
+.studio-group + .studio-group {
+  margin-top: 1.5rem; /* bigger gap BETWEEN groups than inside them (proximity) */
+}
+.group-label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--hw-muted);
+}
+ 
+/* Tiles: the real radio stays in the page (keyboard + tests), the label is what you see */
+.tile-grid {
+  display: grid;
+  gap: 0.5rem;
+}
+.tile-grid-4 {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+.tile-grid-6 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+@media (min-width: 992px) {
+  .tile-grid-6 {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}
+.option-tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.35rem;
+  min-height: 80px;
+  padding: 0.6rem 0.25rem;
+  border: 1.5px solid var(--bs-border-color);
+  border-radius: 0.6rem;
+  background: var(--hw-surface);
+  font-size: 0.8rem;
+  text-align: center;
+  cursor: pointer;
+  user-select: none;
+  transition: border-color 0.15s, background-color 0.15s, box-shadow 0.15s;
+}
+.option-tile:hover {
+  border-color: #c3c8d2;
+  background: #fafbfd;
+}
+.tile-shape {
+  width: 36px;
+  height: 36px;
+}
+.tile-icon {
+  font-size: 1.5rem;
+  line-height: 1;
+  color: var(--hw-navy);
+}
+/* Selected: border + tint + bold label + tick (not colour alone) */
+.btn-check:checked + .option-tile {
+  border-color: var(--hw-red);
+  background: rgb(214 0 28 / 0.05);
+  box-shadow: inset 0 0 0 1px var(--hw-red);
+  font-weight: 600;
+}
+.btn-check:checked + .option-tile::after {
+  content: '\f26a'; /* bi-check-circle-fill */
+  font-family: 'bootstrap-icons';
+  position: absolute;
+  top: 4px;
+  right: 6px;
+  font-size: 0.85rem;
+  line-height: 1;
+  color: var(--hw-red);
+}
+.btn-check:focus-visible + .option-tile {
+  outline: 2px solid var(--hw-navy);
+  outline-offset: 2px;
+}
+.btn-check:disabled + .option-tile {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.btn-check:disabled:checked + .option-tile {
+  opacity: 0.85; /* the chosen option stays readable when locked */
+}
+ 
+/* Colour fields */
+.colour-field {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  border: 1.5px solid var(--bs-border-color);
+  border-radius: 0.6rem;
+  cursor: pointer;
+}
+.colour-field .form-control-color {
+  width: 2.5rem;
+  height: 2.5rem;
+  padding: 0.2rem;
+  border-radius: 0.5rem;
+  flex-shrink: 0;
+}
+fieldset:disabled .colour-field {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+ 
+/* ---------- Locked note + actions ---------- */
+.locked-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  border-radius: 0.6rem;
+  background: rgb(20 33 61 / 0.06);
+  color: var(--hw-navy);
+}
+.locked-note > i {
+  font-size: 1.25rem;
+  line-height: 1.2;
+}
+.action-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1.75rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--bs-border-color);
+}
+.save-note {
+  font-size: 0.875rem;
+  color: var(--hw-success);
+}
+@media (max-width: 575.98px) {
+  .action-bar .btn {
+    flex: 1 1 auto; /* bigger targets on phones */
+  }
+}
+ 
+/* ---------- Orders ---------- */
+.empty-orders {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 1rem;
+  border: 1.5px dashed var(--bs-border-color);
+  border-radius: 0.6rem;
+}
+.empty-orders > i {
+  font-size: 1.5rem;
+  line-height: 1;
+  color: var(--hw-muted);
+}
+.order-item + .order-item {
+  margin-top: 1.25rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid var(--bs-border-color);
+}
+.min-w-0 {
+  min-width: 0;
+}
+.snapshot-dots {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+.snapshot-dots span {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid var(--hw-surface);
+  box-shadow: 0 0 0 1px var(--bs-border-color);
+}
+.snapshot-dots span + span {
+  margin-left: -7px;
+}
+.status-pill {
+  flex-shrink: 0;
+  padding: 0.25rem 0.65rem;
+  border-radius: 999px;
+  background: rgb(20 33 61 / 0.08);
+  color: var(--hw-navy);
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+ 
+/* Tracker: four steps on one line (continuity); position + text carry the meaning */
+.tracker {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 1rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.tracker li {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.75rem;
+  text-align: center;
+  color: var(--hw-muted);
+}
+.tracker li::before {
+  content: '';
+  position: absolute;
+  top: 7px;
+  right: 50%;
+  width: 100%;
+  height: 2px;
+  background: var(--bs-border-color);
+}
+.tracker li:first-child::before {
+  display: none;
+}
+.tracker .dot {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid #c3c8d2;
+  background: var(--hw-surface);
+}
+.tracker li.done,
+.tracker li.current {
+  color: var(--hw-text);
+}
+.tracker li.done::before,
+.tracker li.current::before {
+  background: var(--hw-success);
+}
+.tracker li.done .dot {
+  border-color: var(--hw-success);
+  background: var(--hw-success);
+}
+.tracker li.done .dot::after {
+  content: '\f26e'; /* bi-check */
+  font-family: 'bootstrap-icons';
+  font-size: 0.75rem;
+  line-height: 1;
+  color: #fff;
+}
+.tracker li.current .dot {
+  border-color: var(--hw-navy);
+  background: var(--hw-navy);
+  box-shadow: 0 0 0 4px rgb(20 33 61 / 0.15);
+}
+.tracker li.current .step-label {
+  font-weight: 600;
+}
+</style>
