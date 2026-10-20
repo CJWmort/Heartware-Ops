@@ -134,7 +134,7 @@ onMounted(async () => {
   <section class="studio">
     <PageHeader title="Badge Studio" subtitle="Design your badge, then lock it in to order it." icon="bi-palette">
       <template #actions>
-        <RouterLink to="/volunteer/badges" class="btn btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Back</RouterLink>
+        <RouterLink to="/volunteer/badges" class="btn btn-outline-secondary" data-testid="studio-back"><i class="bi bi-arrow-left me-1"></i>Back</RouterLink>
       </template>
     </PageHeader>
 
@@ -300,7 +300,7 @@ onMounted(async () => {
               <span v-if="submitting" class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>
               {{ submitting ? 'Placing order...' : 'Place order' }}
             </button>
-            <button type="button" class="btn btn-outline-secondary" :disabled="submitting" @click="showOrderForm = false">Cancel</button>
+            <button type="button" class="btn btn-outline-secondary" :disabled="submitting" @click="showOrderForm = false" data-testid="order-cancel">Cancel</button>
           </div>
         </div>
  
