@@ -62,6 +62,11 @@ const AssignmentsSchema = new mongoose.Schema({
     trim: true,
     maxlength: [300, "Reason must be 300 characters or fewer"],
   },
+  updatedAt: {
+    type: Date,
+    required: true,
+    default: Date.now,
+  },
 });
 
 // A volunteer can only have one assignment (one school) per show

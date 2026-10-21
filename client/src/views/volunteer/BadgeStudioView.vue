@@ -1,7 +1,6 @@
 <script setup>
 // Feature 5 – Badge Studio — owner: Hanafi
 // Spec: docs/FEATURES.md   ·   API calls: src/services/   ·   Tests: e2e/
-import PageHeader from '@/components/PageHeader.vue'
 import { ref, computed } from 'vue'
 const colour = ref('#d6001c')
 const shape = ref('circle')
@@ -33,13 +32,8 @@ const ribbonFontSize = computed(() => Math.min(16, 180/(ribbonText.value.length)
 </script>
 
 <template>
+  <RouterLink to="/volunteer/badges" class="btn btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Back</RouterLink>
   <section>
-    <PageHeader title="Badge Studio" icon="bi-palette">
-      <template #actions>
-        <RouterLink to="/volunteer/badges" class="btn btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Back</RouterLink>
-      </template>
-    </PageHeader>
-
     <div class="row g-4">
       <!-- LEFT: preview -->
       <div class="col-12 col-md-6">
