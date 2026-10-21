@@ -17,7 +17,7 @@ function distanceKm(school, person) {
 
 // Fill every open place of one show from its reserve list. Returns the rows that were filled.
 // Draft (unpublished) shows are skipped: the next Run Allocations fills those.
-async function fillOpenPlaces(show) {
+async function replaceFromReserve(show) {
   const published = await Assignments.publishedShows();
   if (!published.includes(show)) return [];
 
@@ -57,4 +57,4 @@ async function fillOpenPlaces(show) {
   return filled;
 }
 
-module.exports = { fillOpenPlaces, NEARBY_KM };
+module.exports = { replaceFromReserve, NEARBY_KM };

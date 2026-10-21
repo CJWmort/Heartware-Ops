@@ -3,7 +3,7 @@ const Assignments = require("../models/assignments-model");
 const Account = require("../models/account-model");
 const School = require("../models/schools-model");
 const Shows = require("../models/shows-model");
-const { fillOpenPlaces } = require("../utils/auto-fill");
+const { replaceFromReserve } = require("../utils/reserve-replacement");
 const dotenv = require("dotenv");
 
 const { scarcityFirst } = require("../utils/scarcityFirst");
@@ -198,10 +198,10 @@ async function leaveAssignment(req, res, status) {
     // Their place is open now: give it to the nearest volunteer on the reserve list straight away.
     // The decline / withdrawal has already succeeded, so a problem here is only logged, never sent to the volunteer.
     try {
-      const filled = await fillOpenPlaces(assignment.show);
-      if (filled.length > 0) console.log(`Auto-replacement: filled ${filled.length} place(s) in ${assignment.show}`);
+      const filled = await replaceFromReserve(assignment.show);
+      if (filled.length > 0) console.log(`Reserve replacement: filled ${filled.length} place(s) in ${assignment.show}`);
     } catch (fillError) {
-      console.error(`Auto-replacement for ${assignment.show} failed:`, fillError.message);
+      console.error(`Reserve replacement for ${assignment.show} failed:`, fillError.message);
     }
     res.json({ entry, availableShows: user?.availableShows || [] });
   } catch (error) {

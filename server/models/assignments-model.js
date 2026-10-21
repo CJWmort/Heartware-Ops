@@ -266,7 +266,7 @@ exports.findBoard = function (show) {
 }
 
 
-// ===== AUTOMATIC REPLACEMENTS (used by utils/auto-fill.js) =====
+// ===== AUTOMATIC REPLACEMENTS (used by utils/reserve-replacement.js) =====
 
 // Schools of a show that still have an open place. A place is held by a Pending or Accepted row; a volunteer
 // who declined or withdrew has no row any more, so their place counts as open. Worked out on demand, never stored.
