@@ -19,6 +19,7 @@ defineProps({ text: { type: String, default: 'Loading...' } })
   align-items: center;
   justify-content: center;
   background: rgb(255 255 255 / 0.6);
+  color: #1f2430; /* CHANGED: dark text on this light overlay so 'Loading...' stays readable in dark mode */
   backdrop-filter: grayscale(1);
 }
 </style>

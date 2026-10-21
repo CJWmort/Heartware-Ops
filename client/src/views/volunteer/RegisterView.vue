@@ -439,7 +439,8 @@ async function verifyAndCreate() {
     <div class="row justify-content-center">
       <div class="col-12 col-md-8 col-lg-5">
         <div class="card-hw p-4 p-md-5">
-          <h1 class="h3 fw-bold mb-1" style="color: var(--hw-navy)">Sign up to volunteer</h1>
+          <!-- CHANGED: --hw-heading (not --hw-navy) so the title stays readable in dark mode -->
+          <h1 class="h3 fw-bold mb-1" style="color: var(--hw-heading)">Sign up to volunteer</h1>
           <p class="text-muted-hw mb-4">Create your Heartware Ops account.</p>
 
           <!-- ================= STEP 2: type the emailed code ================= -->

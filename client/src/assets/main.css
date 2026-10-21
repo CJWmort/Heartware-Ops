@@ -5,7 +5,8 @@
 :root {
   --hw-red: #d6001c; /* NDP red – primary actions */
   --hw-red-dark: #a80016;
-  --hw-navy: #14213d; /* navbar, headings */
+  --hw-navy: #14213d; /* navbar background */
+  --hw-heading: #14213d; /* NEW: heading/icon text colour (separate from --hw-navy so dark mode can make it light) */
   --hw-bg: #f6f7fb;
   --hw-surface: #ffffff;
   --hw-text: #1f2430;
@@ -16,6 +17,33 @@
   --hw-radius: 0.75rem;
   --hw-shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 4px 12px rgb(0 0 0 / 0.06);
   --hw-sea: #bcd8f2;
+}
+
+/* ---- Landing page "night sky" tokens: change the landing look HERE, not in the page ---- */
+:root {
+  --hw-landing-bg: #070c18; /* near-black navy sky */
+  --hw-landing-text: #f1f5f9; /* main text on the dark background */
+  --hw-landing-muted: #a8b3c7; /* secondary text */
+  --hw-landing-accent: #ff4d5e; /* brightened NDP red, readable on dark */
+  --hw-landing-glass: rgb(244 247 255 / 0.1); /* frosted-glass card fill */
+  --hw-landing-glass-border: rgb(255 255 255 / 0.14); /* frosted-glass card border */
+}
+
+/* Dark theme: applies when <html data-bs-theme="dark">. Same variable names as above, darker values. */
+[data-bs-theme='dark'] {
+  --hw-bg: #0b1020; /* page background */
+  --hw-surface: #141b2e; /* cards and panels: slightly lighter than the page (Material "elevation") */
+  --hw-text: #e6eaf2;
+  --hw-muted: #9aa6bb;
+  --hw-navy: #0f1730; /* navbar */
+  --hw-heading: #e6eaf2; /* NEW: light heading text, navy would be invisible on the dark page */
+  --hw-shadow: 0 1px 2px rgb(0 0 0 / 0.5), 0 4px 12px rgb(0 0 0 / 0.4);
+  --hw-sea: #1b2a44; /* Leaflet map background while tiles load */
+  --bs-body-bg: var(--hw-bg); /* point Bootstrap's own variables at ours */
+  --bs-body-color: var(--hw-text);
+}
+[data-bs-theme='dark'] .card-hw {
+  border: 1px solid rgb(255 255 255 / 0.07); /* faint edge so cards stay visible on a dark page */
 }
 
 body {
