@@ -1,6 +1,8 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import BaseMap from '@/components/BaseMap.vue'
+import MapLoading from '@/components/MapLoading.vue'
+import MapNotice from '@/components/MapNotice.vue'
 import axios from 'axios'
 import polyline from '@mapbox/polyline'
 import { VENUES } from '@/utils/constants'
@@ -809,7 +811,7 @@ onUnmounted(() => {
     <div
       class="map-stage"
       :class="{ 'is-dragging': dragging, 'sheet-anim': sheetAnimated }"
-      :style="{ '--sheet-h': sheetVisible + 'px' }"
+      :style="{ '--map-inset-bottom': sheetVisible + 'px', '--map-zoom-offset': '60px' }"
     >
       <BaseMap @ready="onMapReady" />
 
@@ -824,10 +826,7 @@ onUnmounted(() => {
         <i class="bi" :class="following ? 'bi-geo-alt-fill' : 'bi-crosshair2'"></i>
       </button>
 
-      <div v-if="loadingRoute || assignStatus === 'loading'" class="map-loading" role="status" aria-live="polite">
-        <div class="spinner-border text-primary" aria-hidden="true"></div>
-        <div class="mt-2 fw-semibold">Fetching Location Data...</div>
-      </div>
+      <MapLoading v-if="loadingRoute || assignStatus === 'loading'" text="Fetching Location Data..." />
 
       <!-- Sharing status pill -->
       <Transition name="fade" mode="out-in">
@@ -855,34 +854,7 @@ onUnmounted(() => {
         </div>
       </Transition>
 
-      <!-- Popup: "tracking is on" message and errors -->
-      <div class="notice-wrap">
-        <Transition name="notice">
-          <div
-            v-if="notice"
-            :key="notice.type + notice.text"
-            class="notice"
-            :class="notice.type"
-            :role="notice.type === 'error' ? 'alert' : 'status'"
-          >
-            <div class="notice-icon" aria-hidden="true">
-              <i class="bi" :class="notice.icon"></i>
-            </div>
-            <div class="notice-body">
-              <div class="notice-title">{{ notice.title }}</div>
-              <div class="notice-text">{{ notice.text }}</div>
-            </div>
-            <button
-              type="button"
-              class="notice-close"
-              aria-label="Dismiss message"
-              @click="dismissNotice"
-            >
-              <i class="bi bi-x-lg"></i>
-            </button>
-          </div>
-        </Transition>
-      </div>
+      <MapNotice :notice="notice" @close="dismissNotice" />
 
       <!-- Bottom sheet: Drive/Walk always visible, route details when expanded -->
       <div ref="sheetEl" class="sheet" :style="sheetStyle">
@@ -1015,24 +987,12 @@ onUnmounted(() => {
 }
 
 /* Overlay shown while a route is loading */
-.map-loading {
-  position: absolute;
-  inset: 0;
-  z-index: 1100; /* above Leaflet panes and zoom controls */
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  background: rgb(255 255 255 / 0.6);
-  backdrop-filter: grayscale(1);
-  border-radius: inherit;
-}
 
 /* Recenter button */
 .recenter-btn {
   position: absolute;
   right: 10px;
-  bottom: calc(30px + var(--sheet-h, 0px)); /* rides up with the sheet */
+  bottom: calc(30px + var(--map-inset-bottom, 0px)); /* rides up with the sheet */
   z-index: 1000; /* above Leaflet panes */
   width: 40px;
   height: 40px;
@@ -1104,33 +1064,11 @@ onUnmounted(() => {
 }
 
 /* Map fills everything below the navbar */
-.map-page {
-  --nav-h: 56px; /* navbar height: check in DevTools and adjust if different */
-  position: fixed;
-  top: var(--nav-h);
-  left: 0;
-  right: 0;
-  bottom: 0;
-}
 
-.map-stage {
-  position: relative; /* anchors the recenter button and loading overlay */
-  height: 100%;
-}
 
 /* Make Leaflet fill the stage with square corners */
-.map-stage :deep(.leaflet-container) {
-  width: 100%;
-  height: 100%;
-  border-radius: 0;
-  background: #f1efe9;
-}
 
 /* Lift the zoom buttons so they sit just above the recenter button */
-.map-stage :deep(.leaflet-control-zoom) {
-  margin-bottom: 60px;
-  margin-right: 14px;
-}
 
 /* Bottom sheet */
 .sheet {
@@ -1237,9 +1175,6 @@ onUnmounted(() => {
   color: #666;
 }
 /* Move Leaflet's bottom controls (zoom + attribution) up with the sheet */
-.map-stage :deep(.leaflet-bottom) {
-  bottom: var(--sheet-h, 0px);
-}
 
 /* Animate everything together, but not while the finger is dragging */
 .map-stage.sheet-anim:not(.is-dragging) .sheet {
@@ -1250,16 +1185,8 @@ onUnmounted(() => {
   transition: bottom 0.25s ease, background-color 0.15s, box-shadow 0.15s, color 0.15s;
 }
 
-.map-stage.sheet-anim:not(.is-dragging) :deep(.leaflet-bottom) {
-  transition: bottom 0.25s ease;
-}
 
 /* Hide hairline seams between map tiles */
-.map-stage :deep(.leaflet-tile) {
-  outline: 1px solid transparent; /* forces the browser to snap tile edges together */
-  max-width: none !important; /* stop CSS (e.g. img rules) from shrinking tiles */
-  max-height: none !important;
-}
 
 /* "xx min" pill on the route */
 :global(.route-label-pill) {
@@ -1277,98 +1204,6 @@ onUnmounted(() => {
 }
 
 /* Popup message (tracking info and errors) */
-.notice-wrap {
-  position: absolute;
-  top: 56px; /* leaves room for the sharing pill above */
-  left: 12px;
-  right: 12px;
-  z-index: 1150; /* above the loading overlay (1100) so errors stay visible */
-  display: flex;
-  justify-content: center;
-  pointer-events: none; /* only the card itself takes clicks */
-}
-
-.notice {
-  pointer-events: auto;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  max-width: 420px;
-  padding: 10px 8px 10px 12px;
-  background: #fff;
-  border-radius: 14px;
-  box-shadow: 0 2px 12px rgb(0 0 0 / 0.2);
-}
-
-.notice.error {
-  border: 1px solid #f5c2c0;
-}
-
-.notice-icon {
-  flex: 0 0 auto;
-  width: 36px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  background: #e8f0fe;
-  color: #1a73e8;
-  font-size: 1.1rem;
-}
-
-.notice.error .notice-icon {
-  background: #fce8e6;
-  color: #d93025;
-}
-
-.notice-body {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.notice-title {
-  font-size: 0.9rem;
-  font-weight: 600;
-  line-height: 1.2;
-}
-
-.notice-text {
-  margin-top: 2px;
-  font-size: 0.8rem;
-  line-height: 1.3;
-  color: #666;
-}
-
-.notice-close {
-  flex: 0 0 auto;
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 0;
-  border-radius: 50%;
-  background: transparent;
-  color: #777;
-}
-
-.notice-close:hover {
-  background: #f1f3f6;
-}
-
-/* Slide down and fade */
-.notice-enter-active,
-.notice-leave-active {
-  transition: transform 0.25s ease, opacity 0.25s ease;
-}
-
-.notice-enter-from,
-.notice-leave-to {
-  transform: translateY(-12px);
-  opacity: 0;
-}
 
 /* My shows: pills + school cards (same look as the Live Board) */
 .assign {
@@ -1417,98 +1252,12 @@ onUnmounted(() => {
   margin-top: 12px;
 }
 
-.info-card {
-  min-width: 0;
-  padding: 10px 12px;
-  background: #f6f8fb;
-  border: 1px solid #e6eaf0;
-  border-radius: 12px;
-}
-
-.info-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.72rem;
-  color: #777;
-}
-
-.info-label i {
-  font-size: 0.95rem;
-  color: #4f46e5;
-}
-
-.info-value {
-  margin-top: 4px;
-  font-size: 0.95rem;
-  font-weight: 600;
-  line-height: 1.25;
-}
-
-.info-number {
-  font-size: 1.5rem;
-  line-height: 1.1;
-}
 
 .assign-msg {
   font-size: 0.85rem;
   color: #888;
 }
 
-/* School marker: indigo rounded badge with a graduation cap */
-:global(.school-badge) {
-  width: 36px;
-  height: 36px;
-  box-sizing: border-box;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 3px solid #fff;
-  border-radius: 11px;
-  background: #4f46e5;
-  color: #fff;
-  font-size: 1.1rem;
-  box-shadow: 0 2px 6px rgb(0 0 0 / 0.4);
-}
-
-/* Tooltip cards (same look as the Live Board) */
-:global(.leaflet-tooltip.hq-tip) {
-  padding: 6px 12px 6px 6px;
-  background: #fff;
-  border: 1px solid #fff;
-  border-radius: 12px;
-  box-shadow: 0 2px 12px rgb(0 0 0 / 0.25);
-  color: #222;
-  white-space: nowrap;
-}
-
-:global(.tip) {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-:global(.tip-icon) {
-  flex: 0 0 auto;
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 8px;
-  background: #9aa0a6;
-  color: #fff;
-  font-size: 0.95rem;
-}
-:global(.tip-icon.me) { background: #2563eb; }
-:global(.tip-icon.dest) { background: #ea4335; }
-:global(.tip-icon.school) { background: #4f46e5; }
-
-:global(.tip-title) {
-  font-size: 0.9rem;
-  font-weight: 600;
-  line-height: 1.2;
-}
 
 /* Sharing status pill (top right, above the alert cards) */
 .share-pill {
@@ -1643,9 +1392,6 @@ onUnmounted(() => {
 
 /* Desktop: no drag. Show the same content as a card at the top left */
 @media (min-width: 992px) {
-  .map-stage {
-    --sheet-h: 0px !important; /* controls stay where they were */
-  }
   .sheet {
     top: 12px;
     bottom: auto;
@@ -1660,11 +1406,6 @@ onUnmounted(() => {
   }
   .sheet-peek {
     padding-top: 16px;
-  }
-  /* Desktop: the route card sits top left, so put the popup top right instead */
-  .notice-wrap {
-    left: 424px; /* clears the 400px card plus its 12px margin */
-    justify-content: flex-end;
   }
 }
 
