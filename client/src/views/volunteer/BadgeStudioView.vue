@@ -1,11 +1,7 @@
 <script setup>
 // Feature 5 – Badge Studio — owner: Hanafi
 // Spec: docs/FEATURES.md   ·   API calls: src/services/   ·   Tests: e2e/
-import PageHeader from '@/components/PageHeader.vue'
-import { ref, computed, onMounted } from 'vue'
-import { getMyDesign, getMyOrders, saveMyDesign, placeOrder } from '@/services/badges.js'
-import { timeAgo } from '@/utils/time.js'
-
+import { ref, computed } from 'vue'
 const colour = ref('#d6001c')
 const shape = ref('circle')
 const ribbonText = ref('')
@@ -172,6 +168,26 @@ onMounted(async () => {
               <template v-if="locked"><i class="bi bi-lock-fill me-1" aria-hidden="true"></i>Your ordered design</template>
               <template v-else><i class="bi bi-eye me-1" aria-hidden="true"></i>Live preview</template>
             </div>
+  <RouterLink to="/volunteer/badges" class="btn btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Back</RouterLink>
+  <section>
+    <div class="row g-4">
+      <!-- LEFT: preview -->
+      <div class="col-12 col-md-6">
+        <div class="card sticky-md-top bg-secondary-subtle" style="top: 1rem">
+          <div class="card-body text-center">
+            <svg viewBox="0 0 200 200" style="width: 100%; height: auto; max-width: 500px" data-testid="studio-preview">
+              <polygon data-part="primary" v-if="shape === 'hexagon'" points="180,100 140,169.3 60,169.3 20,100 60,30.7 140,30.7" :fill="colour" />
+              <polygon data-part="primary" v-else-if="shape === 'star'" points="100,5 128.2,61.2 190.4,70.6 145.7,114.8 155.8,176.9 100,148 44.2,176.9 54.3,114.8 9.6,70.6 71.8,61.2" :fill="colour" />
+              <path data-part="primary" v-else-if="shape === 'shield'" d="M 25 22 L 175 22 L 175 95 Q 175 155 100 182 Q 25 155 25 95 Z" :fill="colour" />
+              <circle data-part="primary" v-else cx="100" cy="100" r="80" :fill="colour" />
+              <rect data-part="secondary" x="0" y="125" width="200" height="30" rx="4" :fill="secondaryColour" />
+              <text x="100" y="145" text-anchor="middle" font-weight="600" :font-size="ribbonFontSize" :fill="textColour">{{ ribbonText }}</text>
+              <text x="100" y="112" text-anchor="middle" font-size="50" font-family="bootstrap-icons" :fill="emblemColour">{{ selectedEmblem.glyph }}</text>
+            </svg>
+          </div>
+          <div class="preview-caption">
+            <template v-if="locked"><i class="bi bi-lock-fill me-1" aria-hidden="true"></i>Your ordered design</template>
+            <template v-else><i class="bi bi-eye me-1" aria-hidden="true"></i>Live preview</template>
           </div>
         </div>
  

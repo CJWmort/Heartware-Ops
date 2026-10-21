@@ -1,6 +1,8 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import BaseMap from '@/components/BaseMap.vue'
+import MapLoading from '@/components/MapLoading.vue'
+import MapNotice from '@/components/MapNotice.vue'
 import axios from 'axios'
 import polyline from '@mapbox/polyline'
 import { VENUES } from '@/utils/constants'
@@ -41,8 +43,86 @@ const routeInfo = ref(null) // last fetched route summary: { minutes, km }
 const following = ref(true) // true = map camera follows the user's marker
 const travelMode = ref('drive') // 'drive' or 'walk'
 const loadingRoute = ref(false) // shows the "Fetching Routes..." overlay
+const reporting = ref(true) // turns false if the server says this volunteer isn't tracked
 
 const activeMode = computed(() => MODES.find((m) => m.key === travelMode.value))
+
+/* My accepted shows */
+const assignments = ref([]) // accepted shows: [{ show, school: { name, p5Classes } | null }]
+const assignStatus = ref('loading') // 'loading' | 'ready' | 'error'
+const selectedShow = ref('') // the show whose school is displayed
+
+const currentAssignment = computed(
+  () => assignments.value.find((a) => a.show === selectedShow.value) ?? null,
+)
+
+watch(currentAssignment, drawSchool) // tapping a pill (or the list loading) redraws the school
+
+/* Tracking and sharing status */
+const trackingOn = ref(false) // true once location tracking has started (needs an accepted show)
+const lastSentAt = ref(0) // time of the last successful send to the server
+const clock = ref(Date.now()) // ticks every 5 s so the pill notices when sends stop
+const SHARE_FRESH_MS = 90000 // counts as "sharing" while the last send is newer than this
+
+const SHARE_LABELS = {
+  sharing: 'Sharing location',
+  blocked: 'Location blocked',
+  off: 'Not sharing',
+  waiting: 'Connecting…',
+}
+
+// Which pill to show (null = none)
+const shareStatus = computed(() => {
+  if (!trackingOn.value) return null // not tracking at all
+  if (geoError.value) return 'blocked'
+  if (!reporting.value) return 'off'
+  if (lastSentAt.value && clock.value - lastSentAt.value < SHARE_FRESH_MS) return 'sharing'
+  return 'waiting'
+})
+
+// Tooltip text for the pill
+const shareHint = computed(
+  () =>
+    ({
+      sharing: 'Organisers can see your location while this page is open.',
+      blocked: geoError.value,
+      off: 'Sharing stopped. You may be logged out or have no accepted show.',
+      waiting: 'Waiting for a good location fix.',
+    })[shareStatus.value] ?? '',
+)
+
+// The blur overlay: shown once the shows are known and there is no accepted one
+const showNoShows = computed(() => assignStatus.value !== 'loading' && !assignments.value.length)
+const noShows = computed(() =>
+  assignStatus.value === 'error'
+    ? {
+        icon: 'bi-wifi-off',
+        title: 'Could not load your shows',
+        text: "We couldn't check your allocation, so location tracking hasn't started. Please try again.",
+      }
+    : {
+        icon: 'bi-calendar-x',
+        title: 'No allocated shows yet',
+        text: "Your location isn't being tracked. Please ensure that you have accepted an assigned show.",
+      },
+)
+
+// Loads the volunteer's accepted shows. They follow the order of availableShows,
+// and the first one is selected by default.
+// Loads the volunteer's allocations, keeps the accepted ones in order (NE Show 1, 2, 3, 4).
+// The first one is selected by default.
+async function loadAssignments() {
+  try {
+    const res = await axios.get('/api/assignments/me') // Fetch all assignments allocated to current logged in user
+    assignments.value = res.data
+      .filter((a) => a.status === 'Accepted')
+      .sort((a, b) => a.show.localeCompare(b.show, undefined, { numeric: true }))
+    selectedShow.value = assignments.value[0]?.show ?? ''
+    assignStatus.value = 'ready'
+  } catch {
+    assignStatus.value = 'error'
+  }
+}
 
 // The single message shown in the popup. Errors take priority over the info message.
 const notice = computed(() => {
@@ -84,6 +164,8 @@ let myMarker = null // the user's marker
 let routeLine = null // the drawn route polyline
 let routeRenderer = null // shared canvas renderer for route lines
 let routeLabel = null // "xx min" pill sitting on the route
+let schoolMarker = null // badge for the allocated school of the selected show
+let schoolLine = null // dashed line from the volunteer to that school
 
 let firstFix = true // true until the first GPS position arrives
 let lastRouteLoc = null // where the route was last fetched from
@@ -95,7 +177,6 @@ let routeBase = null // snapshot of the last route, used for live estimates
 let routeRequestId = 0 // guards against slow responses overwriting newer ones
 let lastFixAt = 0 // time the latest GPS fix arrived
 let lastReported = null // { lat, lng, time } of the last position sent to the server
-let reporting = true // turns false if the server says this volunteer isn't tracked
 let reportInFlight = false // true while a send is in progress
 let reportTimer = null // interval that sends the heartbeat
 let catchUp = false // true = send the next fix straight away (set when the tab becomes visible again)
@@ -144,6 +225,47 @@ function createDestIcon() {
     iconSize: [32, 40],
     iconAnchor: [16, 32], // the tip of the pin / center of the grey dot is the real location
     tooltipAnchor: [0, -34],
+  })
+}
+
+// Rounded indigo badge with a graduation cap (the allocated school)
+function createSchoolIcon() {
+  return L.divIcon({
+    className: 'school-marker',
+    html: `<div class="school-badge"><i class="bi bi-mortarboard-fill"></i></div>`,
+    iconSize: [36, 36],
+    iconAnchor: [18, 18],
+    tooltipAnchor: [0, -20],
+  })
+}
+
+// Tooltip card (same look as the Live Board): icon badge + name.
+// Built with the DOM (textContent) so a name can't inject HTML.
+function tipCard({ icon, tone, title }) {
+  const el = document.createElement('div')
+  el.className = 'tip'
+
+  const badge = document.createElement('div')
+  badge.className = `tip-icon ${tone}`
+  const i = document.createElement('i')
+  i.className = `bi ${icon}`
+  badge.appendChild(i)
+
+  const t = document.createElement('div')
+  t.className = 'tip-title'
+  t.textContent = title
+
+  el.append(badge, t)
+  return el
+}
+
+// Attaches a tooltip card to a marker (shows on hover or tap)
+function bindTip(marker, content) {
+  marker.bindTooltip(content, {
+    className: 'hq-tip',
+    direction: 'top',
+    offset: [0, -6], // keeps the card clear of the marker
+    opacity: 1,
   })
 }
 
@@ -212,6 +334,45 @@ function placeRouteLabel(coords, minutes) {
 /* Map setup                                                           */
 /* ------------------------------------------------------------------ */
 
+// Shows the allocated school of the selected show, with a dashed line from the
+// volunteer. The camera is never moved.
+function drawSchool() {
+  if (!map) return
+
+  if (schoolMarker) volunteerLayer.removeLayer(schoolMarker)
+  if (schoolLine) volunteerLayer.removeLayer(schoolLine)
+  schoolMarker = null
+  schoolLine = null
+
+  const s = currentAssignment.value?.school
+  if (s?.lat == null || s?.lng == null) return
+
+  schoolMarker = L.marker([s.lat, s.lng], { icon: createSchoolIcon(), zIndexOffset: -50 }).addTo(volunteerLayer)
+  bindTip(
+    schoolMarker,
+    tipCard({ icon: 'bi-mortarboard-fill', tone: 'school', title: s.name || 'School' }),
+  )
+
+  // The line needs the volunteer's marker; drawMyMarker calls this again once it exists
+  if (myMarker) {
+    schoolLine = L.polyline([myMarker.getLatLng(), [s.lat, s.lng]], {
+      color: '#4f46e5',
+      weight: 3,
+      dashArray: '6 8',
+      opacity: 0.85,
+      interactive: false,
+      renderer: routeRenderer, // canvas, so the line stays visible while zooming
+    }).addTo(volunteerLayer)
+  }
+}
+
+// Keeps the dashed line's volunteer end on the marker while it glides
+function updateSchoolLine() {
+  const s = currentAssignment.value?.school
+  if (!schoolLine || !myMarker || s?.lat == null) return
+  schoolLine.setLatLngs([myMarker.getLatLng(), [s.lat, s.lng]])
+}
+
 // Runs once BaseMap has created the map: sets up layers, the destination
 // marker, and draws anything we already have a location for.
 function onMapReady(m, leaflet) {
@@ -221,16 +382,14 @@ function onMapReady(m, leaflet) {
   volunteerLayer = L.layerGroup().addTo(map)
   meIcon = createDotIcon()
 
-  L.marker([DEST.lat, DEST.lng], {
-    icon: createDestIcon(),
-  })
-  .bindTooltip('Padang', { direction: 'top', sticky: false })
-  .addTo(volunteerLayer)
+  const destMarker = L.marker([DEST.lat, DEST.lng], { icon: createDestIcon() }).addTo(volunteerLayer)
+  bindTip(destMarker, tipCard({ icon: 'bi-flag-fill', tone: 'dest', title: 'Padang' }))
 
   map.zoomControl?.setPosition('bottomright') // move +/- buttons to the bottom right
   map.on('dragstart', () => (following.value = false)) // user took control of the map
   drawMyMarker(true)
   drawRoute()
+  drawSchool()
 }
 
 /* ------------------------------------------------------------------ */
@@ -244,10 +403,10 @@ function drawMyMarker(shouldCenter = false) {
   const { lat, lng } = location.value
 
   if (!myMarker) {
-    myMarker = L.marker([lat, lng], { icon: meIcon })
-      .bindTooltip('Me', { direction: 'top', sticky: false })
-      .addTo(volunteerLayer)
+    myMarker = L.marker([lat, lng], { icon: meIcon }).addTo(volunteerLayer)
+    bindTip(myMarker, tipCard({ icon: 'bi-person-fill', tone: 'me', title: 'Me' }))
     shouldCenter = true
+    drawSchool() 
   } else {
     moveMarkerSmooth(lat, lng)
   }
@@ -267,6 +426,7 @@ function moveMarkerSmooth(lat, lng, duration = GLIDE_MS) {
   // Big jump (e.g. first fix or GPS recovery): snap instead of gliding
   if (from.distanceTo(to) > BIG_JUMP_M) {
     myMarker.setLatLng(to)
+    updateSchoolLine()
     if (following.value && !recentering) map.panTo(to, { animate: false })
     return
   }
@@ -276,6 +436,7 @@ function moveMarkerSmooth(lat, lng, duration = GLIDE_MS) {
     const t = Math.min((now - start) / duration, 1) // progress from 0 to 1
     const cur = [from.lat + (to.lat - from.lat) * t, from.lng + (to.lng - from.lng) * t]
     myMarker.setLatLng(cur)
+    updateSchoolLine()
     if (following.value && !recentering) map.panTo(cur, { animate: false })
     if (t < 1) animFrame = requestAnimationFrame(step)
   }
@@ -438,7 +599,7 @@ function setTravelMode(mode) {
 // Skips the send if the fix is poor or old, or if nothing has changed enough.
 // force = true skips the distance/time check (used for the first fix).
 async function reportLocation(force = false) {
-  if (!reporting || reportInFlight || !location.value) return
+  if (!reporting.value || reportInFlight || !location.value) return
   if (Date.now() - lastFixAt > REPORT_MAX_FIX_AGE_MS) return // stale fix: don't present it as live
 
   const { lat, lng, accuracy } = location.value
@@ -454,10 +615,12 @@ async function reportLocation(force = false) {
   try {
     await axios.put('/api/locations/me', { lat, lng, accuracy })
     lastReported = { lat, lng, time: Date.now() }
+    lastSentAt.value = Date.now() // the pill turns green
+    clock.value = lastSentAt.value
   } catch (err) {
     const status = err.response?.status
     // Not logged in or no confirmed assignment: retrying won't help, so stop
-    if (status === 401 || status === 403) reporting = false
+    if (status === 401 || status === 403) reporting.value = false
     // Anything else (429, network, 500): ignore, the next check tries again
   } finally {
     reportInFlight = false
@@ -466,8 +629,8 @@ async function reportLocation(force = false) {
 
 // When the tab becomes visible again, get a fresh GPS fix and send it right away
 function onVisibilityChange() {
-  if (document.visibilityState !== 'visible') return
-  reporting = true // retry once, in case the assignment was confirmed while away
+  if (document.visibilityState !== 'visible' || !trackingOn.value) return
+  reporting.value = true // retry once, in case the show was accepted while away
   catchUp = true
   startTracking(onPosition, onGeoError) // restarts the watch, which delivers a fresh fix
 }
@@ -602,19 +765,38 @@ function onSheetPointerUp() {
   sheetVisible.value = expanded.value ? sheetFull.value : sheetPeek.value
 }
 
-// Start tracking once the page is on screen
+let disposed = false // true once the page is closed (stops a late load from starting tracking)
+
+// Starts location tracking and reporting. Only called when the volunteer has an accepted show.
+function beginTracking() {
+  if (trackingOn.value) return
+  trackingOn.value = true
+  startTracking(onPosition, onGeoError)
+  reportTimer = setInterval(() => {
+    clock.value = Date.now() // lets the pill notice when sends stop
+    reportLocation() // heartbeat check every 5 s (sends only if 30 s have passed)
+  }, 5000)
+}
+
+// Loads the volunteer's shows, and starts tracking only if they have an accepted one
+async function setupTracking() {
+  assignStatus.value = 'loading'
+  await loadAssignments()
+  if (!disposed && assignments.value.length) beginTracking()
+}
+
 onMounted(() => {
   document.addEventListener('visibilitychange', onVisibilityChange)
-  startTracking(onPosition, onGeoError)
-  reportTimer = setInterval(() => reportLocation(), 5000) // heartbeat check every 5s (sends only if 30 s have passed)
   measureSheet()
   sheetObserver = new ResizeObserver(measureSheet) // re-measure when the content changes height
   sheetObserver.observe(sheetEl.value)
   requestAnimationFrame(() => (sheetAnimated.value = true)) // enable animations after first layout
+  setupTracking()
 })
 
 // Stop tracking and any running animation when leaving the page
 onUnmounted(() => {
+  disposed = true
   document.removeEventListener('visibilitychange', onVisibilityChange)
   stopTracking()
   cancelAnimationFrame(animFrame)
@@ -629,7 +811,7 @@ onUnmounted(() => {
     <div
       class="map-stage"
       :class="{ 'is-dragging': dragging, 'sheet-anim': sheetAnimated }"
-      :style="{ '--sheet-h': sheetVisible + 'px' }"
+      :style="{ '--map-inset-bottom': sheetVisible + 'px', '--map-zoom-offset': '60px' }"
     >
       <BaseMap @ready="onMapReady" />
 
@@ -644,39 +826,35 @@ onUnmounted(() => {
         <i class="bi" :class="following ? 'bi-geo-alt-fill' : 'bi-crosshair2'"></i>
       </button>
 
-      <div v-if="loadingRoute" class="map-loading" role="status" aria-live="polite">
-        <div class="spinner-border text-primary" aria-hidden="true"></div>
-        <div class="mt-2 fw-semibold">Fetching Location Data...</div>
-      </div>
+      <MapLoading v-if="loadingRoute || assignStatus === 'loading'" text="Fetching Location Data..." />
 
-      <!-- Popup: "tracking is on" message and errors -->
-      <div class="notice-wrap">
-        <Transition name="notice">
-          <div
-            v-if="notice"
-            :key="notice.type + notice.text"
-            class="notice"
-            :class="notice.type"
-            :role="notice.type === 'error' ? 'alert' : 'status'"
-          >
-            <div class="notice-icon" aria-hidden="true">
-              <i class="bi" :class="notice.icon"></i>
-            </div>
-            <div class="notice-body">
-              <div class="notice-title">{{ notice.title }}</div>
-              <div class="notice-text">{{ notice.text }}</div>
-            </div>
-            <button
-              type="button"
-              class="notice-close"
-              aria-label="Dismiss message"
-              @click="dismissNotice"
-            >
-              <i class="bi bi-x-lg"></i>
-            </button>
+      <!-- Sharing status pill -->
+      <Transition name="fade" mode="out-in">
+        <div
+          v-if="shareStatus"
+          :key="shareStatus"
+          class="share-pill"
+          :class="shareStatus"
+          role="status"
+          :title="shareHint"
+        >
+          <span class="share-dot" aria-hidden="true"></span>{{ SHARE_LABELS[shareStatus] }}
+        </div>
+      </Transition>
+
+      <!-- No accepted show: blur the map and display that error. Nothing is tracked. -->
+      <Transition name="fade">
+        <div v-if="showNoShows" class="noshow" role="status">
+          <div class="noshow-card">
+            <div class="noshow-icon" aria-hidden="true"><i class="bi" :class="noShows.icon"></i></div>
+            <div class="noshow-title">{{ noShows.title }}</div>
+            <div class="noshow-text">{{ noShows.text }}</div>
+            <button type="button" class="noshow-btn" @click="this.$router.push('/volunteer/assignment')">View Assignments</button>
           </div>
-        </Transition>
-      </div>
+        </div>
+      </Transition>
+
+      <MapNotice :notice="notice" @close="dismissNotice" />
 
       <!-- Bottom sheet: Drive/Walk always visible, route details when expanded -->
       <div ref="sheetEl" class="sheet" :style="sheetStyle">
@@ -727,29 +905,45 @@ onUnmounted(() => {
             </div>
           </div>
           
-
-          <!-- only display this when volunteer is currently volunteering for a show -->
-          <hr>
-          <div class="sheet-title">NE Show 1</div>
-          <div class="row">
-            <div class="col-6">
-              <div class="d-inline-flex align-items-center">
-                <i class="bi-mortarboard fs-5"></i>&nbsp;
-                <span>Allocated school</span>
+          <!-- My accepted shows: pills pick the show, cards show its school -->
+          <div class="assign">
+            <template v-if="assignStatus === 'ready' && assignments.length">
+              <div class="show-pills" role="group" aria-label="My shows">
+                <button
+                  v-for="a in assignments"
+                  :key="a.show"
+                  type="button"
+                  class="show-pill"
+                  :class="{ active: a.show === selectedShow }"
+                  :aria-pressed="a.show === selectedShow"
+                  @click="selectedShow = a.show"
+                >
+                  {{ a.show }}
+                </button>
               </div>
-              <div style="font-size: 12px;">Something primary school</div>
-            </div>
 
-            <div class="col-6">
-              <div class="d-inline-flex align-items-center">
-                <i class="bi-clock fs-5"></i>&nbsp;
-                <span>Last updated</span>
+              <div class="info-grid">
+                <div class="info-card">
+                  <div class="info-label">
+                    <i class="bi bi-mortarboard-fill" aria-hidden="true"></i>Allocated school
+                  </div>
+                  <div class="info-value">{{ currentAssignment?.school?.name || '—' }}</div>
+                </div>
+                <div class="info-card">
+                  <div class="info-label">
+                    <i class="bi bi-people-fill" aria-hidden="true"></i>P5 classes
+                  </div>
+                  <div class="info-value info-number">
+                    {{ currentAssignment?.school?.p5Classes ?? '—' }}
+                  </div>
+                </div>
               </div>
-              <div style="font-size: 12px;">17 Oct 2026 12:43:57</div>
-            </div>
+            </template>
+
+            <div v-else-if="assignStatus === 'loading'" class="assign-msg">Loading your shows…</div>
+            <div v-else-if="assignStatus === 'error'" class="assign-msg">Could not load your shows.</div>
+            <div v-else class="assign-msg">You have no allocated shows yet.</div>
           </div>
-          <hr>
-          <br>
 
         </div>
       </div>
@@ -793,24 +987,12 @@ onUnmounted(() => {
 }
 
 /* Overlay shown while a route is loading */
-.map-loading {
-  position: absolute;
-  inset: 0;
-  z-index: 1100; /* above Leaflet panes and zoom controls */
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  background: rgb(255 255 255 / 0.6);
-  backdrop-filter: grayscale(1);
-  border-radius: inherit;
-}
 
 /* Recenter button */
 .recenter-btn {
   position: absolute;
   right: 10px;
-  bottom: calc(30px + var(--sheet-h, 0px)); /* rides up with the sheet */
+  bottom: calc(30px + var(--map-inset-bottom, 0px)); /* rides up with the sheet */
   z-index: 1000; /* above Leaflet panes */
   width: 40px;
   height: 40px;
@@ -882,33 +1064,11 @@ onUnmounted(() => {
 }
 
 /* Map fills everything below the navbar */
-.map-page {
-  --nav-h: 56px; /* navbar height: check in DevTools and adjust if different */
-  position: fixed;
-  top: var(--nav-h);
-  left: 0;
-  right: 0;
-  bottom: 0;
-}
 
-.map-stage {
-  position: relative; /* anchors the recenter button and loading overlay */
-  height: 100%;
-}
 
 /* Make Leaflet fill the stage with square corners */
-.map-stage :deep(.leaflet-container) {
-  width: 100%;
-  height: 100%;
-  border-radius: 0;
-  background: #f1efe9;
-}
 
 /* Lift the zoom buttons so they sit just above the recenter button */
-.map-stage :deep(.leaflet-control-zoom) {
-  margin-bottom: 60px;
-  margin-right: 14px;
-}
 
 /* Bottom sheet */
 .sheet {
@@ -1015,9 +1175,6 @@ onUnmounted(() => {
   color: #666;
 }
 /* Move Leaflet's bottom controls (zoom + attribution) up with the sheet */
-.map-stage :deep(.leaflet-bottom) {
-  bottom: var(--sheet-h, 0px);
-}
 
 /* Animate everything together, but not while the finger is dragging */
 .map-stage.sheet-anim:not(.is-dragging) .sheet {
@@ -1028,43 +1185,8 @@ onUnmounted(() => {
   transition: bottom 0.25s ease, background-color 0.15s, box-shadow 0.15s, color 0.15s;
 }
 
-.map-stage.sheet-anim:not(.is-dragging) :deep(.leaflet-bottom) {
-  transition: bottom 0.25s ease;
-}
-
-/* Desktop: no drag. Show the same content as a card at the top left */
-@media (min-width: 992px) {
-  .map-stage {
-    --sheet-h: 0px !important; /* controls stay where they were */
-  }
-  .sheet {
-    top: 12px;
-    bottom: auto;
-    left: 12px;
-    right: auto;
-    width: 400px;
-    border-radius: 12px;
-    transform: none !important; /* always fully open */
-  }
-  .sheet-handle {
-    display: none;
-  }
-  .sheet-peek {
-    padding-top: 16px;
-  }
-  /* Desktop: the route card sits top left, so put the popup top right instead */
-  .notice-wrap {
-    left: 424px; /* clears the 400px card plus its 12px margin */
-    justify-content: flex-end;
-  }
-}
 
 /* Hide hairline seams between map tiles */
-.map-stage :deep(.leaflet-tile) {
-  outline: 1px solid transparent; /* forces the browser to snap tile edges together */
-  max-width: none !important; /* stop CSS (e.g. img rules) from shrinking tiles */
-  max-height: none !important;
-}
 
 /* "xx min" pill on the route */
 :global(.route-label-pill) {
@@ -1082,96 +1204,210 @@ onUnmounted(() => {
 }
 
 /* Popup message (tracking info and errors) */
-.notice-wrap {
+
+/* My shows: pills + school cards (same look as the Live Board) */
+.assign {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #eceef1;
+}
+
+.show-pills {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none; /* scrolls sideways if a volunteer has many shows */
+}
+.show-pills::-webkit-scrollbar {
+  display: none;
+}
+
+.show-pill {
+  flex: 0 0 auto;
+  height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 16px;
+  background: #f1f3f6;
+  color: #555;
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.show-pill:hover {
+  background: #e8ebf0;
+}
+
+.show-pill.active {
+  background: #2563eb;
+  color: #fff;
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+
+.assign-msg {
+  font-size: 0.85rem;
+  color: #888;
+}
+
+
+/* Sharing status pill (top right, above the alert cards) */
+.share-pill {
   position: absolute;
   top: 12px;
-  left: 12px;
   right: 12px;
-  z-index: 1150; /* above the loading overlay (1100) so errors stay visible */
-  display: flex;
-  justify-content: center;
-  pointer-events: none; /* only the card itself takes clicks */
-}
-
-.notice {
-  pointer-events: auto;
+  z-index: 1150;
   display: flex;
   align-items: center;
-  gap: 12px;
-  width: 100%;
-  max-width: 420px;
-  padding: 10px 8px 10px 12px;
+  gap: 7px;
+  height: 30px;
+  padding: 0 12px;
   background: #fff;
-  border-radius: 14px;
-  box-shadow: 0 2px 12px rgb(0 0 0 / 0.2);
+  border-radius: 15px;
+  box-shadow: 0 1px 6px rgb(0 0 0 / 0.25);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #555;
+  white-space: nowrap;
 }
 
-.notice.error {
-  border: 1px solid #f5c2c0;
+.share-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #9aa0a6;
 }
 
-.notice-icon {
-  flex: 0 0 auto;
-  width: 36px;
-  height: 36px;
+.share-pill.sharing {
+  color: #166534;
+}
+.share-pill.sharing .share-dot {
+  background: #16a34a;
+  animation: share-pulse 2s ease-out infinite;
+}
+
+.share-pill.blocked {
+  color: #b91c1c;
+  box-shadow: 0 1px 6px rgb(0 0 0 / 0.25), 0 0 0 1px #f5c2c0;
+}
+.share-pill.blocked .share-dot {
+  background: #dc2626;
+}
+
+@keyframes share-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgb(22 163 74 / 0.5);
+  }
+  100% {
+    box-shadow: 0 0 0 8px rgb(22 163 74 / 0);
+  }
+}
+
+/* No accepted show: blurred map with a card */
+.noshow {
+  position: absolute;
+  inset: 0;
+  z-index: 1120; /* above the sheet (1050) and the loading overlay (1100) */
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 50%;
-  background: #e8f0fe;
-  color: #1a73e8;
-  font-size: 1.1rem;
+  padding: 24px;
+  background: rgb(255 255 255 / 0.45);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
 }
 
-.notice.error .notice-icon {
-  background: #fce8e6;
-  color: #d93025;
+.noshow-card {
+  width: 100%;
+  max-width: 340px;
+  padding: 22px 20px;
+  background: #fff;
+  border-radius: 18px;
+  box-shadow: 0 4px 20px rgb(0 0 0 / 0.2);
+  text-align: center;
 }
 
-.notice-body {
-  flex: 1 1 auto;
-  min-width: 0;
+.noshow-icon {
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  background: #eef3ff;
+  color: #2563eb;
+  font-size: 1.5rem;
 }
 
-.notice-title {
-  font-size: 0.9rem;
+.noshow-title {
+  font-size: 1.05rem;
   font-weight: 600;
-  line-height: 1.2;
 }
 
-.notice-text {
-  margin-top: 2px;
-  font-size: 0.8rem;
-  line-height: 1.3;
+.noshow-text {
+  margin-top: 6px;
+  font-size: 0.85rem;
+  line-height: 1.4;
   color: #666;
 }
 
-.notice-close {
-  flex: 0 0 auto;
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.noshow-btn {
+  margin-top: 16px;
+  height: 38px;
+  padding: 0 18px;
   border: 0;
-  border-radius: 50%;
-  background: transparent;
-  color: #777;
+  border-radius: 19px;
+  background: #2563eb;
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.noshow-btn:hover {
+  background: #1d4fd8;
 }
 
-.notice-close:hover {
-  background: #f1f3f6;
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.25s ease;
 }
-
-/* Slide down and fade */
-.notice-enter-active,
-.notice-leave-active {
-  transition: transform 0.25s ease, opacity 0.25s ease;
-}
-
-.notice-enter-from,
-.notice-leave-to {
-  transform: translateY(-12px);
+.fade-enter-from,
+.fade-leave-to {
   opacity: 0;
 }
+
+@media (prefers-reduced-motion: reduce) {
+  .share-pill.sharing .share-dot {
+    animation: none;
+  }
+}
+
+/* Desktop: no drag. Show the same content as a card at the top left */
+@media (min-width: 992px) {
+  .sheet {
+    top: 12px;
+    bottom: auto;
+    left: 12px;
+    right: auto;
+    width: 400px;
+    border-radius: 12px;
+    transform: none !important; /* always fully open */
+  }
+  .sheet-handle {
+    display: none;
+  }
+  .sheet-peek {
+    padding-top: 16px;
+  }
+}
+
+
 </style>

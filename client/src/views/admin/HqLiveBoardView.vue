@@ -2,12 +2,15 @@
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import axios from 'axios'
 import BaseMap from '@/components/BaseMap.vue'
+import MapLoading from '@/components/MapLoading.vue'
+import MapNotice from '@/components/MapNotice.vue'
+import { useZoneEventsStore, MAX_EVENTS } from '@/services/zone-events'
 import { SINGAPORE_CENTER, INNER_RING, OUTER_RING } from '@/utils/constants'
 
 /* ------------------------------------------------------------------ */
 /* Settings                                                            */
 /* ------------------------------------------------------------------ */
-const POLL_MS = 15000 // how often the board is refreshed
+const POLL_MS = 5000 // how often the board is refreshed
 const TICK_MS = 30000 // how often "x min ago" text is recalculated
 const LIVE_MS = 2 * 60 * 1000 // updated within 2 min = live
 const STALE_MS = 10 * 60 * 1000 // within 2-10 min = stale, older = not reporting
@@ -32,6 +35,11 @@ const ZONES = [
 
 const IMMEDIATE_M = 10 // alert on the first sighting if this far (in metres) past a ring edge (or the GPS accuracy, if larger)
 const MAX_TOASTS = 3 // alert cards visible at once
+const EVENT_FILTERS = [
+  { key: 'all', label: 'All' },
+  { key: 'enter', label: 'Arrivals' },
+  { key: 'leave', label: 'Departures' },
+]
 const TOAST_MS = 8000 // how long an alert card stays
 const ZONE_RANK = { outside: 0, outer: 1, inner: 2 } // higher = closer to the venue
 
@@ -42,9 +50,23 @@ const shows = ref([]) // e.g. ['NE Show 1', ...] for the dropdown
 const selectedShow = ref('')
 const volunteers = ref([]) // raw board data from the server
 const loading = ref(true)
+
 const error = ref('')
+const errorNotice = computed(() =>
+  error.value
+    ? {
+        type: 'error',
+        icon: 'bi-exclamation-triangle-fill',
+        title: 'Something went wrong',
+        text: error.value,
+      }
+    : null
+)
+
 const query = ref('') // search text (name only)
 const searchOpen = ref(false) // is the result list showing
+const showMenuOpen = ref(false) // is the show dropdown open
+const showEl = ref(null) // the dropdown wrapper (for outside-click detection)
 const selectedId = ref(null) // volunteer currently selected
 const now = ref(Date.now()) // ticks so "x min ago" stays current
 const cardEl = ref(null)
@@ -53,13 +75,18 @@ const cardH = ref(0) // height of the bottom card on mobile (moves map controls 
 let clockOffset = 0 // server time minus browser time, so a wrong phone clock can't skew freshness
 const serverNow = computed(() => now.value + clockOffset)
 
-// Time since the volunteer's last update, as text
-function agoText(v) {
-  if (!v.updatedAt) return ''
-  const mins = Math.floor((serverNow.value - new Date(v.updatedAt).getTime()) / 60000)
+// "Just now" / "5 min ago" / "2 h ago" from a number of milliseconds
+function ageText(ms) {
+  const mins = Math.floor(ms / 60000)
   if (mins < 1) return 'Just now'
   if (mins < 60) return `${mins} min ago`
   return `${Math.floor(mins / 60)} h ago`
+}
+
+// Time since the volunteer's last update, as text
+function agoText(v) {
+  if (!v.updatedAt) return ''
+  return ageText(serverNow.value - new Date(v.updatedAt).getTime())
 }
 
 // live / stale / offline / none, based on how old the last update is
@@ -262,7 +289,8 @@ function onMapReady(m, leaflet) {
 
   map.zoomControl?.setPosition('bottomright') // move +/- buttons to the bottom right
   map.on('click', () => {
-    if (selectedId.value) clearSelection(false) // tapping empty map deselects
+    bellOpen.value = false // tapping the map closes the panel
+    if (selectedId.value) clearSelection(false) // and deselects
   })
 
   drawZones()
@@ -400,14 +428,25 @@ function focusOn(v) {
 
   const bottom = isDesktop() ? 70 : cardH.value + 70 // room for the tooltip and the bottom card
   const left = isDesktop() ? 440 : 60 // on desktop, stay clear of the top-left cards
-  map.flyToBounds(pts, {
-    paddingTopLeft: [left, 150],
-    paddingBottomRight: [60, bottom],
-    maxZoom: FOCUS_ZOOM,
-    duration: 1,
-  })
-}
 
+  // Work out where the camera should end up (the same maths flyToBounds does internally)
+  const bounds = L.latLngBounds(pts)
+  const padTL = L.point(left, 150)
+  const padBR = L.point(60, bottom)
+  const zoom = Math.min(map.getBoundsZoom(bounds, false, padTL.add(padBR)), FOCUS_ZOOM)
+  const offset = padBR.subtract(padTL).divideBy(2)
+  const sw = map.project(bounds.getSouthWest(), zoom)
+  const ne = map.project(bounds.getNorthEast(), zoom)
+  const target = map.unproject(sw.add(ne).divideBy(2).add(offset), zoom)
+
+  // Already there? Do nothing.
+  const closeEnough =
+    map.getZoom() === zoom &&
+    map.project(map.getCenter(), zoom).distanceTo(map.project(target, zoom)) < 10 // pixels
+  if (closeEnough) return
+
+  map.flyTo(target, zoom, { duration: 0.5 })
+}
 /* ------------------------------------------------------------------ */
 /* Selecting a volunteer                                               */
 /* ------------------------------------------------------------------ */
@@ -465,11 +504,20 @@ function clearSchool() {
 async function selectVolunteer(id) {
   const v = rows.value.find((r) => r.volunteerId === id)
   if (!v) return
+
+  const alreadySelected = selectedId.value === id
   selectedId.value = id
   query.value = v.name
   searchOpen.value = false
-  showSchool(v)
 
+  // Same volunteer tapped again: keep the pins and card as they are,
+  // and only re-centre if they have wandered out of the usual framing.
+  if (alreadySelected) {
+    focusOn(v)
+    return
+  }
+
+  showSchool(v)
   await nextTick() // wait for the card to render so its height can be measured
   cardH.value = cardEl.value ? cardEl.value.offsetHeight + 12 : 0
   focusOn(v)
@@ -490,12 +538,44 @@ watch(selected, (v) => {
 })
 
 /* ------------------------------------------------------------------ */
+/* Show dropdown                                                       */
+/* ------------------------------------------------------------------ */
+
+// Opens or closes the menu (and closes the other dropdowns)
+function toggleShowMenu() {
+  showMenuOpen.value = !showMenuOpen.value
+  if (showMenuOpen.value) {
+    searchOpen.value = false
+    bellOpen.value = false
+    if (isDesktop()) { // Clear the selected volunteer if on desktop when toggle show
+      clearSelection(false);
+    }
+  }
+}
+
+// Picks a show and loads it (does nothing if it's already the current one)
+function chooseShow(s) {
+  showMenuOpen.value = false
+  if (s === selectedShow.value) return
+  selectedShow.value = s
+  onShowChange()
+}
+
+// Closes the menu when tapping anywhere outside it
+function onDocPointerDown(e) {
+  if (showMenuOpen.value && showEl.value && !showEl.value.contains(e.target)) {
+    showMenuOpen.value = false
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* Search box                                                          */
 /* ------------------------------------------------------------------ */
 const inputEl = ref(null)
 
 function onSearchFocus(e) {
   searchOpen.value = true
+  bellOpen.value = false // only one dropdown at a time
   e.target.select() // so typing replaces the selected name
 }
 
@@ -517,6 +597,47 @@ function clearQuery() {
 const toasts = ref([]) // alert cards currently showing, newest first
 const toastTimers = new Map() // toast id -> its auto-dismiss timer
 let toastSeq = 0
+
+// Bell list: events live in a Pinia store (survives refreshes, cleared on logout)
+const zoneEvents = useZoneEventsStore()
+const bellOpen = ref(false)
+const eventFilter = ref('all') // 'all' | 'enter' | 'leave'
+
+// Events and unread count for the show being viewed
+const showEvents = computed(() => zoneEvents.byShow[selectedShow.value] ?? [])
+const unread = computed(() => zoneEvents.unreadByShow[selectedShow.value] ?? 0)
+
+// Events matching the toggle, with their "x min ago" text
+const eventRows = computed(() =>
+  showEvents.value
+    .filter((e) => eventFilter.value === 'all' || (eventFilter.value === 'enter') === e.enter)
+    .map((e) => ({ ...e, ago: ageText(now.value - e.at) })),
+)
+
+const emptyEventsMsg = computed(() => {
+  if (!showEvents.value.length) return 'No zone activity yet.'
+  return `No ${eventFilter.value === 'enter' ? 'arrivals' : 'departures'} yet.`
+})
+
+// Saves an event; it counts as unread if the panel is closed
+function recordEvent(a) {
+  zoneEvents.add(selectedShow.value, a, !bellOpen.value)
+}
+
+// Opens or closes the panel. Opening marks everything as read.
+function toggleBell() {
+  bellOpen.value = !bellOpen.value
+  if (bellOpen.value) {
+    zoneEvents.markRead(selectedShow.value)
+    searchOpen.value = false // only one dropdown at a time
+  }
+}
+
+// Tapping an event selects that volunteer
+function openEvent(e) {
+  bellOpen.value = false
+  selectVolunteer(e.volunteerId)
+}
 
 const lastZone = new Map() // volunteerId -> zone we last confirmed
 const pendingZone = new Map() // volunteerId -> new zone seen once, waiting for a second sighting
@@ -561,16 +682,18 @@ function detectZoneChanges() {
   )
 }
 
-// Turns a zone change into an alert card
+// Turns a zone change into an alert card and a bell-list event
 function addAlert(v, from, to) {
   const enter = ZONE_RANK[to] > ZONE_RANK[from]
   const ring = enter ? to : to === 'outer' ? 'inner' : 'outer' // the ring that was entered or left
-  showToast({
+  const alert = {
     volunteerId: v.volunteerId,
     name: v.name,
     enter,
     text: `${enter ? 'Entered' : 'Left'} the ${ring} ring`,
-  })
+  }
+  showToast(alert)
+  recordEvent(alert)
 }
 
 // Adds a card to the top of the stack and drops the oldest if there are too many
@@ -640,6 +763,7 @@ function onShowChange() {
   lastZone.clear() // new show: start from a fresh baseline, so no alerts for the first load
   pendingZone.clear()
   clearToasts()
+  bellOpen.value = false
   volunteers.value = []
   loading.value = true
   boardLoaded = false
@@ -653,6 +777,7 @@ function onVisibilityChange() {
 }
 
 onMounted(async () => {
+  document.addEventListener('pointerdown', onDocPointerDown, true)
   try {
     const res = await axios.get('/api/locations/shows') // Fetch all existing shows
     shows.value = res.data
@@ -675,6 +800,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  document.removeEventListener('pointerdown', onDocPointerDown, true)
   clearInterval(pollTimer)
   clearInterval(tickTimer)
   document.removeEventListener('visibilitychange', onVisibilityChange)
@@ -685,18 +811,45 @@ onUnmounted(() => {
 
 <template>
   <div class="map-page">
-    <div class="map-stage" :style="{ '--card-h': cardH + 'px' }">
+      <div class="map-stage" :style="{ '--map-inset-bottom': cardH + 'px', '--notice-top': '96px' }">
       <BaseMap :center="SINGAPORE_CENTER" :zoom="11" testid="hq-map" @ready="onMapReady" />
 
       <!-- Top bar: show dropdown + name search -->
       <div class="board-bar">
         <div class="bar-row">
-          <label class="show-select">
-            <i class="bi bi-calendar-event" aria-hidden="true"></i>
-            <select v-model="selectedShow" aria-label="Show" @change="onShowChange">
-              <option v-for="s in shows" :key="s" :value="s">{{ s }}</option>
-            </select>
-          </label>
+            <div ref="showEl" class="show-select" @keydown.esc="showMenuOpen = false">
+            <button
+              type="button"
+              class="show-btn"
+              aria-haspopup="listbox"
+              :aria-expanded="showMenuOpen"
+              aria-label="Show"
+              @click="toggleShowMenu"
+            >
+              <i class="bi bi-calendar-event" aria-hidden="true"></i>
+              <span class="show-name">{{ selectedShow || 'Show' }}</span>
+              <i class="bi bi-chevron-down show-chevron" :class="{ open: showMenuOpen }" aria-hidden="true"></i>
+            </button>
+
+            <Transition name="menu">
+              <div v-if="showMenuOpen" class="show-menu" role="listbox">
+                <button
+                  v-for="(s, i) in shows"
+                  :key="s"
+                  type="button"
+                  class="show-option"
+                  :class="{ active: s === selectedShow }"
+                  :style="{ '--i': i }"
+                  role="option"
+                  :aria-selected="s === selectedShow"
+                  @click="chooseShow(s)"
+                >
+                  <span>{{ s }}</span>
+                  <i v-if="s === selectedShow" class="bi bi-check-lg" aria-hidden="true"></i>
+                </button>
+              </div>
+            </Transition>
+          </div>
 
           <div class="search-box">
             <i class="bi bi-search" aria-hidden="true"></i>
@@ -720,9 +873,21 @@ onUnmounted(() => {
               @mousedown.prevent
               @click="clearQuery"
             >
-              <i class="bi bi-x-lg"></i>
+            <i class="bi bi-x-lg"></i>
             </button>
           </div>
+
+          <button
+            type="button"
+            class="bell-btn"
+            :class="{ active: bellOpen }"
+            aria-label="Zone activity"
+            :aria-expanded="bellOpen"
+            @click="toggleBell"
+          >
+            <i class="bi" :class="bellOpen ? 'bi-bell-fill' : 'bi-bell'"></i>
+            <span v-if="unread" class="bell-badge">{{ unread > 9 ? '9+' : unread }}</span>
+          </button>
         </div>
 
         <!-- Zone counts -->
@@ -751,6 +916,51 @@ onUnmounted(() => {
             <span class="result-ago">{{ v.ago || STATUS[v.status].label }}</span>
           </button>
           <div v-if="!results.length" class="results-empty">No volunteers found.</div>
+        </div>
+
+        <!-- Zone activity panel (last 50 events) -->
+        <div v-if="bellOpen" class="activity">
+          <div class="activity-head">
+            <div class="activity-title">Zone activity</div>
+            <button type="button" class="icon-btn" aria-label="Close" @click="bellOpen = false">
+              <i class="bi bi-x-lg"></i>
+            </button>
+          </div>
+
+          <div class="seg" role="group" aria-label="Filter events">
+            <button
+              v-for="f in EVENT_FILTERS"
+              :key="f.key"
+              type="button"
+              class="seg-btn"
+              :class="{ active: eventFilter === f.key }"
+              @click="eventFilter = f.key"
+            >
+              {{ f.label }}
+            </button>
+          </div>
+
+          <div class="activity-list">
+            <button
+              v-for="e in eventRows"
+              :key="e.id"
+              type="button"
+              class="event"
+              @click="openEvent(e)"
+            >
+              <span class="event-icon" :class="e.enter ? 'enter' : 'leave'" aria-hidden="true">
+                <i class="bi" :class="e.enter ? 'bi-box-arrow-in-right' : 'bi-box-arrow-right'"></i>
+              </span>
+              <span class="event-main">
+                <span class="event-name">{{ e.name }}</span>
+                <span class="event-text">{{ e.text }}</span>
+              </span>
+              <span class="event-ago">{{ e.ago }}</span>
+            </button>
+            <div v-if="!eventRows.length" class="results-empty">{{ emptyEventsMsg }}</div>
+          </div>
+
+          <div class="activity-foot">Last {{ MAX_EVENTS }} events per show · cleared when you log out</div>
         </div>
       </div>
 
@@ -821,72 +1031,22 @@ onUnmounted(() => {
 
       <div v-if="emptyMsg" class="empty-pill bg-danger text-white">{{ emptyMsg }}</div>
 
-      <div v-if="loading" class="map-loading" role="status" aria-live="polite">
-        <div class="spinner-border text-primary" aria-hidden="true"></div>
-        <div class="mt-2 fw-semibold">Loading volunteers...</div>
-      </div>
+      <MapLoading v-if="loading" text="Loading volunteers..." />
 
-      <!-- Error popup -->
-      <div class="notice-wrap">
-        <Transition name="notice">
-          <div v-if="error" class="notice" role="alert">
-            <div class="notice-icon" aria-hidden="true">
-              <i class="bi bi-exclamation-triangle-fill"></i>
-            </div>
-            <div class="notice-body">
-              <div class="notice-title">Something went wrong</div>
-              <div class="notice-text">{{ error }}</div>
-            </div>
-            <button type="button" class="icon-btn" aria-label="Dismiss message" @click="error = ''">
-              <i class="bi bi-x-lg"></i>
-            </button>
-          </div>
-        </Transition>
-      </div>
+      <MapNotice :notice="errorNotice" @close="error = ''" />
     </div>
   </div>
 </template>
 
 <style scoped>
 /* Map fills everything below the navbar */
-.map-page {
-  --nav-h: 56px; /* navbar height: check in DevTools and adjust if different */
-  position: fixed;
-  top: var(--nav-h);
-  left: 0;
-  right: 0;
-  bottom: 0;
-}
 
-.map-stage {
-  position: relative;
-  height: 100%;
-}
 
-.map-stage :deep(.leaflet-container) {
-  width: 100%;
-  height: 100%;
-  border-radius: 0;
-  background: #f1efe9;
-}
 
 /* Hide hairline seams between map tiles */
-.map-stage :deep(.leaflet-tile) {
-  outline: 1px solid transparent;
-  max-width: none !important;
-  max-height: none !important;
-}
 
-.map-stage :deep(.leaflet-control-zoom) {
-  margin-bottom: 24px;
-  margin-right: 14px;
-}
 
 /* Zoom buttons and attribution ride up above the bottom card (mobile) */
-.map-stage :deep(.leaflet-bottom) {
-  bottom: var(--card-h, 0px);
-  transition: bottom 0.25s ease;
-}
 
 /* Top bar */
 .board-bar {
@@ -907,7 +1067,6 @@ onUnmounted(() => {
   box-shadow: 0 2px 12px rgb(0 0 0 / 0.2);
 }
 
-.show-select,
 .search-box {
   display: flex;
   align-items: center;
@@ -916,19 +1075,6 @@ onUnmounted(() => {
   padding: 0 10px;
   border-radius: 9px;
   color: #555;
-}
-
-.show-select {
-  flex: 0 0 auto;
-  background: #f1f3f6;
-}
-
-.show-select select {
-  border: 0;
-  background: transparent;
-  font-weight: 600;
-  color: #222;
-  outline: none;
 }
 
 .search-box {
@@ -1089,20 +1235,6 @@ onUnmounted(() => {
 }
 
 /* School marker: indigo rounded badge with a graduation cap */
-:global(.school-badge) {
-  width: 36px;
-  height: 36px;
-  box-sizing: border-box;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 3px solid #fff;
-  border-radius: 11px;
-  background: #4f46e5;
-  color: #fff;
-  font-size: 1.1rem;
-  box-shadow: 0 2px 6px rgb(0 0 0 / 0.4);
-}
 
 /* Selected volunteer card (bottom on mobile) */
 .vol-card {
@@ -1167,38 +1299,6 @@ onUnmounted(() => {
   margin-top: 12px;
 }
 
-.info-card {
-  min-width: 0;
-  padding: 10px 12px;
-  background: #f6f8fb;
-  border: 1px solid #e6eaf0;
-  border-radius: 12px;
-}
-
-.info-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.72rem;
-  color: #777;
-}
-
-.info-label i {
-  font-size: 0.95rem;
-  color: #4f46e5;
-}
-
-.info-value {
-  margin-top: 4px;
-  font-size: 0.95rem;
-  font-weight: 600;
-  line-height: 1.25;
-}
-
-.info-number {
-  font-size: 1.5rem;
-  line-height: 1.1;
-}
 
 .card-enter-active,
 .card-leave-active {
@@ -1214,7 +1314,7 @@ onUnmounted(() => {
 .empty-pill {
   position: absolute;
   left: 50%;
-  bottom: calc(24px + var(--card-h, 0px));
+  bottom: calc(24px + var(--map-inset-bottom, 0px));
   transform: translateX(-50%);
   z-index: 1050;
   max-width: calc(100% - 100px);
@@ -1228,125 +1328,8 @@ onUnmounted(() => {
 }
 
 /* Loading overlay */
-.map-loading {
-  position: absolute;
-  inset: 0;
-  z-index: 1100;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  background: rgb(255 255 255 / 0.6);
-  backdrop-filter: grayscale(1);
-}
 
 /* Error popup */
-.notice-wrap {
-  position: absolute;
-  top: 96px; /* just below the top bar and zone chips */
-  left: 12px;
-  right: 12px;
-  z-index: 1150;
-  display: flex;
-  justify-content: center;
-  pointer-events: none;
-}
-
-.notice {
-  pointer-events: auto;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  max-width: 420px;
-  padding: 10px 8px 10px 12px;
-  background: #fff;
-  border: 1px solid #f5c2c0;
-  border-radius: 14px;
-  box-shadow: 0 2px 12px rgb(0 0 0 / 0.2);
-}
-
-.notice-icon {
-  flex: 0 0 auto;
-  width: 36px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  background: #fce8e6;
-  color: #d93025;
-  font-size: 1.1rem;
-}
-
-.notice-body {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.notice-title {
-  font-size: 0.9rem;
-  font-weight: 600;
-  line-height: 1.2;
-}
-
-.notice-text {
-  margin-top: 2px;
-  font-size: 0.8rem;
-  line-height: 1.3;
-  color: #666;
-}
-
-.notice-enter-active,
-.notice-leave-active {
-  transition: transform 0.25s ease, opacity 0.25s ease;
-}
-.notice-enter-from,
-.notice-leave-to {
-  transform: translateY(-12px);
-  opacity: 0;
-}
-
-/* Tooltip cards (same look as the volunteer card, name only) */
-:global(.leaflet-tooltip.hq-tip) {
-  padding: 6px 12px 6px 6px;
-  background: #fff;
-  border: 1px solid #fff;
-  border-radius: 12px;
-  box-shadow: 0 2px 12px rgb(0 0 0 / 0.25);
-  color: #222;
-  white-space: nowrap;
-}
-
-:global(.tip) {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-:global(.tip-icon) {
-  flex: 0 0 auto;
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 8px;
-  background: #9aa0a6;
-  color: #fff;
-  font-size: 0.95rem;
-}
-
-:global(.tip-icon.live) { background: #16a34a; }
-:global(.tip-icon.stale) { background: #f59e0b; }
-:global(.tip-icon.offline) { background: #dc2626; }
-:global(.tip-icon.school) { background: #4f46e5; }
-
-:global(.tip-title) {
-  font-size: 0.9rem;
-  font-weight: 600;
-  line-height: 1.2;
-}
 
 /* Zone count chips */
 .zone-row {
@@ -1465,11 +1448,161 @@ onUnmounted(() => {
   opacity: 0;
 }
 
+/* Bell button */
+.bell-btn {
+  position: relative;
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #555;
+  font-size: 1.1rem;
+}
+
+.bell-btn:hover,
+.bell-btn.active {
+  background: #f1f3f6;
+}
+
+.bell-badge {
+  position: absolute;
+  top: 0;
+  right: 0;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  box-sizing: border-box;
+  border: 2px solid #fff;
+  border-radius: 9px;
+  background: #dc2626;
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 13px;
+  text-align: center;
+}
+
+/* Activity panel */
+.activity {
+  margin-top: 6px;
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 2px 12px rgb(0 0 0 / 0.2);
+  overflow: hidden;
+}
+
+.activity-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 8px 4px 14px;
+}
+
+.activity-title {
+  font-size: 0.95rem;
+  font-weight: 600;
+}
+
+/* All / Arrivals / Departures toggle */
+.seg {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+  margin: 4px 12px 8px;
+  padding: 3px;
+  background: #f1f3f6;
+  border-radius: 10px;
+}
+
+.seg-btn {
+  padding: 6px 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #555;
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.seg-btn.active {
+  background: #2563eb;
+  color: #fff;
+}
+
+.activity-list {
+  max-height: 45vh;
+  overflow-y: auto;
+}
+
+.event {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  border: 0;
+  background: transparent;
+  text-align: left;
+}
+
+.event:hover {
+  background: #f5f7fa;
+}
+
+.event-icon {
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  color: #fff;
+  font-size: 0.95rem;
+}
+.event-icon.enter { background: #16a34a; }
+.event-icon.leave { background: #f59e0b; }
+
+.event-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.event-name {
+  font-size: 0.9rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.event-text {
+  font-size: 0.75rem;
+  color: #888;
+}
+
+.event-ago {
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+  color: #888;
+}
+
+.activity-foot {
+  padding: 8px 14px 10px;
+  font-size: 0.7rem;
+  color: #999;
+  border-top: 1px solid #eceef1;
+}
+
 /* Desktop: the bar and the volunteer card stack at the top left */
 @media (min-width: 992px) {
-  .map-stage {
-    --card-h: 0px !important; /* controls stay where they were */
-  }
   .board-bar {
     right: auto;
     width: 400px;
@@ -1480,10 +1613,6 @@ onUnmounted(() => {
     right: auto;
     width: 400px;
   }
-  .notice-wrap {
-    left: 424px;
-    justify-content: flex-end;
-  }
   .empty-pill {
     bottom: 24px;
   }
@@ -1492,6 +1621,116 @@ onUnmounted(() => {
     left: auto;
     right: 12px;
     width: 340px;
+  }
+}
+
+/* Show dropdown */
+.show-select {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.show-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 9px;
+  background: #f1f3f6;
+  color: #555;
+  font-weight: 600;
+  transition: background-color 0.15s;
+}
+
+.show-btn:hover {
+  background: #e8ebf0;
+}
+
+.show-name {
+  color: #222;
+}
+
+.show-chevron {
+  font-size: 0.7rem;
+  transition: transform 0.25s ease;
+}
+
+.show-chevron.open {
+  transform: rotate(180deg);
+}
+
+.show-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  min-width: 170px;
+  padding: 6px;
+  background: #fff;
+  border-radius: 14px;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.22);
+}
+
+.show-option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: #222;
+  font-size: 0.9rem;
+  text-align: left;
+  animation: option-in 0.2s ease both;
+  animation-delay: calc(var(--i) * 30ms);
+}
+
+.show-option:hover {
+  background: #f5f7fa;
+}
+
+.show-option.active {
+  background: #eef3ff;
+  color: #2563eb;
+  font-weight: 600;
+}
+
+/* The menu grows out of the button */
+.menu-enter-active,
+.menu-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+  transform-origin: top left;
+}
+.menu-enter-from,
+.menu-leave-to {
+  opacity: 0;
+  transform: translateY(-6px) scale(0.95);
+}
+
+/* Options fade in one after another */
+@keyframes option-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .show-option {
+    animation: none;
+  }
+  .menu-enter-active,
+  .menu-leave-active,
+  .show-chevron {
+    transition: none;
   }
 }
 
@@ -1523,6 +1762,5 @@ onUnmounted(() => {
     display: none;
   }
 }
-
 
 </style>

@@ -1,6 +1,7 @@
 // Sends the request, saves the returned user in the shared store
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { useZoneEventsStore } from '@/services/zone-events'
 import axios from 'axios'
 
 // Function used to create a global state management store in 'Pinia'
@@ -19,25 +20,32 @@ export const useAuthStore = defineStore('auth', () => {
     const res = await axios.post('/api/users/login', { email, password })
     user.value = res.data
     ready.value = true
+    useZoneEventsStore().setOwner(user.value._id) // the history belongs to whoever just logged in
     return user.value
   }
 
   // Handles page refreshes on every navigation, but only the first call is handled.
   async function restore() {
     if (ready.value) return // Makes it ask the server only once per page load.
+    const zoneEvents = useZoneEventsStore()
     try {
       const res = await axios.get('/api/users/me')
       user.value = res.data
-    } catch {
+      zoneEvents.setOwner(user.value._id)
+    } catch (err) {
       user.value = null
+      // The session has ended: forget the history. Other failures (such as the
+      // server being down) keep it, so a network blip can't wipe it.
+      if (err.response?.status === 401) zoneEvents.clear()
     } finally {
       ready.value = true
     }
   }
 
-  // Tells the server to destroy the session, then clears user
+  // Tells the server to destroy the session, then clears user and the alert history
   async function logout() {
     user.value = null
+    useZoneEventsStore().clear()
     try {
       await axios.post('/api/users/logout')
     } catch (err) {

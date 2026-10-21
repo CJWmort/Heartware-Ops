@@ -1,7 +1,6 @@
 <script setup>
 // Feature 1a – Registration — owner: Kuah
 // Spec: docs/FEATURES.md   ·   API calls: src/services/   ·   Tests: e2e/
-import PageHeader from '@/components/PageHeader.vue'
 import { ref, watch, computed, nextTick, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import axios from 'axios'
@@ -436,10 +435,6 @@ async function verifyAndCreate() {
 </script>
 
 <template>
-  <section>
-    <PageHeader title="Volunteer sign-up" icon="bi-person-plus" />
-  </section>
-
   <div class="container py-5">
     <div class="row justify-content-center">
       <div class="col-12 col-md-8 col-lg-5">
@@ -672,7 +667,7 @@ async function verifyAndCreate() {
               <input id="locationConsent" v-model="consent" type="checkbox" class="form-check-input"
                      data-testid="reg-consent" />
               <label for="locationConsent" class="form-check-label small">
-                I agree that Heartware Ops can collect my phone's location on event day so coordinators can see my
+                I agree that Heartware Ops can collect my device's location on event day so coordinators can see my
                 progress and keep everyone safe. I can stop sharing at any time by closing the Event day page.
               </label>
             </div>

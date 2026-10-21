@@ -1,6 +1,5 @@
 <script setup>
 import { onMounted, onUnmounted, ref } from 'vue'
-import PageHeader from '@/components/PageHeader.vue'
 import BaseMap from '@/components/BaseMap.vue'
 import { listIncidents, listTemplates, updateIncidentStatus } from '@/services/incidents'
 import IncidentCard from '@/components/IncidentCard.vue'
@@ -127,8 +126,6 @@ onUnmounted(() => {
 
 <template>
   <section>
-    <PageHeader title="Incidents & Alerts" icon="bi-bell" />
-
     <!-- 1. Alerts strip -->
     <div class="mb-3" data-testid="alerts-panel">
       <!-- <AlertItem v-for="…" /> -->
