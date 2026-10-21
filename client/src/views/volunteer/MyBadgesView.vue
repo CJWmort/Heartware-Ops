@@ -1,7 +1,6 @@
 <script setup>
 // Feature 5 – Badge wall — owner: Hanafi
 // Spec: docs/FEATURES.md   ·   API calls: src/services/   ·   Tests: e2e/
-import PageHeader from '@/components/PageHeader.vue'
 import { ref, onMounted } from 'vue'
 import { listBadges, getMyBadges } from '@/services/badges'
 
@@ -28,12 +27,8 @@ const selected = ref(null)
 </script>
 
 <template>
+  <RouterLink to="/volunteer/badge-studio" class="btn btn-brand"><i class="bi bi-palette me-1"></i>Design my badge</RouterLink>
   <section>
-    <PageHeader title="My badges" icon="bi-award">
-      <template #actions>
-        <RouterLink to="/volunteer/badge-studio" class="btn btn-brand"><i class="bi bi-palette me-1"></i>Design my badge</RouterLink>
-      </template>
-    </PageHeader>
     <div v-if="error" class="alert alert-danger">{{ error }}</div>
     <div v-else class="row g-3" data-testid="badge-wall">
       <div v-for="b in badges" :key="b.code" :data-testid="'badge-' + b.code" class="col-6 col-md-4 col-lg-3">

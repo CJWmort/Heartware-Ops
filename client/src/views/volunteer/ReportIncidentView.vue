@@ -1,7 +1,6 @@
 <script setup>
 // Feature 4 – Incident Reporting (volunteer side) — owner: Wei Ming
 // Spec: docs/FEATURES.md   ·   API calls: src/services/   ·   Tests: e2e/
-import PageHeader from '@/components/PageHeader.vue'
 import { onMounted, ref } from 'vue'
 import { listTemplates, reportIncident, getAddressAt } from '@/services/incidents'
 import { getUserLocation, geolocationMessage } from '@/utils/geolocation'
@@ -93,8 +92,6 @@ async function submitReport() {
 
 <template>
   <section>
-    <PageHeader title="Incident Report" icon="bi-exclamation-triangle" />
-
     <div v-if="errorMessage" class="alert alert-danger">{{ errorMessage }}</div>
     <div v-if="submitted" class="alert alert-success" data-testid="incident-success">
       Report sent, HQ has been notified.
