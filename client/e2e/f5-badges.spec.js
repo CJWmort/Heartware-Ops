@@ -28,12 +28,12 @@ test.describe('F5 Badges', () => {
     await page.getByTestId('order-address').fill('Blk 201 Tampines St 21')
     await page.getByTestId('order-postal').fill('520201')
     await page.getByTestId('order-submit').click()
-    await expect(page.getByTestId('studio-ribbon')).toBeDisabled()
+    await expect(page.getByTestId('studio-locked')).toBeVisible()
     // newest order is first; .first() avoids a clash once a volunteer has several orders
     await expect(page.getByTestId('order-status').first()).toContainText(/placed/i)
     // after a refresh the design must still be locked (loaded from the server, not just the page)
     await page.reload()
-    await expect(page.getByTestId('studio-ribbon')).toBeDisabled()
+    await expect(page.getByTestId('studio-ribbon')).toHaveCount(0) // form is gone once locked
   })
 
   test.fixme('coordinator custom award appears on the volunteer badge wall', async ({ page }) => {
