@@ -1,4 +1,4 @@
-import { createRouter, createWebHistory } from 'vue-router'
+import { createRouter, createWebHistory } from 'vue-router' // needed by createRouter() / createWebHistory() below
 import { useAuthStore } from '@/services/auth'
 import HomeView from '@/views/HomeView.vue'
 
@@ -16,7 +16,7 @@ const routes = [
     name: 'login',
     component: () => import('@/views/LoginView.vue'), // load this file only when someone visits the page
     meta: { guestOnly: true, title: 'Log in' },
-    // 'meta' is a free-form object attached to a route. 
+    // 'meta' is a free-form object attached to a route.
     // For us to put our own labels, and the code reads them later through 'to.meta'.
   },
   {
@@ -37,12 +37,6 @@ const routes = [
         name: 'volunteer-assignment',
         component: () => import('@/views/volunteer/MyAssignmentView.vue'),
         meta: { title: 'My assignment' },
-      },
-      {
-        path: 'open-slots', // F2 – Yap
-        name: 'volunteer-open-slots',
-        component: () => import('@/views/volunteer/OpenSlotsView.vue'),
-        meta: { title: 'Open slots' },
       },
       {
         path: 'tracking', // F3 – Chin
@@ -84,12 +78,6 @@ const routes = [
         meta: { title: 'Allocation' },
       },
       {
-        path: 'replacements', // F2 – Yap
-        name: 'admin-replacements',
-        component: () => import('@/views/admin/ReplacementView.vue'),
-        meta: { title: 'Replacements' },
-      },
-      {
         path: 'live', // F3 – Chin
         name: 'admin-live',
         component: () => import('@/views/admin/HqLiveBoardView.vue'),
@@ -126,7 +114,8 @@ const router = createRouter({
 })
 
 // Vue.js beforeEach Guard: Runs before every navigation and decides whether to allow it.
-router.beforeEach(async (to) => { // 'to' is the page being opened
+router.beforeEach(async (to) => {
+  // 'to' is the page being opened
   const auth = useAuthStore()
   await auth.restore() // asks the server who is logged in once per page load
 
@@ -134,16 +123,16 @@ router.beforeEach(async (to) => { // 'to' is the page being opened
   const { guestOnly, public: isPublic, roles } = to.meta
 
   // Check if user has role, if already logged in, go home. Otherwise allow.
-  if (guestOnly) return auth.isLoggedIn ? { name: 'home' } : true 
+  if (guestOnly) return auth.isLoggedIn ? { name: 'home' } : true
 
   // Allow everyone to access Home and 'not allowed' view
   if (isPublic) return true
 
-  // If user is guest, go to /login, and remember where they were headed in ?redirect=... 
+  // If user is guest, go to /login, and remember where they were headed in ?redirect=...
   // so LoginView can send user back to that route they were trying to access after login.
   if (!auth.isLoggedIn) return { name: 'login', query: { redirect: to.fullPath } }
 
-  // If user role is not on the allowed role list, go to home view. 
+  // If user role is not on the allowed role list, go to home view.
   if (roles && !roles.includes(auth.role)) return { name: 'home' }
   return true
 })
