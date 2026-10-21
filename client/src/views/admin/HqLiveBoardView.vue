@@ -513,6 +513,9 @@ function toggleShowMenu() {
   if (showMenuOpen.value) {
     searchOpen.value = false
     bellOpen.value = false
+    if (isDesktop()) { // Clear the selected volunteer if on desktop when toggle show
+      clearSelection(false);
+    }
   }
 }
 
@@ -1848,7 +1851,6 @@ onUnmounted(() => {
   position: absolute;
   top: calc(100% + 8px);
   left: 0;
-  z-index: 5;
   min-width: 170px;
   padding: 6px;
   background: #fff;

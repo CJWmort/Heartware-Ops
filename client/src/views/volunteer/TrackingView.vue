@@ -41,6 +41,7 @@ const routeInfo = ref(null) // last fetched route summary: { minutes, km }
 const following = ref(true) // true = map camera follows the user's marker
 const travelMode = ref('drive') // 'drive' or 'walk'
 const loadingRoute = ref(false) // shows the "Fetching Routes..." overlay
+const reporting = ref(true) // turns false if the server says this volunteer isn't tracked
 
 const activeMode = computed(() => MODES.find((m) => m.key === travelMode.value))
 
@@ -54,6 +55,55 @@ const currentAssignment = computed(
 )
 
 watch(currentAssignment, drawSchool) // tapping a pill (or the list loading) redraws the school
+
+/* Tracking and sharing status */
+const trackingOn = ref(false) // true once location tracking has started (needs an accepted show)
+const lastSentAt = ref(0) // time of the last successful send to the server
+const clock = ref(Date.now()) // ticks every 5 s so the pill notices when sends stop
+const SHARE_FRESH_MS = 90000 // counts as "sharing" while the last send is newer than this
+
+const SHARE_LABELS = {
+  sharing: 'Sharing location',
+  blocked: 'Location blocked',
+  off: 'Not sharing',
+  waiting: 'Connecting…',
+}
+
+// Which pill to show (null = none)
+const shareStatus = computed(() => {
+  if (!trackingOn.value) return null // not tracking at all
+  if (geoError.value) return 'blocked'
+  if (!reporting.value) return 'off'
+  if (lastSentAt.value && clock.value - lastSentAt.value < SHARE_FRESH_MS) return 'sharing'
+  return 'waiting'
+})
+
+// Tooltip text for the pill
+const shareHint = computed(
+  () =>
+    ({
+      sharing: 'Organisers can see your location while this page is open.',
+      blocked: geoError.value,
+      off: 'Sharing stopped. You may be logged out or have no accepted show.',
+      waiting: 'Waiting for a good location fix.',
+    })[shareStatus.value] ?? '',
+)
+
+// The blur overlay: shown once the shows are known and there is no accepted one
+const showNoShows = computed(() => assignStatus.value !== 'loading' && !assignments.value.length)
+const noShows = computed(() =>
+  assignStatus.value === 'error'
+    ? {
+        icon: 'bi-wifi-off',
+        title: 'Could not load your shows',
+        text: "We couldn't check your allocation, so location tracking hasn't started. Please try again.",
+      }
+    : {
+        icon: 'bi-calendar-x',
+        title: 'No allocated shows yet',
+        text: "Your location isn't being tracked. Please ensure that you have accepted an assigned show.",
+      },
+)
 
 // Loads the volunteer's accepted shows. They follow the order of availableShows,
 // and the first one is selected by default.
@@ -125,7 +175,6 @@ let routeBase = null // snapshot of the last route, used for live estimates
 let routeRequestId = 0 // guards against slow responses overwriting newer ones
 let lastFixAt = 0 // time the latest GPS fix arrived
 let lastReported = null // { lat, lng, time } of the last position sent to the server
-let reporting = true // turns false if the server says this volunteer isn't tracked
 let reportInFlight = false // true while a send is in progress
 let reportTimer = null // interval that sends the heartbeat
 let catchUp = false // true = send the next fix straight away (set when the tab becomes visible again)
@@ -548,7 +597,7 @@ function setTravelMode(mode) {
 // Skips the send if the fix is poor or old, or if nothing has changed enough.
 // force = true skips the distance/time check (used for the first fix).
 async function reportLocation(force = false) {
-  if (!reporting || reportInFlight || !location.value) return
+  if (!reporting.value || reportInFlight || !location.value) return
   if (Date.now() - lastFixAt > REPORT_MAX_FIX_AGE_MS) return // stale fix: don't present it as live
 
   const { lat, lng, accuracy } = location.value
@@ -564,10 +613,12 @@ async function reportLocation(force = false) {
   try {
     await axios.put('/api/locations/me', { lat, lng, accuracy })
     lastReported = { lat, lng, time: Date.now() }
+    lastSentAt.value = Date.now() // the pill turns green
+    clock.value = lastSentAt.value
   } catch (err) {
     const status = err.response?.status
     // Not logged in or no confirmed assignment: retrying won't help, so stop
-    if (status === 401 || status === 403) reporting = false
+    if (status === 401 || status === 403) reporting.value = false
     // Anything else (429, network, 500): ignore, the next check tries again
   } finally {
     reportInFlight = false
@@ -576,8 +627,8 @@ async function reportLocation(force = false) {
 
 // When the tab becomes visible again, get a fresh GPS fix and send it right away
 function onVisibilityChange() {
-  if (document.visibilityState !== 'visible') return
-  reporting = true // retry once, in case the assignment was confirmed while away
+  if (document.visibilityState !== 'visible' || !trackingOn.value) return
+  reporting.value = true // retry once, in case the show was accepted while away
   catchUp = true
   startTracking(onPosition, onGeoError) // restarts the watch, which delivers a fresh fix
 }
@@ -712,20 +763,38 @@ function onSheetPointerUp() {
   sheetVisible.value = expanded.value ? sheetFull.value : sheetPeek.value
 }
 
-// Start tracking once the page is on screen
+let disposed = false // true once the page is closed (stops a late load from starting tracking)
+
+// Starts location tracking and reporting. Only called when the volunteer has an accepted show.
+function beginTracking() {
+  if (trackingOn.value) return
+  trackingOn.value = true
+  startTracking(onPosition, onGeoError)
+  reportTimer = setInterval(() => {
+    clock.value = Date.now() // lets the pill notice when sends stop
+    reportLocation() // heartbeat check every 5 s (sends only if 30 s have passed)
+  }, 5000)
+}
+
+// Loads the volunteer's shows, and starts tracking only if they have an accepted one
+async function setupTracking() {
+  assignStatus.value = 'loading'
+  await loadAssignments()
+  if (!disposed && assignments.value.length) beginTracking()
+}
+
 onMounted(() => {
   document.addEventListener('visibilitychange', onVisibilityChange)
-  startTracking(onPosition, onGeoError)
-  reportTimer = setInterval(() => reportLocation(), 5000) // heartbeat check every 5s (sends only if 30 s have passed)
   measureSheet()
   sheetObserver = new ResizeObserver(measureSheet) // re-measure when the content changes height
   sheetObserver.observe(sheetEl.value)
-  loadAssignments()
   requestAnimationFrame(() => (sheetAnimated.value = true)) // enable animations after first layout
+  setupTracking()
 })
 
 // Stop tracking and any running animation when leaving the page
 onUnmounted(() => {
+  disposed = true
   document.removeEventListener('visibilitychange', onVisibilityChange)
   stopTracking()
   cancelAnimationFrame(animFrame)
@@ -755,10 +824,36 @@ onUnmounted(() => {
         <i class="bi" :class="following ? 'bi-geo-alt-fill' : 'bi-crosshair2'"></i>
       </button>
 
-      <div v-if="loadingRoute" class="map-loading" role="status" aria-live="polite">
+      <div v-if="loadingRoute || assignStatus === 'loading'" class="map-loading" role="status" aria-live="polite">
         <div class="spinner-border text-primary" aria-hidden="true"></div>
         <div class="mt-2 fw-semibold">Fetching Location Data...</div>
       </div>
+
+      <!-- Sharing status pill -->
+      <Transition name="fade" mode="out-in">
+        <div
+          v-if="shareStatus"
+          :key="shareStatus"
+          class="share-pill"
+          :class="shareStatus"
+          role="status"
+          :title="shareHint"
+        >
+          <span class="share-dot" aria-hidden="true"></span>{{ SHARE_LABELS[shareStatus] }}
+        </div>
+      </Transition>
+
+      <!-- No accepted show: blur the map and display that error. Nothing is tracked. -->
+      <Transition name="fade">
+        <div v-if="showNoShows" class="noshow" role="status">
+          <div class="noshow-card">
+            <div class="noshow-icon" aria-hidden="true"><i class="bi" :class="noShows.icon"></i></div>
+            <div class="noshow-title">{{ noShows.title }}</div>
+            <div class="noshow-text">{{ noShows.text }}</div>
+            <button type="button" class="noshow-btn" @click="this.$router.push('/volunteer/assignment')">View Assignments</button>
+          </div>
+        </div>
+      </Transition>
 
       <!-- Popup: "tracking is on" message and errors -->
       <div class="notice-wrap">
@@ -1184,7 +1279,7 @@ onUnmounted(() => {
 /* Popup message (tracking info and errors) */
 .notice-wrap {
   position: absolute;
-  top: 12px;
+  top: 56px; /* leaves room for the sharing pill above */
   left: 12px;
   right: 12px;
   z-index: 1150; /* above the loading overlay (1100) so errors stay visible */
@@ -1413,6 +1508,137 @@ onUnmounted(() => {
   font-size: 0.9rem;
   font-weight: 600;
   line-height: 1.2;
+}
+
+/* Sharing status pill (top right, above the alert cards) */
+.share-pill {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1150;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 12px;
+  background: #fff;
+  border-radius: 15px;
+  box-shadow: 0 1px 6px rgb(0 0 0 / 0.25);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: #555;
+  white-space: nowrap;
+}
+
+.share-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #9aa0a6;
+}
+
+.share-pill.sharing {
+  color: #166534;
+}
+.share-pill.sharing .share-dot {
+  background: #16a34a;
+  animation: share-pulse 2s ease-out infinite;
+}
+
+.share-pill.blocked {
+  color: #b91c1c;
+  box-shadow: 0 1px 6px rgb(0 0 0 / 0.25), 0 0 0 1px #f5c2c0;
+}
+.share-pill.blocked .share-dot {
+  background: #dc2626;
+}
+
+@keyframes share-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgb(22 163 74 / 0.5);
+  }
+  100% {
+    box-shadow: 0 0 0 8px rgb(22 163 74 / 0);
+  }
+}
+
+/* No accepted show: blurred map with a card */
+.noshow {
+  position: absolute;
+  inset: 0;
+  z-index: 1120; /* above the sheet (1050) and the loading overlay (1100) */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgb(255 255 255 / 0.45);
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+}
+
+.noshow-card {
+  width: 100%;
+  max-width: 340px;
+  padding: 22px 20px;
+  background: #fff;
+  border-radius: 18px;
+  box-shadow: 0 4px 20px rgb(0 0 0 / 0.2);
+  text-align: center;
+}
+
+.noshow-icon {
+  width: 52px;
+  height: 52px;
+  margin: 0 auto 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 14px;
+  background: #eef3ff;
+  color: #2563eb;
+  font-size: 1.5rem;
+}
+
+.noshow-title {
+  font-size: 1.05rem;
+  font-weight: 600;
+}
+
+.noshow-text {
+  margin-top: 6px;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: #666;
+}
+
+.noshow-btn {
+  margin-top: 16px;
+  height: 38px;
+  padding: 0 18px;
+  border: 0;
+  border-radius: 19px;
+  background: #2563eb;
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+.noshow-btn:hover {
+  background: #1d4fd8;
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.25s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .share-pill.sharing .share-dot {
+    animation: none;
+  }
 }
 
 /* Desktop: no drag. Show the same content as a card at the top left */
