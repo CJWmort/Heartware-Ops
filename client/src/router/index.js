@@ -38,9 +38,6 @@ const routes = [
         component: () => import('@/views/volunteer/MyAssignmentView.vue'),
         meta: { title: 'My assignment' },
       },
-      // NOTE: the F2 'open-slots' route (OpenSlotsView.vue) is removed for now.
-      // That file is not on main (it is on the unmerged 'replacements' branch), and Vite fails the whole
-      // build if a route imports a file that does not exist. Add the route back when the page is merged.
       {
         path: 'tracking', // F3 – Chin
         name: 'volunteer-tracking',
@@ -80,8 +77,6 @@ const routes = [
         component: () => import('@/views/admin/AllocationBoardView.vue'),
         meta: { title: 'Allocation' },
       },
-      // NOTE: the F2 'replacements' route (ReplacementView.vue) is removed for now, for the same reason as
-      // 'open-slots' above: the page is not on main yet. Add it back when the 'replacements' branch is merged.
       {
         path: 'live', // F3 – Chin
         name: 'admin-live',

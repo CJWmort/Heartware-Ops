@@ -2,6 +2,8 @@
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import axios from 'axios'
 import BaseMap from '@/components/BaseMap.vue'
+import MapLoading from '@/components/MapLoading.vue'
+import MapNotice from '@/components/MapNotice.vue'
 import { useZoneEventsStore, MAX_EVENTS } from '@/services/zone-events'
 import { SINGAPORE_CENTER, INNER_RING, OUTER_RING } from '@/utils/constants'
 
@@ -48,7 +50,19 @@ const shows = ref([]) // e.g. ['NE Show 1', ...] for the dropdown
 const selectedShow = ref('')
 const volunteers = ref([]) // raw board data from the server
 const loading = ref(true)
+
 const error = ref('')
+const errorNotice = computed(() =>
+  error.value
+    ? {
+        type: 'error',
+        icon: 'bi-exclamation-triangle-fill',
+        title: 'Something went wrong',
+        text: error.value,
+      }
+    : null
+)
+
 const query = ref('') // search text (name only)
 const searchOpen = ref(false) // is the result list showing
 const showMenuOpen = ref(false) // is the show dropdown open
@@ -414,14 +428,25 @@ function focusOn(v) {
 
   const bottom = isDesktop() ? 70 : cardH.value + 70 // room for the tooltip and the bottom card
   const left = isDesktop() ? 440 : 60 // on desktop, stay clear of the top-left cards
-  map.flyToBounds(pts, {
-    paddingTopLeft: [left, 150],
-    paddingBottomRight: [60, bottom],
-    maxZoom: FOCUS_ZOOM,
-    duration: 1,
-  })
-}
 
+  // Work out where the camera should end up (the same maths flyToBounds does internally)
+  const bounds = L.latLngBounds(pts)
+  const padTL = L.point(left, 150)
+  const padBR = L.point(60, bottom)
+  const zoom = Math.min(map.getBoundsZoom(bounds, false, padTL.add(padBR)), FOCUS_ZOOM)
+  const offset = padBR.subtract(padTL).divideBy(2)
+  const sw = map.project(bounds.getSouthWest(), zoom)
+  const ne = map.project(bounds.getNorthEast(), zoom)
+  const target = map.unproject(sw.add(ne).divideBy(2).add(offset), zoom)
+
+  // Already there? Do nothing.
+  const closeEnough =
+    map.getZoom() === zoom &&
+    map.project(map.getCenter(), zoom).distanceTo(map.project(target, zoom)) < 10 // pixels
+  if (closeEnough) return
+
+  map.flyTo(target, zoom, { duration: 0.5 })
+}
 /* ------------------------------------------------------------------ */
 /* Selecting a volunteer                                               */
 /* ------------------------------------------------------------------ */
@@ -479,11 +504,20 @@ function clearSchool() {
 async function selectVolunteer(id) {
   const v = rows.value.find((r) => r.volunteerId === id)
   if (!v) return
+
+  const alreadySelected = selectedId.value === id
   selectedId.value = id
   query.value = v.name
   searchOpen.value = false
-  showSchool(v)
 
+  // Same volunteer tapped again: keep the pins and card as they are,
+  // and only re-centre if they have wandered out of the usual framing.
+  if (alreadySelected) {
+    focusOn(v)
+    return
+  }
+
+  showSchool(v)
   await nextTick() // wait for the card to render so its height can be measured
   cardH.value = cardEl.value ? cardEl.value.offsetHeight + 12 : 0
   focusOn(v)
@@ -513,6 +547,9 @@ function toggleShowMenu() {
   if (showMenuOpen.value) {
     searchOpen.value = false
     bellOpen.value = false
+    if (isDesktop()) { // Clear the selected volunteer if on desktop when toggle show
+      clearSelection(false);
+    }
   }
 }
 
@@ -774,7 +811,7 @@ onUnmounted(() => {
 
 <template>
   <div class="map-page">
-    <div class="map-stage" :style="{ '--card-h': cardH + 'px' }">
+      <div class="map-stage" :style="{ '--map-inset-bottom': cardH + 'px', '--notice-top': '96px' }">
       <BaseMap :center="SINGAPORE_CENTER" :zoom="11" testid="hq-map" @ready="onMapReady" />
 
       <!-- Top bar: show dropdown + name search -->
@@ -994,72 +1031,22 @@ onUnmounted(() => {
 
       <div v-if="emptyMsg" class="empty-pill bg-danger text-white">{{ emptyMsg }}</div>
 
-      <div v-if="loading" class="map-loading" role="status" aria-live="polite">
-        <div class="spinner-border text-primary" aria-hidden="true"></div>
-        <div class="mt-2 fw-semibold">Loading volunteers...</div>
-      </div>
+      <MapLoading v-if="loading" text="Loading volunteers..." />
 
-      <!-- Error popup -->
-      <div class="notice-wrap">
-        <Transition name="notice">
-          <div v-if="error" class="notice" role="alert">
-            <div class="notice-icon" aria-hidden="true">
-              <i class="bi bi-exclamation-triangle-fill"></i>
-            </div>
-            <div class="notice-body">
-              <div class="notice-title">Something went wrong</div>
-              <div class="notice-text">{{ error }}</div>
-            </div>
-            <button type="button" class="icon-btn" aria-label="Dismiss message" @click="error = ''">
-              <i class="bi bi-x-lg"></i>
-            </button>
-          </div>
-        </Transition>
-      </div>
+      <MapNotice :notice="errorNotice" @close="error = ''" />
     </div>
   </div>
 </template>
 
 <style scoped>
 /* Map fills everything below the navbar */
-.map-page {
-  --nav-h: 56px; /* navbar height: check in DevTools and adjust if different */
-  position: fixed;
-  top: var(--nav-h);
-  left: 0;
-  right: 0;
-  bottom: 0;
-}
 
-.map-stage {
-  position: relative;
-  height: 100%;
-}
 
-.map-stage :deep(.leaflet-container) {
-  width: 100%;
-  height: 100%;
-  border-radius: 0;
-  background: #f1efe9;
-}
 
 /* Hide hairline seams between map tiles */
-.map-stage :deep(.leaflet-tile) {
-  outline: 1px solid transparent;
-  max-width: none !important;
-  max-height: none !important;
-}
 
-.map-stage :deep(.leaflet-control-zoom) {
-  margin-bottom: 24px;
-  margin-right: 14px;
-}
 
 /* Zoom buttons and attribution ride up above the bottom card (mobile) */
-.map-stage :deep(.leaflet-bottom) {
-  bottom: var(--card-h, 0px);
-  transition: bottom 0.25s ease;
-}
 
 /* Top bar */
 .board-bar {
@@ -1248,20 +1235,6 @@ onUnmounted(() => {
 }
 
 /* School marker: indigo rounded badge with a graduation cap */
-:global(.school-badge) {
-  width: 36px;
-  height: 36px;
-  box-sizing: border-box;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 3px solid #fff;
-  border-radius: 11px;
-  background: #4f46e5;
-  color: #fff;
-  font-size: 1.1rem;
-  box-shadow: 0 2px 6px rgb(0 0 0 / 0.4);
-}
 
 /* Selected volunteer card (bottom on mobile) */
 .vol-card {
@@ -1326,38 +1299,6 @@ onUnmounted(() => {
   margin-top: 12px;
 }
 
-.info-card {
-  min-width: 0;
-  padding: 10px 12px;
-  background: #f6f8fb;
-  border: 1px solid #e6eaf0;
-  border-radius: 12px;
-}
-
-.info-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 0.72rem;
-  color: #777;
-}
-
-.info-label i {
-  font-size: 0.95rem;
-  color: #4f46e5;
-}
-
-.info-value {
-  margin-top: 4px;
-  font-size: 0.95rem;
-  font-weight: 600;
-  line-height: 1.25;
-}
-
-.info-number {
-  font-size: 1.5rem;
-  line-height: 1.1;
-}
 
 .card-enter-active,
 .card-leave-active {
@@ -1373,7 +1314,7 @@ onUnmounted(() => {
 .empty-pill {
   position: absolute;
   left: 50%;
-  bottom: calc(24px + var(--card-h, 0px));
+  bottom: calc(24px + var(--map-inset-bottom, 0px));
   transform: translateX(-50%);
   z-index: 1050;
   max-width: calc(100% - 100px);
@@ -1387,125 +1328,8 @@ onUnmounted(() => {
 }
 
 /* Loading overlay */
-.map-loading {
-  position: absolute;
-  inset: 0;
-  z-index: 1100;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  background: rgb(255 255 255 / 0.6);
-  backdrop-filter: grayscale(1);
-}
 
 /* Error popup */
-.notice-wrap {
-  position: absolute;
-  top: 96px; /* just below the top bar and zone chips */
-  left: 12px;
-  right: 12px;
-  z-index: 1150;
-  display: flex;
-  justify-content: center;
-  pointer-events: none;
-}
-
-.notice {
-  pointer-events: auto;
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  width: 100%;
-  max-width: 420px;
-  padding: 10px 8px 10px 12px;
-  background: #fff;
-  border: 1px solid #f5c2c0;
-  border-radius: 14px;
-  box-shadow: 0 2px 12px rgb(0 0 0 / 0.2);
-}
-
-.notice-icon {
-  flex: 0 0 auto;
-  width: 36px;
-  height: 36px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 50%;
-  background: #fce8e6;
-  color: #d93025;
-  font-size: 1.1rem;
-}
-
-.notice-body {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.notice-title {
-  font-size: 0.9rem;
-  font-weight: 600;
-  line-height: 1.2;
-}
-
-.notice-text {
-  margin-top: 2px;
-  font-size: 0.8rem;
-  line-height: 1.3;
-  color: #666;
-}
-
-.notice-enter-active,
-.notice-leave-active {
-  transition: transform 0.25s ease, opacity 0.25s ease;
-}
-.notice-enter-from,
-.notice-leave-to {
-  transform: translateY(-12px);
-  opacity: 0;
-}
-
-/* Tooltip cards (same look as the volunteer card, name only) */
-:global(.leaflet-tooltip.hq-tip) {
-  padding: 6px 12px 6px 6px;
-  background: #fff;
-  border: 1px solid #fff;
-  border-radius: 12px;
-  box-shadow: 0 2px 12px rgb(0 0 0 / 0.25);
-  color: #222;
-  white-space: nowrap;
-}
-
-:global(.tip) {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-:global(.tip-icon) {
-  flex: 0 0 auto;
-  width: 28px;
-  height: 28px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 8px;
-  background: #9aa0a6;
-  color: #fff;
-  font-size: 0.95rem;
-}
-
-:global(.tip-icon.live) { background: #16a34a; }
-:global(.tip-icon.stale) { background: #f59e0b; }
-:global(.tip-icon.offline) { background: #dc2626; }
-:global(.tip-icon.school) { background: #4f46e5; }
-
-:global(.tip-title) {
-  font-size: 0.9rem;
-  font-weight: 600;
-  line-height: 1.2;
-}
 
 /* Zone count chips */
 .zone-row {
@@ -1779,9 +1603,6 @@ onUnmounted(() => {
 
 /* Desktop: the bar and the volunteer card stack at the top left */
 @media (min-width: 992px) {
-  .map-stage {
-    --card-h: 0px !important; /* controls stay where they were */
-  }
   .board-bar {
     right: auto;
     width: 400px;
@@ -1791,10 +1612,6 @@ onUnmounted(() => {
     bottom: auto;
     right: auto;
     width: 400px;
-  }
-  .notice-wrap {
-    left: 424px;
-    justify-content: flex-end;
   }
   .empty-pill {
     bottom: 24px;
@@ -1848,7 +1665,6 @@ onUnmounted(() => {
   position: absolute;
   top: calc(100% + 8px);
   left: 0;
-  z-index: 5;
   min-width: 170px;
   padding: 6px;
   background: #fff;
