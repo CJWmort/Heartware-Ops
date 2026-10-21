@@ -1,17 +1,5 @@
 const mongoose = require('mongoose');
 
-// One entry in a volunteer's withdrawnShows log (written when they decline or withdraw)
-const withdrawnShowSchema = new mongoose.Schema({
-    showId: { type: mongoose.Schema.Types.ObjectId, ref: 'Shows' }, // _id in the shows collection
-    show: { type: String, required: true },                          // e.g. "NE Show 2"
-    reportingDate: { type: String },                                 // show date, e.g. "2027-07-03"
-    reportingTime: { type: String },                                 // school's reporting time, e.g. "1:30pm"
-    reportingLocation: { type: String },                             // school name, e.g. "Xingnan Primary School"
-    status: { type: String, enum: ['Declined', 'Withdrawn'], required: true },
-    reason: { type: String, trim: true, maxlength: 300 },
-    at: { type: Date, default: Date.now }                            // when they declined / withdrew
-}, { _id: false });
-
 // Create a new 'account' schema
 const AccountSchema = new mongoose.Schema({
     name: {
@@ -63,7 +51,18 @@ const AccountSchema = new mongoose.Schema({
     // Log of shows the volunteer declined or withdrew from. Their assignment is deleted,
     // so this is the only record of where they were going and why they left.
     withdrawnShows: {
-        type: [withdrawnShowSchema],
+        // one entry per show they declined or withdrew from (written by logWithdrawnShow)
+        type: [{
+            _id: false,                                                      // entries need no id of their own
+            showId: { type: mongoose.Schema.Types.ObjectId, ref: 'Shows' }, // _id in the shows collection
+            show: { type: String, required: true },                          // e.g. "NE Show 2"
+            reportingDate: { type: String },                                 // show date, e.g. "2027-07-03"
+            reportingTime: { type: String },                                 // school's reporting time, e.g. "1:30pm"
+            reportingLocation: { type: String },                             // school name, e.g. "Xingnan Primary School"
+            status: { type: String, enum: ['Declined', 'Withdrawn'], required: true },
+            reason: { type: String, trim: true, maxlength: 300 },
+            at: { type: Date, default: Date.now }                            // when they declined / withdrew
+        }],
         default: []
     },
     // NEW: when the volunteer ticked the location-sharing consent box at sign up (not required, so old accounts still load)
