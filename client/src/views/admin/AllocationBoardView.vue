@@ -72,7 +72,7 @@ const groupedAssignments = computed(() => {
 const API_URL = "/api/"
 
 // NEW: Declined / Withdrawn volunteers no longer fill a place, so they are not counted in "Capacity x/y"
-// (otherwise a school would look full while it actually needs a replacement)
+// (otherwise a school would look full while it actually has an empty place)
 function filledCount(school) {
   return school.volunteers.filter(v => v.status !== 'Declined' && v.status !== 'Withdrawn').length
 }

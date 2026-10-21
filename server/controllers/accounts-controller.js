@@ -10,14 +10,14 @@ const Assignments = require('../models/assignments-model'); // NEW: needed to ti
 // NEW (availability change): FIX for "stale allocations". Before, a volunteer could untick a show AFTER being allocated
 // to it, and the allocation stayed, so the school place was held by someone who said they could not come.
 // Call this with the shows being removed. Returns an error message if the change must be refused, otherwise ''.
-//  - already ACCEPTED a place in one of them -> refuse (they must press "No-Show/Withdrawn" first, so the withdrawal is recorded
-//    with a reason and can be offered to a replacement)
+//  - already ACCEPTED a place in one of them -> refuse (they must press "Withdraw" first, so the withdrawal is recorded
+//    with a reason)
 //  - Pending / Reserve rows -> deleted, which frees the place
 async function releaseRemovedShows(userId, removedShows) {
     if (removedShows.length === 0) return '';
     const accepted = await Assignments.acceptedShowsAmong(userId, removedShows);
     if (accepted.length > 0) {
-        return `You have accepted a place in ${accepted.join(', ')}. Press "No-Show/Withdrawn" on My Assignment first, then remove the show.`;
+        return `You have accepted a place in ${accepted.join(', ')}. Press "Withdraw" on My Assignment first, then remove the show.`;
     }
     await Assignments.deleteOpenForShows(userId, removedShows);
     return '';
@@ -146,6 +146,14 @@ exports.updateMe = async (req, res) => {
         // NEW: work out which shows are being UNTICKED (were available, are not in the new list) and tidy their allocations first
         const current = await Account.findById(req.session.userId);
         if (!current) return res.status(401).json({ message: 'Not logged in' });
+
+        // A show the volunteer declined or withdrew from cannot be ticked again (that answer is final)
+        const left = (current.withdrawnShows || []).find((w) => availableShows.includes(w.show));
+        if (left) {
+            const action = left.status === 'Declined' ? 'declined' : 'withdrew from';
+            return res.status(409).json({ message: `You ${action} ${left.show}, so you cannot be available for it again.` });
+        }
+
         const removed = (current.availableShows || []).filter((s) => !availableShows.includes(s));
         const problem = await releaseRemovedShows(req.session.userId, removed);
         if (problem) return res.status(409).json({ message: problem }); // 409 = clashes with an accepted place

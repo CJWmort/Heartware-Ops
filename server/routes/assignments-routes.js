@@ -24,7 +24,6 @@ router.patch("/:id/decline", requireLogin, assignmentsController.declineMyAssign
 router.patch("/:id/withdraw", requireLogin, assignmentsController.withdrawMyAssignment); // endpoint - logged in volunteer pulls out of an accepted assignment
 // NOTE: there is no Undo endpoint. The team decided a Declined / Withdrawn answer is final (the Undo code was removed).
 
-// router.post("/reassign/:school", allocationsController.reassignSlots); // endpoint - find replacement volunteer for school
 // router.get("/volAssignemnt/:v_id", allocationsController.getVolAssignment); // endpoint - get assignment for session volunteer (WJ)
 
 

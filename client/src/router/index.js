@@ -39,12 +39,6 @@ const routes = [
         meta: { title: 'My assignment' },
       },
       {
-        path: 'open-slots', // F2 – Yap
-        name: 'volunteer-open-slots',
-        component: () => import('@/views/volunteer/OpenSlotsView.vue'),
-        meta: { title: 'Open slots' },
-      },
-      {
         path: 'tracking', // F3 – Chin
         name: 'volunteer-tracking',
         component: () => import('@/views/volunteer/TrackingView.vue'),
@@ -82,12 +76,6 @@ const routes = [
         name: 'admin-allocation',
         component: () => import('@/views/admin/AllocationBoardView.vue'),
         meta: { title: 'Allocation' },
-      },
-      {
-        path: 'replacements', // F2 – Yap
-        name: 'admin-replacements',
-        component: () => import('@/views/admin/ReplacementView.vue'),
-        meta: { title: 'Replacements' },
       },
       {
         path: 'live', // F3 – Chin

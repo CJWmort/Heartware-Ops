@@ -80,15 +80,25 @@ onMounted(loadData)
             </tr>
           </thead>
           <tbody>
-            <tr v-for="(show, index) in shows" :key="show._id || show.name">
+            <!-- declined / withdrawn rows are greyed out: the volunteer is no longer going -->
+            <tr
+              v-for="(show, index) in shows"
+              :key="show._id || show.name"
+              :class="{ 'row-left': !show.assignment && show.withdrawal }"
+            >
               <td class="text-center text-muted">{{ index + 1 }}</td>
               <td class="fw-semibold">{{ show.name }}</td>
               <td>{{ formatDate(show.date) }}</td>
-              <td>{{ show.assignment?.school?.reportingTime || '—' }}</td>
+              <td>{{ show.assignment?.school?.reportingTime || show.withdrawal?.reportingTime || '—' }}</td>
               <td data-testid="assignment-school">
                 <template v-if="show.assignment?.school">
                   {{ show.assignment.school.name }}
                   <div class="small text-muted">{{ show.assignment.school.address }}</div>
+                </template>
+                <!-- declined / withdrawn: the assignment was deleted, so show where they were going from the log -->
+                <template v-else-if="show.withdrawal">
+                  {{ show.withdrawal.reportingLocation || '—' }}
+                  <div v-if="show.withdrawal.reason" class="small">Reason: {{ show.withdrawal.reason }}</div>
                 </template>
                 <template v-else>—</template>
               </td>
@@ -103,7 +113,7 @@ onMounted(loadData)
               </td>
               <!-- Action column. Which buttons appear depends on the status:
                    Pending  -> Accept / Decline (volunteer has not answered yet)
-                   Accepted -> "No-Show/Withdrawn" (pull out; the place is reopened)
+                   Accepted -> "Withdraw" (pull out; the place is reopened)
                    Declined / Withdrawn -> no button: the answer is final (there is no Undo)
                    anything else (reserve, not available) -> nothing to do -->
               <td class="text-center text-nowrap">
@@ -138,7 +148,7 @@ onMounted(loadData)
                   data-testid="assignment-withdraw"
                   @click="openWithdrawModal(show)"
                 >
-                  No-Show/Withdrawn
+                  Withdraw
                 </button>
 
                 <span v-else class="text-muted">—</span>
@@ -165,9 +175,9 @@ onMounted(loadData)
           <div class="modal-content">
             <div class="modal-header">
               <!-- CHANGED: the Accepted wording was "Pull out of ...?". It now uses the same words as the row button
-                   ("No-Show/Withdrawn") so the volunteer sees one name for one action. Decline wording is unchanged. -->
+                   ("Withdraw") so the volunteer sees one name for one action. Decline wording is unchanged. -->
               <h5 class="modal-title" id="pullout-title">
-                {{ pullOutMode === 'decline' ? 'Decline' : 'No-Show/Withdrawn for' }} {{ withdrawShow.name }}?
+                {{ pullOutMode === 'decline' ? 'Decline' : 'Withdraw from' }} {{ withdrawShow.name }}?
               </h5>
               <button
                 type="button"
@@ -182,7 +192,7 @@ onMounted(loadData)
                 {{
                   pullOutMode === 'decline'
                     ? 'Your slot will be given to someone else.'
-                    : 'You already accepted this show. Your slot will be opened for a replacement.'
+                    : 'You already accepted this show. Your slot will be given to someone else.'
                 }}
               </p>
               <label for="pullout-reason" class="form-label">Reason (optional)</label>
@@ -207,7 +217,7 @@ onMounted(loadData)
               >
                 Keep my slot
               </button>
-              <!-- CHANGED: confirm button text was "Pull out"; now matches the row button, "No-Show/Withdrawn". -->
+              <!-- CHANGED: confirm button text was "Pull out"; now matches the row button, "Withdraw". -->
               <button
                 type="button"
                 class="btn btn-danger"
@@ -220,7 +230,7 @@ onMounted(loadData)
                   class="spinner-border spinner-border-sm me-1"
                   aria-hidden="true"
                 ></span>
-                {{ pullOutMode === 'decline' ? 'Decline' : 'No-Show/Withdrawn' }}
+                {{ pullOutMode === 'decline' ? 'Decline' : 'Withdraw' }}
               </button>
             </div>
           </div>
@@ -260,21 +270,27 @@ onMounted(loadData)
               <p class="text-muted mb-3">Tick the shows you are available for.</p>
 
               <div class="list-group">
+                <!-- a show the volunteer declined / withdrew from is locked: that answer is final -->
                 <label
                   v-for="show in shows"
                   :key="show._id || show.name"
                   class="list-group-item list-group-item-action d-flex align-items-center gap-3"
+                  :class="{ disabled: show.withdrawal }"
                 >
                   <input
                     class="form-check-input m-0"
                     type="checkbox"
                     :value="show.name"
                     v-model="selectedShows"
+                    :disabled="!!show.withdrawal"
                     :data-testid="`availability-${show.name}`"
                   />
                   <div>
                     <div class="fw-semibold">{{ show.name }}</div>
                     <small class="text-muted">{{ formatDate(show.date) }}</small>
+                    <div v-if="show.withdrawal" class="small text-danger" :data-testid="`availability-locked-${show.name}`">
+                      {{ show.withdrawal.status === 'Declined' ? 'You declined this show' : 'You withdrew from this show' }}
+                    </div>
                   </div>
                 </label>
               </div>
@@ -315,3 +331,10 @@ onMounted(loadData)
     </template>
   </section>
 </template>
+
+<style scoped>
+/* Grey out every cell of a declined / withdrawn row (Bootstrap colours each cell, so the row needs this) */
+.row-left > td {
+  color: var(--bs-secondary-color);
+}
+</style>

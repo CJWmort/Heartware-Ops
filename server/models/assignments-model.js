@@ -166,27 +166,27 @@ exports.acceptMine = function (assignmentId, volunteerId) {
   ).populate("school");
 };
 
-// Volunteer declines an assignment they have not accepted yet.
-// Only matches if the assignment belongs to this volunteer and is still 'Pending',
-// so returns null otherwise.
-exports.declineMine = function (assignmentId, volunteerId, reason) {
-  return Assignments.findOneAndUpdate(
+// Volunteer declines an assignment they have not accepted yet: the row is DELETED and returned
+// (the controller logs it in the volunteer's withdrawnShows). Only matches if it belongs to this
+// volunteer, is still 'Pending' and is published, so returns null otherwise.
+exports.declineMine = function (assignmentId, volunteerId) {
+  return Assignments.findOneAndDelete(
     // published: true -> same reason as accept: only a released assignment can be answered
-    { _id: assignmentId, volunteer: volunteerId, status: "Pending", published: true },
-    { status: "Declined", withdrawReason: reason }, // reason is saved in withdrawReason too
-    { new: true, runValidators: true } // return the updated doc
+    { _id: assignmentId, volunteer: volunteerId, status: "Pending", published: true }
   ).populate("school");
 };
 
-// Volunteer pulls out of a show they had already accepted.
-// Only matches if the assignment belongs to this volunteer and is 'Accepted',
-// so returns null otherwise.
-exports.withdrawMine = function (assignmentId, volunteerId, reason) {
-  return Assignments.findOneAndUpdate(
-    { _id: assignmentId, volunteer: volunteerId, status: "Accepted" },
-    { status: "Withdrawn", withdrawReason: reason },
-    { new: true, runValidators: true } // return the updated doc
+// Volunteer withdraws from a show they had already accepted: the row is DELETED and returned.
+// Only matches if it belongs to this volunteer and is 'Accepted', so returns null otherwise.
+exports.withdrawMine = function (assignmentId, volunteerId) {
+  return Assignments.findOneAndDelete(
+    { _id: assignmentId, volunteer: volunteerId, status: "Accepted" }
   ).populate("school");
+};
+
+// Put back a row that was just deleted (used if logging the decline / withdrawal failed)
+exports.restore = function (assignment) {
+  return Assignments.create(assignment);
 };
 
 
