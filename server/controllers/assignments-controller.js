@@ -3,6 +3,7 @@ const Assignments = require("../models/assignments-model");
 const Account = require("../models/account-model");
 const School = require("../models/schools-model");
 const Shows = require("../models/shows-model");
+const { fillOpenPlaces } = require("../utils/auto-fill");
 const dotenv = require("dotenv");
 
 const { scarcityFirst } = require("../utils/scarcityFirst");
@@ -53,6 +54,9 @@ exports.runAssignments = async (req, res) => {
     const reset = req.body?.reset === true;
     // Rows that must survive this run (Accepted / Declined / Withdrawn); nothing is kept on a reset
     const kept = reset ? [] : await Assignments.findKept();
+    // A published show is locked: re-running it would undo the automatic replacements and rebuild the reserve
+    // list after volunteers have already seen their school. Reset ignores the lock.
+    const skippedShows = reset ? [] : await Assignments.publishedShows();
 
     // Work out every show first, so a bad record stops the run BEFORE anything is deleted
     // (before: delete first, so one error halfway left the table empty)
@@ -60,6 +64,7 @@ exports.runAssignments = async (req, res) => {
     // FIX: was `for (show of [...])` with no `const`, which created an accidental global variable.
     // Assignments.SHOWS comes from the model's enum, so the list of shows lives in one place instead of four.
     for (const show of Assignments.SHOWS) {
+      if (skippedShows.includes(show)) continue;
       const keptInShow = kept.filter((a) => a.show === show);
 
       // Volunteers who already have a final answer for this show are left out of the matching,
@@ -101,10 +106,11 @@ exports.runAssignments = async (req, res) => {
 
     // Remove only what is being re-calculated (or everything, on a reset), then save the new matches
     if (reset) await Assignments.deleteAll();
-    else await Assignments.deleteReplaceable();
+    else await Assignments.deleteReplaceable(skippedShows);
     await Assignments.createMany(results);
     const assignments = await Assignments.retrieveAll();
-    res.json(assignments);
+    // CHANGED: was the bare list; skippedShows tells the board which published shows were left alone
+    res.json({ assignments, skippedShows });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -189,6 +195,14 @@ async function leaveAssignment(req, res, status) {
 
   try {
     const user = await Account.logWithdrawnShow(userId, entry);
+    // Their place is open now: give it to the nearest volunteer on the reserve list straight away.
+    // The decline / withdrawal has already succeeded, so a problem here is only logged, never sent to the volunteer.
+    try {
+      const filled = await fillOpenPlaces(assignment.show);
+      if (filled.length > 0) console.log(`Auto-replacement: filled ${filled.length} place(s) in ${assignment.show}`);
+    } catch (fillError) {
+      console.error(`Auto-replacement for ${assignment.show} failed:`, fillError.message);
+    }
     res.json({ entry, availableShows: user?.availableShows || [] });
   } catch (error) {
     // logging failed: put the assignment back so the volunteer does not silently lose their place

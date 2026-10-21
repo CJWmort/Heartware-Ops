@@ -92,8 +92,15 @@ exports.findKept = function () {
 
 // NEW (re-run safety): delete ONLY what a re-run recalculates (Pending and Reserve).
 // Accepted / Declined / Withdrawn rows are left alone, so nobody who accepted is ever re-assigned.
-exports.deleteReplaceable = function () {
-  return Assignments.deleteMany({ status: { $in: ["Pending", "Reserve"] } });
+// excludeShows: published shows are locked (see publishedShows), so a re-run never deletes their rows
+exports.deleteReplaceable = function (excludeShows = []) {
+  return Assignments.deleteMany({ status: { $in: ["Pending", "Reserve"] }, show: { $nin: excludeShows } });
+};
+
+// Shows that have at least one published row. Run Allocations skips these: re-running would delete the
+// automatic replacements (they are Pending) and rebuild the reserve list after volunteers have seen their school.
+exports.publishedShows = function () {
+  return Assignments.distinct("show", { published: true });
 };
 
 
@@ -257,3 +264,63 @@ exports.findBoard = function (show) {
     { $sort: { name: 1 } },
   ]);
 }
+
+
+// ===== AUTOMATIC REPLACEMENTS (used by utils/auto-fill.js) =====
+
+// Schools of a show that still have an open place. A place is held by a Pending or Accepted row; a volunteer
+// who declined or withdrew has no row any more, so their place counts as open. Worked out on demand, never stored.
+// Returns [{ school, open }] for schools with open > 0.
+exports.findOpenPlaces = async function (show) {
+  const schools = await Schools.findByShow(show).lean();
+  const holding = await Assignments.aggregate([
+    { $match: { show, status: { $in: ["Pending", CONFIRMED_STATUS] }, school: { $ne: null } } },
+    { $group: { _id: "$school", count: { $sum: 1 } } },
+  ]);
+  const held = {};
+  for (const h of holding) held[String(h._id)] = h.count;
+
+  const places = [];
+  for (const school of schools) {
+    const open = school.p5Classes - (held[String(school._id)] || 0);
+    if (open > 0) places.push({ school, open });
+  }
+  return places;
+};
+
+// The show's reserve list as plain objects { rowId, name, lat, lng }: Reserve rows with the volunteer's location.
+// Skips anyone who declined / withdrew from this show (withdrawnShows) or has no location.
+exports.findReserves = async function (show) {
+  const rows = await Assignments.find({ show, status: "Reserve" })
+    .populate("volunteer", "name lat lng withdrawnShows")
+    .lean();
+  const reserves = [];
+  for (const row of rows) {
+    const v = row.volunteer;
+    if (!v || typeof v.lat !== "number" || typeof v.lng !== "number") continue;
+    if ((v.withdrawnShows || []).some((w) => w.show === show)) continue;
+    reserves.push({ rowId: row._id, name: v.name, lat: v.lat, lng: v.lng });
+  }
+  return reserves;
+};
+
+// Move one reserve into an open place: their Reserve row becomes Pending + published at that school.
+// The filter re-checks status "Reserve", so if two fills pick the same person at once only one succeeds
+// (the other gets { problem: "taken" } and tries the next person). After saving, the school is re-counted:
+// if it is now over capacity (two fills for the last place at once) the row goes back to Reserve.
+exports.fillFromReserve = async function (rowId, schoolId, distanceKm) {
+  const row = await Assignments.findOneAndUpdate(
+    { _id: rowId, status: "Reserve" },
+    { $set: { school: schoolId, status: "Pending", published: true, distance: distanceKm } },
+    { new: true, runValidators: true }
+  );
+  if (!row) return { problem: "taken" };
+
+  const school = (await Schools.findByShow(row.show).lean()).find((s) => String(s._id) === String(schoolId));
+  const holding = await Assignments.countDocuments({ show: row.show, school: schoolId, status: { $in: ["Pending", CONFIRMED_STATUS] } });
+  if (!school || holding > school.p5Classes) {
+    await Assignments.updateOne({ _id: row._id }, { $set: { status: "Reserve", school: null, distance: null } });
+    return { problem: "full" };
+  }
+  return { assignment: row };
+};

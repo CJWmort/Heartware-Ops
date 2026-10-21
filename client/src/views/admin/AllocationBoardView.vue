@@ -102,7 +102,12 @@ async function runAllocation(reset = false){
   notice.value = "";
   try {
     const response = await axios.post(API_URL+"assignments/run", { reset });
-    assignments.value = response.data;
+    // CHANGED: the run now answers { assignments, skippedShows }; published shows are locked and not re-run
+    assignments.value = response.data.assignments;
+    const skipped = response.data.skippedShows || [];
+    if (skipped.length > 0) {
+      notice.value = `${skipped.join(", ")} ${skipped.length === 1 ? "is" : "are"} published, so ${skipped.length === 1 ? "it was" : "they were"} not re-run (open places there are filled automatically). Use Reset to start over.`;
+    }
   } catch (error) {
     errorMessage.value = error.response?.data?.message || "Could not run the allocation.";
   } finally {
