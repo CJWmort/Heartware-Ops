@@ -71,10 +71,10 @@ onMounted(loadData)
           <thead class="table-light">
             <tr>
               <th scope="col" class="text-center">S/N</th>
-              <th scope="col">Show</th>
-              <th scope="col">Reporting Date</th>
-              <th scope="col">Reporting Time</th>
-              <th scope="col">Reporting Location</th>
+              <th scope="col" class="text-center">Show</th>
+              <th scope="col" class="text-center">Reporting Date</th>
+              <th scope="col" class="text-center">Reporting Time</th>
+              <th scope="col" class="text-center">Reporting Location</th>
               <th scope="col" class="text-center">Status</th>
               <th scope="col" class="text-center">Action</th>
             </tr>
@@ -87,10 +87,10 @@ onMounted(loadData)
               :class="{ 'row-left': !show.assignment && show.withdrawal }"
             >
               <td class="text-center text-muted">{{ index + 1 }}</td>
-              <td class="fw-semibold">{{ show.name }}</td>
-              <td>{{ formatDate(show.date) }}</td>
-              <td>{{ show.assignment?.school?.reportingTime || show.withdrawal?.reportingTime || '—' }}</td>
-              <td data-testid="assignment-school">
+              <td class="text-center fw-semibold">{{ show.name }}</td>
+              <td class="text-center">{{ formatDate(show.date) }}</td>
+              <td class="text-center">{{ show.assignment?.school?.reportingTime || show.withdrawal?.reportingTime || '—' }}</td>
+              <td class="text-center" data-testid="assignment-school">
                 <template v-if="show.assignment?.school">
                   {{ show.assignment.school.name }}
                   <div class="small text-muted">{{ show.assignment.school.address }}</div>
