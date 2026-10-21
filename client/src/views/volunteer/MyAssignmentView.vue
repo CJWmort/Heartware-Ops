@@ -5,7 +5,6 @@
 // which loads the real shows (4 shows, 2027 dates), the volunteer's PUBLISHED assignments, and handles
 // accept / decline / withdraw. Keeping that logic in the service keeps this file about the screen only.
 import { onMounted } from 'vue'
-import PageHeader from '@/components/PageHeader.vue'
 import { useMyAssignment, showStatus, statusClass, formatDate } from '@/services/assignment'
 
 const {
@@ -39,7 +38,6 @@ onMounted(loadData)
 
 <template>
   <section>
-    <PageHeader title="My Assignment" icon="bi-geo-alt" />
     <div v-if="errorMessage" class="alert alert-danger" role="alert">{{ errorMessage }}</div>
 
     <div

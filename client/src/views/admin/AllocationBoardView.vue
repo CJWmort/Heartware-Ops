@@ -1,7 +1,6 @@
 <script setup>
 // Feature 1b – Smart Allocation (coordinator board) — owner: Fanny
 // Spec: docs/FEATURES.md   ·   API calls: src/services/   ·   Tests: e2e/
-import PageHeader from '@/components/PageHeader.vue'
 import { ref, computed, watch} from 'vue'
 import draggable from "vuedraggable";
 import axios from 'axios';
@@ -221,11 +220,6 @@ loadData();
 
 
 <template>
-  <section>
-    <PageHeader title="Allocation" icon="bi-grid-3x3-gap" />
-     
-      
-  </section>
   <BaseMap :zoom="12" @ready="onMapReady"/>
   <!-- FIX: was a <body> tag, which is invalid inside a page component (a page already lives inside the real <body>) -->
   <div>

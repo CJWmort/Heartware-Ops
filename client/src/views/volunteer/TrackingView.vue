@@ -44,6 +44,34 @@ const loadingRoute = ref(false) // shows the "Fetching Routes..." overlay
 
 const activeMode = computed(() => MODES.find((m) => m.key === travelMode.value))
 
+/* My accepted shows */
+const assignments = ref([]) // accepted shows: [{ show, school: { name, p5Classes } | null }]
+const assignStatus = ref('loading') // 'loading' | 'ready' | 'error'
+const selectedShow = ref('') // the show whose school is displayed
+
+const currentAssignment = computed(
+  () => assignments.value.find((a) => a.show === selectedShow.value) ?? null,
+)
+
+watch(currentAssignment, drawSchool) // tapping a pill (or the list loading) redraws the school
+
+// Loads the volunteer's accepted shows. They follow the order of availableShows,
+// and the first one is selected by default.
+// Loads the volunteer's allocations, keeps the accepted ones in order (NE Show 1, 2, 3, 4).
+// The first one is selected by default.
+async function loadAssignments() {
+  try {
+    const res = await axios.get('/api/assignments/me') // Fetch all assignments allocated to current logged in user
+    assignments.value = res.data
+      .filter((a) => a.status === 'Accepted')
+      .sort((a, b) => a.show.localeCompare(b.show, undefined, { numeric: true }))
+    selectedShow.value = assignments.value[0]?.show ?? ''
+    assignStatus.value = 'ready'
+  } catch {
+    assignStatus.value = 'error'
+  }
+}
+
 // The single message shown in the popup. Errors take priority over the info message.
 const notice = computed(() => {
   if (geoError.value) {
@@ -84,6 +112,8 @@ let myMarker = null // the user's marker
 let routeLine = null // the drawn route polyline
 let routeRenderer = null // shared canvas renderer for route lines
 let routeLabel = null // "xx min" pill sitting on the route
+let schoolMarker = null // badge for the allocated school of the selected show
+let schoolLine = null // dashed line from the volunteer to that school
 
 let firstFix = true // true until the first GPS position arrives
 let lastRouteLoc = null // where the route was last fetched from
@@ -144,6 +174,47 @@ function createDestIcon() {
     iconSize: [32, 40],
     iconAnchor: [16, 32], // the tip of the pin / center of the grey dot is the real location
     tooltipAnchor: [0, -34],
+  })
+}
+
+// Rounded indigo badge with a graduation cap (the allocated school)
+function createSchoolIcon() {
+  return L.divIcon({
+    className: 'school-marker',
+    html: `<div class="school-badge"><i class="bi bi-mortarboard-fill"></i></div>`,
+    iconSize: [36, 36],
+    iconAnchor: [18, 18],
+    tooltipAnchor: [0, -20],
+  })
+}
+
+// Tooltip card (same look as the Live Board): icon badge + name.
+// Built with the DOM (textContent) so a name can't inject HTML.
+function tipCard({ icon, tone, title }) {
+  const el = document.createElement('div')
+  el.className = 'tip'
+
+  const badge = document.createElement('div')
+  badge.className = `tip-icon ${tone}`
+  const i = document.createElement('i')
+  i.className = `bi ${icon}`
+  badge.appendChild(i)
+
+  const t = document.createElement('div')
+  t.className = 'tip-title'
+  t.textContent = title
+
+  el.append(badge, t)
+  return el
+}
+
+// Attaches a tooltip card to a marker (shows on hover or tap)
+function bindTip(marker, content) {
+  marker.bindTooltip(content, {
+    className: 'hq-tip',
+    direction: 'top',
+    offset: [0, -6], // keeps the card clear of the marker
+    opacity: 1,
   })
 }
 
@@ -212,6 +283,45 @@ function placeRouteLabel(coords, minutes) {
 /* Map setup                                                           */
 /* ------------------------------------------------------------------ */
 
+// Shows the allocated school of the selected show, with a dashed line from the
+// volunteer. The camera is never moved.
+function drawSchool() {
+  if (!map) return
+
+  if (schoolMarker) volunteerLayer.removeLayer(schoolMarker)
+  if (schoolLine) volunteerLayer.removeLayer(schoolLine)
+  schoolMarker = null
+  schoolLine = null
+
+  const s = currentAssignment.value?.school
+  if (s?.lat == null || s?.lng == null) return
+
+  schoolMarker = L.marker([s.lat, s.lng], { icon: createSchoolIcon(), zIndexOffset: -50 }).addTo(volunteerLayer)
+  bindTip(
+    schoolMarker,
+    tipCard({ icon: 'bi-mortarboard-fill', tone: 'school', title: s.name || 'School' }),
+  )
+
+  // The line needs the volunteer's marker; drawMyMarker calls this again once it exists
+  if (myMarker) {
+    schoolLine = L.polyline([myMarker.getLatLng(), [s.lat, s.lng]], {
+      color: '#4f46e5',
+      weight: 3,
+      dashArray: '6 8',
+      opacity: 0.85,
+      interactive: false,
+      renderer: routeRenderer, // canvas, so the line stays visible while zooming
+    }).addTo(volunteerLayer)
+  }
+}
+
+// Keeps the dashed line's volunteer end on the marker while it glides
+function updateSchoolLine() {
+  const s = currentAssignment.value?.school
+  if (!schoolLine || !myMarker || s?.lat == null) return
+  schoolLine.setLatLngs([myMarker.getLatLng(), [s.lat, s.lng]])
+}
+
 // Runs once BaseMap has created the map: sets up layers, the destination
 // marker, and draws anything we already have a location for.
 function onMapReady(m, leaflet) {
@@ -221,16 +331,14 @@ function onMapReady(m, leaflet) {
   volunteerLayer = L.layerGroup().addTo(map)
   meIcon = createDotIcon()
 
-  L.marker([DEST.lat, DEST.lng], {
-    icon: createDestIcon(),
-  })
-  .bindTooltip('Padang', { direction: 'top', sticky: false })
-  .addTo(volunteerLayer)
+  const destMarker = L.marker([DEST.lat, DEST.lng], { icon: createDestIcon() }).addTo(volunteerLayer)
+  bindTip(destMarker, tipCard({ icon: 'bi-flag-fill', tone: 'dest', title: 'Padang' }))
 
   map.zoomControl?.setPosition('bottomright') // move +/- buttons to the bottom right
   map.on('dragstart', () => (following.value = false)) // user took control of the map
   drawMyMarker(true)
   drawRoute()
+  drawSchool()
 }
 
 /* ------------------------------------------------------------------ */
@@ -244,10 +352,10 @@ function drawMyMarker(shouldCenter = false) {
   const { lat, lng } = location.value
 
   if (!myMarker) {
-    myMarker = L.marker([lat, lng], { icon: meIcon })
-      .bindTooltip('Me', { direction: 'top', sticky: false })
-      .addTo(volunteerLayer)
+    myMarker = L.marker([lat, lng], { icon: meIcon }).addTo(volunteerLayer)
+    bindTip(myMarker, tipCard({ icon: 'bi-person-fill', tone: 'me', title: 'Me' }))
     shouldCenter = true
+    drawSchool() 
   } else {
     moveMarkerSmooth(lat, lng)
   }
@@ -267,6 +375,7 @@ function moveMarkerSmooth(lat, lng, duration = GLIDE_MS) {
   // Big jump (e.g. first fix or GPS recovery): snap instead of gliding
   if (from.distanceTo(to) > BIG_JUMP_M) {
     myMarker.setLatLng(to)
+    updateSchoolLine()
     if (following.value && !recentering) map.panTo(to, { animate: false })
     return
   }
@@ -276,6 +385,7 @@ function moveMarkerSmooth(lat, lng, duration = GLIDE_MS) {
     const t = Math.min((now - start) / duration, 1) // progress from 0 to 1
     const cur = [from.lat + (to.lat - from.lat) * t, from.lng + (to.lng - from.lng) * t]
     myMarker.setLatLng(cur)
+    updateSchoolLine()
     if (following.value && !recentering) map.panTo(cur, { animate: false })
     if (t < 1) animFrame = requestAnimationFrame(step)
   }
@@ -610,6 +720,7 @@ onMounted(() => {
   measureSheet()
   sheetObserver = new ResizeObserver(measureSheet) // re-measure when the content changes height
   sheetObserver.observe(sheetEl.value)
+  loadAssignments()
   requestAnimationFrame(() => (sheetAnimated.value = true)) // enable animations after first layout
 })
 
@@ -727,29 +838,45 @@ onUnmounted(() => {
             </div>
           </div>
           
-
-          <!-- only display this when volunteer is currently volunteering for a show -->
-          <hr>
-          <div class="sheet-title">NE Show 1</div>
-          <div class="row">
-            <div class="col-6">
-              <div class="d-inline-flex align-items-center">
-                <i class="bi-mortarboard fs-5"></i>&nbsp;
-                <span>Allocated school</span>
+          <!-- My accepted shows: pills pick the show, cards show its school -->
+          <div class="assign">
+            <template v-if="assignStatus === 'ready' && assignments.length">
+              <div class="show-pills" role="group" aria-label="My shows">
+                <button
+                  v-for="a in assignments"
+                  :key="a.show"
+                  type="button"
+                  class="show-pill"
+                  :class="{ active: a.show === selectedShow }"
+                  :aria-pressed="a.show === selectedShow"
+                  @click="selectedShow = a.show"
+                >
+                  {{ a.show }}
+                </button>
               </div>
-              <div style="font-size: 12px;">Something primary school</div>
-            </div>
 
-            <div class="col-6">
-              <div class="d-inline-flex align-items-center">
-                <i class="bi-clock fs-5"></i>&nbsp;
-                <span>Last updated</span>
+              <div class="info-grid">
+                <div class="info-card">
+                  <div class="info-label">
+                    <i class="bi bi-mortarboard-fill" aria-hidden="true"></i>Allocated school
+                  </div>
+                  <div class="info-value">{{ currentAssignment?.school?.name || '—' }}</div>
+                </div>
+                <div class="info-card">
+                  <div class="info-label">
+                    <i class="bi bi-people-fill" aria-hidden="true"></i>P5 classes
+                  </div>
+                  <div class="info-value info-number">
+                    {{ currentAssignment?.school?.p5Classes ?? '—' }}
+                  </div>
+                </div>
               </div>
-              <div style="font-size: 12px;">17 Oct 2026 12:43:57</div>
-            </div>
+            </template>
+
+            <div v-else-if="assignStatus === 'loading'" class="assign-msg">Loading your shows…</div>
+            <div v-else-if="assignStatus === 'error'" class="assign-msg">Could not load your shows.</div>
+            <div v-else class="assign-msg">You have no allocated shows yet.</div>
           </div>
-          <hr>
-          <br>
 
         </div>
       </div>
@@ -1032,33 +1159,6 @@ onUnmounted(() => {
   transition: bottom 0.25s ease;
 }
 
-/* Desktop: no drag. Show the same content as a card at the top left */
-@media (min-width: 992px) {
-  .map-stage {
-    --sheet-h: 0px !important; /* controls stay where they were */
-  }
-  .sheet {
-    top: 12px;
-    bottom: auto;
-    left: 12px;
-    right: auto;
-    width: 400px;
-    border-radius: 12px;
-    transform: none !important; /* always fully open */
-  }
-  .sheet-handle {
-    display: none;
-  }
-  .sheet-peek {
-    padding-top: 16px;
-  }
-  /* Desktop: the route card sits top left, so put the popup top right instead */
-  .notice-wrap {
-    left: 424px; /* clears the 400px card plus its 12px margin */
-    justify-content: flex-end;
-  }
-}
-
 /* Hide hairline seams between map tiles */
 .map-stage :deep(.leaflet-tile) {
   outline: 1px solid transparent; /* forces the browser to snap tile edges together */
@@ -1174,4 +1274,173 @@ onUnmounted(() => {
   transform: translateY(-12px);
   opacity: 0;
 }
+
+/* My shows: pills + school cards (same look as the Live Board) */
+.assign {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid #eceef1;
+}
+
+.show-pills {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  scrollbar-width: none; /* scrolls sideways if a volunteer has many shows */
+}
+.show-pills::-webkit-scrollbar {
+  display: none;
+}
+
+.show-pill {
+  flex: 0 0 auto;
+  height: 32px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 16px;
+  background: #f1f3f6;
+  color: #555;
+  font-size: 0.85rem;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.show-pill:hover {
+  background: #e8ebf0;
+}
+
+.show-pill.active {
+  background: #2563eb;
+  color: #fff;
+}
+
+.info-grid {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.info-card {
+  min-width: 0;
+  padding: 10px 12px;
+  background: #f6f8fb;
+  border: 1px solid #e6eaf0;
+  border-radius: 12px;
+}
+
+.info-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  color: #777;
+}
+
+.info-label i {
+  font-size: 0.95rem;
+  color: #4f46e5;
+}
+
+.info-value {
+  margin-top: 4px;
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.info-number {
+  font-size: 1.5rem;
+  line-height: 1.1;
+}
+
+.assign-msg {
+  font-size: 0.85rem;
+  color: #888;
+}
+
+/* School marker: indigo rounded badge with a graduation cap */
+:global(.school-badge) {
+  width: 36px;
+  height: 36px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 3px solid #fff;
+  border-radius: 11px;
+  background: #4f46e5;
+  color: #fff;
+  font-size: 1.1rem;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.4);
+}
+
+/* Tooltip cards (same look as the Live Board) */
+:global(.leaflet-tooltip.hq-tip) {
+  padding: 6px 12px 6px 6px;
+  background: #fff;
+  border: 1px solid #fff;
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgb(0 0 0 / 0.25);
+  color: #222;
+  white-space: nowrap;
+}
+
+:global(.tip) {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+:global(.tip-icon) {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: #9aa0a6;
+  color: #fff;
+  font-size: 0.95rem;
+}
+:global(.tip-icon.me) { background: #2563eb; }
+:global(.tip-icon.dest) { background: #ea4335; }
+:global(.tip-icon.school) { background: #4f46e5; }
+
+:global(.tip-title) {
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+/* Desktop: no drag. Show the same content as a card at the top left */
+@media (min-width: 992px) {
+  .map-stage {
+    --sheet-h: 0px !important; /* controls stay where they were */
+  }
+  .sheet {
+    top: 12px;
+    bottom: auto;
+    left: 12px;
+    right: auto;
+    width: 400px;
+    border-radius: 12px;
+    transform: none !important; /* always fully open */
+  }
+  .sheet-handle {
+    display: none;
+  }
+  .sheet-peek {
+    padding-top: 16px;
+  }
+  /* Desktop: the route card sits top left, so put the popup top right instead */
+  .notice-wrap {
+    left: 424px; /* clears the 400px card plus its 12px margin */
+    justify-content: flex-end;
+  }
+}
+
+
 </style>
