@@ -5,7 +5,7 @@ import { loginAs, logout } from './helpers'
 test.describe('F5 Badges', () => {
   test.fixme('changing the colour updates the preview immediately', async ({ page }) => {
     await loginAs(page, 'volunteer')
-    await page.goto('/me/badge-studio')
+    await page.goto('/volunteer/badge-studio')
     await page.getByTestId('studio-primary-color').fill('#0055aa')
     await expect(page.getByTestId('studio-preview').locator('[data-part="primary"]')).toHaveAttribute(
       'fill',
@@ -15,7 +15,7 @@ test.describe('F5 Badges', () => {
 
   test.fixme('ribbon text is limited to 20 characters with a live counter', async ({ page }) => {
     await loginAs(page, 'volunteer')
-    await page.goto('/me/badge-studio')
+    await page.goto('/volunteer/badge-studio')
     await page.getByTestId('studio-ribbon').fill('This text is definitely too long')
     await expect(page.getByTestId('studio-ribbon')).toHaveValue(/^.{0,20}$/)
     await expect(page.getByTestId('studio-ribbon-count')).toContainText('20/20')
@@ -23,13 +23,17 @@ test.describe('F5 Badges', () => {
 
   test.fixme('locking in places an order and freezes the design', async ({ page }) => {
     await loginAs(page, 'volunteer')
-    await page.goto('/me/badge-studio')
+    await page.goto('/volunteer/badge-studio')
     await page.getByTestId('studio-lock').click()
     await page.getByTestId('order-address').fill('Blk 201 Tampines St 21')
+    await page.getByTestId('order-postal').fill('520201')
     await page.getByTestId('order-submit').click()
     await expect(page.getByTestId('studio-ribbon')).toBeDisabled()
-    await page.goto('/me/badges')
-    await expect(page.getByTestId('order-status')).toContainText(/placed/i)
+    // newest order is first; .first() avoids a clash once a volunteer has several orders
+    await expect(page.getByTestId('order-status').first()).toContainText(/placed/i)
+    // after a refresh the design must still be locked (loaded from the server, not just the page)
+    await page.reload()
+    await expect(page.getByTestId('studio-ribbon')).toBeDisabled()
   })
 
   test.fixme('coordinator custom award appears on the volunteer badge wall', async ({ page }) => {
@@ -43,7 +47,7 @@ test.describe('F5 Badges', () => {
     await logout(page)
 
     await loginAs(page, 'volunteer')
-    await page.goto('/me/badges')
+    await page.goto('/volunteer/badges')
     await page.getByTestId('badge-HEART_OF_GOLD').click()
     await expect(page.getByTestId('badge-modal')).toContainText('Thank you for staying calm today!')
   })
