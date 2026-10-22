@@ -1078,6 +1078,7 @@ onUnmounted(() => {
   bottom: 0;
   z-index: 1050; /* above Leaflet controls (1000), below the loading overlay (1100) */
   background: #fff;
+  color: #1f2430; /* CHANGED: dark text on this fixed-white panel; without it the text follows the dark theme and turns pale */
   border-radius: 16px 16px 0 0;
   box-shadow: 0 -2px 12px rgb(0 0 0 / 0.15);
 }
@@ -1330,6 +1331,7 @@ onUnmounted(() => {
   max-width: 340px;
   padding: 22px 20px;
   background: #fff;
+  color: #1f2430; /* CHANGED: dark text on this fixed-white panel; without it the text follows the dark theme and turns pale */
   border-radius: 18px;
   box-shadow: 0 4px 20px rgb(0 0 0 / 0.2);
   text-align: center;

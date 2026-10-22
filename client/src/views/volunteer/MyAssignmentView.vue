@@ -66,7 +66,7 @@ onMounted(loadData)
     <div class="card shadow-sm" data-testid="assignment-card">
       <div class="table-responsive">
         <table class="table table-hover align-middle mb-0">
-          <thead class="table-light">
+          <thead class="table-secondary">
             <tr>
               <th scope="col" class="text-center">S/N</th>
               <th scope="col">Show</th>
@@ -165,7 +165,8 @@ onMounted(loadData)
               <!-- CHANGED: the Accepted wording was "Pull out of ...?". It now uses the same words as the row button
                    ("No-Show/Withdrawn") so the volunteer sees one name for one action. Decline wording is unchanged. -->
               <h5 class="modal-title" id="pullout-title">
-                {{ pullOutMode === 'decline' ? 'Decline' : 'No-Show/Withdrawn for' }} {{ withdrawShow.name }}?
+                {{ pullOutMode === 'decline' ? 'Decline' : 'No-Show/Withdrawn for' }}
+                {{ withdrawShow.name }}?
               </h5>
               <button
                 type="button"

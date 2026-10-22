@@ -53,6 +53,7 @@ defineEmits(['close'])
   max-width: 420px;
   padding: 10px 8px 10px 12px;
   background: #fff;
+  color: #1f2430; /* CHANGED: dark text on this fixed-white panel; without it the text follows the dark theme and turns pale */
   border-radius: 14px;
   box-shadow: 0 2px 12px rgb(0 0 0 / 0.2);
 }

@@ -102,7 +102,7 @@ watch(() => props.volunteerId, loadMessages)
         <!-- {{ }} escapes the text, so a message like "<script>" is shown as text and can't run -->
         <div
           class="px-3 py-2 rounded-3"
-          :class="isMine(msg) ? 'bg-primary text-white' : 'bg-light border'"
+          :class="isMine(msg) ? 'bg-primary text-white' : 'bg-body-secondary border'"
           style="max-width: 80%"
         >
           <div class="small opacity-75">

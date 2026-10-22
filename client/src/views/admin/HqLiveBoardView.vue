@@ -1063,6 +1063,7 @@ onUnmounted(() => {
   gap: 3px;
   padding: 4px;
   background: #fff;
+  color: #1f2430; /* CHANGED: dark text on this fixed-white panel; without it the text follows the dark theme and turns pale */
   border-radius: 12px;
   box-shadow: 0 2px 12px rgb(0 0 0 / 0.2);
 }
@@ -1119,6 +1120,7 @@ onUnmounted(() => {
   max-height: 50vh;
   overflow-y: auto;
   background: #fff;
+  color: #1f2430; /* CHANGED: dark text on this fixed-white panel; without it the text follows the dark theme and turns pale */
   border-radius: 14px;
   box-shadow: 0 2px 12px rgb(0 0 0 / 0.2);
 }
@@ -1399,6 +1401,7 @@ onUnmounted(() => {
   max-width: 340px;
   padding: 8px 6px 8px 8px;
   background: #fff;
+  color: #1f2430; /* CHANGED: dark text on this fixed-white panel; without it the text follows the dark theme and turns pale */
   border-radius: 14px;
   box-shadow: 0 2px 12px rgb(0 0 0 / 0.2);
   cursor: pointer;
@@ -1491,6 +1494,7 @@ onUnmounted(() => {
 .activity {
   margin-top: 6px;
   background: #fff;
+  color: #1f2430; /* CHANGED: dark text on this fixed-white panel; without it the text follows the dark theme and turns pale */
   border-radius: 14px;
   box-shadow: 0 2px 12px rgb(0 0 0 / 0.2);
   overflow: hidden;
@@ -1668,6 +1672,7 @@ onUnmounted(() => {
   min-width: 170px;
   padding: 6px;
   background: #fff;
+  color: #1f2430; /* CHANGED: dark text on this fixed-white panel; without it the text follows the dark theme and turns pale */
   border-radius: 14px;
   box-shadow: 0 4px 16px rgb(0 0 0 / 0.22);
 }
