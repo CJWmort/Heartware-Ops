@@ -4,6 +4,7 @@ import axios from 'axios'
 import BaseMap from '@/components/BaseMap.vue'
 import MapLoading from '@/components/MapLoading.vue'
 import MapNotice from '@/components/MapNotice.vue'
+import { createVolIcon, createSchoolIcon, volTip, schoolTip, bindTip } from '@/utils/map-icons'
 import { useZoneEventsStore, MAX_EVENTS } from '@/services/zone-events'
 import { SINGAPORE_CENTER, INNER_RING, OUTER_RING } from '@/utils/constants'
 
@@ -205,75 +206,6 @@ let tickTimer = null
 
 const isDesktop = () => window.matchMedia('(min-width: 992px)').matches
 
-/* ------------------------------------------------------------------ */
-/* Map icons                                                           */
-/* ------------------------------------------------------------------ */
-
-// Round badge with a person icon for a volunteer (colour comes from their status)
-function createVolIcon(status) {
-  return L.divIcon({
-    className: 'vol-marker',
-    html: `<div class="vol-dot ${status}"><i class="bi bi-person-fill"></i></div>`,
-    iconSize: [34, 34],
-    iconAnchor: [17, 17],
-    tooltipAnchor: [0, -18],
-  })
-}
-
-// Rounded badge with a graduation cap (the school)
-function createSchoolIcon() {
-  return L.divIcon({
-    className: 'school-marker',
-    html: `<div class="school-badge"><i class="bi bi-mortarboard-fill"></i></div>`,
-    iconSize: [36, 36],
-    iconAnchor: [18, 18],
-    tooltipAnchor: [0, -20],
-  })
-}
-
-// Tooltip card in the same style as the volunteer card: icon badge + name only.
-// Built with the DOM (textContent) so names can't inject HTML.
-function tipCard({ icon, tone, title }) {
-  const el = document.createElement('div')
-  el.className = 'tip'
-
-  const badge = document.createElement('div')
-  badge.className = `tip-icon ${tone}`
-  const i = document.createElement('i')
-  i.className = `bi ${icon}`
-  badge.appendChild(i)
-
-  const t = document.createElement('div')
-  t.className = 'tip-title'
-  t.textContent = title
-
-  el.append(badge, t)
-  return el
-}
-
-// Volunteer tooltip: the badge colour follows their status
-function volTip(v) {
-  return tipCard({ icon: 'bi-person-fill', tone: v.status, title: v.name })
-}
-
-// School tooltip
-function schoolTip(s) {
-  return tipCard({ icon: 'bi-mortarboard-fill', tone: 'school', title: s.name || 'School' })
-}
-
-// Attaches a tooltip card to a marker, replacing any tooltip it already has.
-// pinned = stays open until the tooltip is rebound; otherwise it shows on hover only.
-function bindTip(marker, content, { pinned = false, direction = 'top' } = {}) {
-  marker.unbindTooltip()
-  marker.bindTooltip(content, {
-    className: 'hq-tip',
-    direction,
-    offset: [0, direction === 'bottom' ? 26 : -6], // keeps the card clear of the marker
-    opacity: 1,
-    permanent: pinned,
-  })
-  if (pinned) marker.openTooltip()
-}
 
 /* ------------------------------------------------------------------ */
 /* Map setup                                                           */
@@ -1039,15 +971,6 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-/* Map fills everything below the navbar */
-
-
-
-/* Hide hairline seams between map tiles */
-
-
-/* Zoom buttons and attribution ride up above the bottom card (mobile) */
-
 /* Top bar */
 .board-bar {
   position: absolute;
@@ -1063,6 +986,7 @@ onUnmounted(() => {
   gap: 3px;
   padding: 4px;
   background: #fff;
+  color: #1f2430; /* CHANGED: dark text on this fixed-white panel; without it the text follows the dark theme and turns pale */
   border-radius: 12px;
   box-shadow: 0 2px 12px rgb(0 0 0 / 0.2);
 }
@@ -1119,6 +1043,7 @@ onUnmounted(() => {
   max-height: 50vh;
   overflow-y: auto;
   background: #fff;
+  color: #1f2430; /* CHANGED: dark text on this fixed-white panel; without it the text follows the dark theme and turns pale */
   border-radius: 14px;
   box-shadow: 0 2px 12px rgb(0 0 0 / 0.2);
 }
@@ -1149,6 +1074,7 @@ onUnmounted(() => {
   min-width: 0;
   display: flex;
   flex-direction: column;
+  color: #1f2430;
 }
 
 .result-name {
@@ -1191,51 +1117,6 @@ onUnmounted(() => {
 .status-dot.offline { background: #dc2626; }
 .status-dot.none { background: #d3d6da; }
 
-/* Volunteer marker: round badge with a person icon */
-:global(.vol-dot) {
-  position: relative;
-  width: 34px;
-  height: 34px;
-  box-sizing: border-box;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 3px solid #fff;
-  border-radius: 50%;
-  background: #9aa0a6;
-  color: #fff;
-  font-size: 1.05rem;
-  box-shadow: 0 2px 6px rgb(0 0 0 / 0.4);
-}
-:global(.vol-dot.live) { background: #16a34a; }
-:global(.vol-dot.stale) { background: #f59e0b; }
-:global(.vol-dot.offline) { background: #dc2626; }
-
-/* Pulsing ring on live volunteers */
-:global(.vol-dot.live::after) {
-  content: '';
-  position: absolute;
-  inset: -3px;
-  border-radius: 50%;
-  border: 2px solid #16a34a;
-  /* use the "vol-pulse" animation defined below */
-  animation: vol-pulse 1s ease-out infinite;
-}
-
-/* The pulse animation */
-@keyframes vol-pulse {
-  0% {
-    transform: scale(1);
-    opacity: 0.8;
-  }
-  100% {
-    transform: scale(1.8);
-    opacity: 0;
-  }
-}
-
-/* School marker: indigo rounded badge with a graduation cap */
-
 /* Selected volunteer card (bottom on mobile) */
 .vol-card {
   position: absolute;
@@ -1276,10 +1157,15 @@ onUnmounted(() => {
   min-width: 0;
 }
 
+.info-value {
+  color: #1f2430
+}
+
 .vol-name {
   font-size: 1.05rem;
   font-weight: 600;
   line-height: 1.2;
+  color: #1f2430;
 }
 
 .vol-status {
@@ -1298,7 +1184,6 @@ onUnmounted(() => {
   gap: 10px;
   margin-top: 12px;
 }
-
 
 .card-enter-active,
 .card-leave-active {
@@ -1327,10 +1212,6 @@ onUnmounted(() => {
   text-align: center;
 }
 
-/* Loading overlay */
-
-/* Error popup */
-
 /* Zone count chips */
 .zone-row {
   display: flex;
@@ -1339,6 +1220,7 @@ onUnmounted(() => {
   overflow-x: auto;
   scrollbar-width: none; /* scrolls sideways on very narrow phones */
 }
+
 .zone-row::-webkit-scrollbar {
   display: none;
 }
@@ -1399,6 +1281,7 @@ onUnmounted(() => {
   max-width: 340px;
   padding: 8px 6px 8px 8px;
   background: #fff;
+  color: #1f2430; /* CHANGED: dark text on this fixed-white panel; without it the text follows the dark theme and turns pale */
   border-radius: 14px;
   box-shadow: 0 2px 12px rgb(0 0 0 / 0.2);
   cursor: pointer;
@@ -1491,6 +1374,7 @@ onUnmounted(() => {
 .activity {
   margin-top: 6px;
   background: #fff;
+  color: #1f2430; /* CHANGED: dark text on this fixed-white panel; without it the text follows the dark theme and turns pale */
   border-radius: 14px;
   box-shadow: 0 2px 12px rgb(0 0 0 / 0.2);
   overflow: hidden;
@@ -1581,6 +1465,7 @@ onUnmounted(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  color: #1f2430
 }
 
 .event-text {
@@ -1668,6 +1553,7 @@ onUnmounted(() => {
   min-width: 170px;
   padding: 6px;
   background: #fff;
+  color: #1f2430; /* CHANGED: dark text on this fixed-white panel; without it the text follows the dark theme and turns pale */
   border-radius: 14px;
   box-shadow: 0 4px 16px rgb(0 0 0 / 0.22);
 }

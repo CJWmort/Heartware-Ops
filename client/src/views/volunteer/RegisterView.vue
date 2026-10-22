@@ -7,7 +7,6 @@ import axios from 'axios'
 
 const route = useRoute()
 
-
 const submitted = ref(false)
 const name = ref('')
 const email = ref('')
@@ -16,7 +15,7 @@ const postalCode = ref('')
 const address = ref('')
 const password = ref('')
 const confirmPassword = ref('')
-// NEW (spec: consent before tracking): the volunteer must agree to share their live location on event day.
+// NEW (spec: consent before tracking): the volunteer must agree to share their live location for app to work.
 // Sign up stays disabled until ticked, and the server also refuses an account without it.
 const consent = ref(false)
 
@@ -36,11 +35,18 @@ const emailDomains = ['gmail.com', 'hotmail.com', 'yahoo.com', 'outlook.com', 'i
 
 // Common spelling mistakes -> the correct domain
 const domainTypos = {
-  'gmial.com': 'gmail.com', 'gmai.com': 'gmail.com', 'gamil.com': 'gmail.com',
-  'gmail.co': 'gmail.com', 'gmail.con': 'gmail.com', 'gmail.cm': 'gmail.com',
-  'hotmial.com': 'hotmail.com', 'hotmail.co': 'hotmail.com',
-  'yaho.com': 'yahoo.com', 'yahoo.co': 'yahoo.com',
-  'outlok.com': 'outlook.com', 'outlook.co': 'outlook.com',
+  'gmial.com': 'gmail.com',
+  'gmai.com': 'gmail.com',
+  'gamil.com': 'gmail.com',
+  'gmail.co': 'gmail.com',
+  'gmail.con': 'gmail.com',
+  'gmail.cm': 'gmail.com',
+  'hotmial.com': 'hotmail.com',
+  'hotmail.co': 'hotmail.com',
+  'yaho.com': 'yahoo.com',
+  'yahoo.co': 'yahoo.com',
+  'outlok.com': 'outlook.com',
+  'outlook.co': 'outlook.com',
 }
 
 // Returns '' if the email is fine, otherwise a message saying exactly what's wrong
@@ -80,9 +86,9 @@ const domainSuggestions = computed(() => {
   if (!value || /\s/.test(value)) return []
 
   const parts = value.split('@')
-  if (parts.length > 2 || !parts[0]) return []   // two @'s, or nothing before @
+  if (parts.length > 2 || !parts[0]) return [] // two @'s, or nothing before @
 
-  const typed = (parts[1] || '').toLowerCase()      // what's after @ ('' if no @ yet)
+  const typed = (parts[1] || '').toLowerCase() // what's after @ ('' if no @ yet)
   return emailDomains.filter((d) => d.startsWith(typed) && d !== typed)
 })
 
@@ -94,8 +100,8 @@ function pickDomain(domain) {
 }
 
 // OneMap result for the postal code (declared here because the postal code rule below uses it)
-const postalStatus = ref('idle')    // 'idle' | 'loading' | 'found' | 'notfound' | 'error'
-const postalPreview = ref('')       // the address OneMap found
+const postalStatus = ref('idle') // 'idle' | 'loading' | 'found' | 'notfound' | 'error'
+const postalPreview = ref('') // the address OneMap found
 
 // ---------- Password requirements ----------
 // Each rule has a label (shown in the checklist) and a test (true = met).
@@ -119,7 +125,8 @@ const rules = {
   postalCode: () => {
     if (!/^\d{6}$/.test(postalCode.value.trim())) return 'Enter a 6-digit postal code.'
     // OneMap checked it and there is no such place -> not a real Singapore postal code
-    if (postalStatus.value === 'notfound') return "This postal code doesn't exist in Singapore. Please check it."
+    if (postalStatus.value === 'notfound')
+      return "This postal code doesn't exist in Singapore. Please check it."
     return ''
   },
   phone: () =>
@@ -184,8 +191,8 @@ watch(Object.values(fields), () => {
 // Uses our server (which uses onemap.js), because OneMap needs a secret login:
 //   GET /api/users/postal-lookup?postalCode=560123   -> { address }
 //   GET /api/users/address-search?q=ang mo kio       -> [{ address, postal }, ...]
-const addressSuggestions = ref([])  // list shown under the Address box
-let postalTimer = null              // for debouncing (waiting until the user stops typing)
+const addressSuggestions = ref([]) // list shown under the Address box
+let postalTimer = null // for debouncing (waiting until the user stops typing)
 let addressTimer = null
 
 // When WE fill a box from code, its watcher would start a search we don't want.
@@ -309,18 +316,19 @@ const progress = computed(() => Math.round((filledCount.value / fieldNames.lengt
 // so the button switches itself on the moment the last field becomes valid.
 const fieldsLeft = computed(() => fieldNames.length - filledCount.value)
 const canSubmit = computed(
-  () => fieldsLeft.value === 0 && consent.value && postalStatus.value !== 'loading' && !loading.value,
+  () =>
+    fieldsLeft.value === 0 && consent.value && postalStatus.value !== 'loading' && !loading.value,
 )
 
 // ---------- Email verification (6-digit code) ----------
-const step = ref('form')      // 'form' = fill in details, 'otp' = type the emailed code
+const step = ref('form') // 'form' = fill in details, 'otp' = type the emailed code
 const otpCode = ref('')
-const otpInput = ref(null)    // the code <input>, so we can put the cursor in it
+const otpInput = ref(null) // the code <input>, so we can put the cursor in it
 const otpError = ref('')
 const otpNotice = ref('')
-const devCode = ref('')       // only filled in test mode (OTP_MOCK=true): no real email sent
-const sending = ref(false)    // true while the server is sending the email
-const resendIn = ref(0)       // seconds until "Resend code" can be pressed again
+const devCode = ref('') // only filled in test mode (OTP_MOCK=true): no real email sent
+const sending = ref(false) // true while the server is sending the email
+const resendIn = ref(0) // seconds until "Resend code" can be pressed again
 let resendTimer = null
 
 function startResendTimer(seconds) {
@@ -360,8 +368,8 @@ async function register() {
     otpError.value = ''
     otpNotice.value = ''
     step.value = 'otp'
-    await nextTick()         // wait for the code box to appear...
-    otpInput.value?.focus()  // ...then put the cursor in it
+    await nextTick() // wait for the code box to appear...
+    otpInput.value?.focus() // ...then put the cursor in it
   } catch (error) {
     serverError.value = error.response?.data?.message || 'Could not send the code. Try again.'
   } finally {
@@ -406,7 +414,10 @@ async function verifyAndCreate() {
   loading.value = true
   try {
     // 1) Check the code
-    await axios.post('/api/users/otp/verify', { email: email.value.trim(), code: otpCode.value.trim() })
+    await axios.post('/api/users/otp/verify', {
+      email: email.value.trim(),
+      code: otpCode.value.trim(),
+    })
 
     // 2) Create the account
     const body = {
@@ -439,7 +450,8 @@ async function verifyAndCreate() {
     <div class="row justify-content-center">
       <div class="col-12 col-md-8 col-lg-5">
         <div class="card-hw p-4 p-md-5">
-          <h1 class="h3 fw-bold mb-1" style="color: var(--hw-navy)">Sign up to volunteer</h1>
+          <!-- CHANGED: --hw-heading (not --hw-navy) so the title stays readable in dark mode -->
+          <h1 class="h3 fw-bold mb-1" style="color: var(--hw-heading)">Sign up to volunteer</h1>
           <p class="text-muted-hw mb-4">Create your Heartware Ops account.</p>
 
           <!-- ================= STEP 2: type the emailed code ================= -->
@@ -447,11 +459,16 @@ async function verifyAndCreate() {
             <p class="small text-uppercase fw-semibold text-muted-hw mb-1">Step 2 of 2</p>
             <h2 class="h5 mb-1"><i class="bi bi-envelope-check me-2"></i>Verify your email</h2>
             <p class="text-muted-hw">
-              We emailed a 6-digit code to <strong class="text-break">{{ email }}</strong>.
-              If you can't see it, check your spam folder.
+              We emailed a 6-digit code to <strong class="text-break">{{ email }}</strong
+              >. If you can't see it, check your spam folder.
             </p>
 
-            <div v-if="otpError" class="alert alert-danger py-2" role="alert" data-testid="reg-otp-error">
+            <div
+              v-if="otpError"
+              class="alert alert-danger py-2"
+              role="alert"
+              data-testid="reg-otp-error"
+            >
               {{ otpError }}
             </div>
             <div v-else-if="otpNotice" class="alert alert-success py-2" role="status">
@@ -466,29 +483,48 @@ async function verifyAndCreate() {
 
             <form @submit.prevent="verifyAndCreate" novalidate>
               <label for="otpCode" class="form-label fw-semibold">Verification code</label>
-              <input id="otpCode" ref="otpInput" v-model="otpCode" type="text"
-                     inputmode="numeric" maxlength="6" placeholder="000000"
-                     autocomplete="one-time-code"
-                     class="form-control form-control-lg text-center fw-semibold"
-                     style="letter-spacing: 0.5em"
-                     data-testid="reg-otp-code" />
+              <input
+                id="otpCode"
+                ref="otpInput"
+                v-model="otpCode"
+                type="text"
+                inputmode="numeric"
+                maxlength="6"
+                placeholder="000000"
+                autocomplete="one-time-code"
+                class="form-control form-control-lg text-center fw-semibold"
+                style="letter-spacing: 0.5em"
+                data-testid="reg-otp-code"
+              />
               <div class="form-text mb-3">The code expires after 10 minutes.</div>
 
-              <button type="submit" class="btn btn-brand btn-lg w-100 tap-target" :disabled="loading"
-                      data-testid="reg-otp-submit">
+              <button
+                type="submit"
+                class="btn btn-brand btn-lg w-100 tap-target"
+                :disabled="loading"
+                data-testid="reg-otp-submit"
+              >
                 <span v-if="loading" class="spinner-border spinner-border-sm me-2"></span>
                 {{ loading ? 'Creating account…' : 'Verify & create account' }}
               </button>
             </form>
 
             <div class="d-flex flex-wrap justify-content-between gap-2 mt-3">
-              <button type="button" class="btn btn-link btn-sm p-0 link-brand" @click="backToForm"
-                      data-testid="reg-otp-back">
+              <button
+                type="button"
+                class="btn btn-link btn-sm p-0 link-brand"
+                @click="backToForm"
+                data-testid="reg-otp-back"
+              >
                 <i class="bi bi-arrow-left me-1"></i>Change email
               </button>
-              <button type="button" class="btn btn-link btn-sm p-0 link-brand"
-                      :disabled="resendIn > 0 || sending" @click="resend"
-                      data-testid="reg-otp-resend">
+              <button
+                type="button"
+                class="btn btn-link btn-sm p-0 link-brand"
+                :disabled="resendIn > 0 || sending"
+                @click="resend"
+                data-testid="reg-otp-resend"
+              >
                 {{ resendIn > 0 ? `Resend code in ${resendIn}s` : 'Resend code' }}
               </button>
             </div>
@@ -496,198 +532,328 @@ async function verifyAndCreate() {
 
           <!-- ================= STEP 1: the form ================= -->
           <div v-else>
-          <p class="small text-uppercase fw-semibold text-muted-hw mb-1">Step 1 of 2</p>
+            <p class="small text-uppercase fw-semibold text-muted-hw mb-1">Step 1 of 2</p>
 
-          <!-- Progress bar (Bootstrap) – width is bound to the computed "progress" -->
-          <div class="mb-4">
-            <div class="d-flex justify-content-between small mb-1">
-              <span class="fw-semibold">{{ filledCount }} of {{ fieldNames.length }} fields done</span>
-              <span class="fw-semibold">{{ progress }}%</span>
-            </div>
-            <div class="progress" role="progressbar" aria-label="Form completion"
-                 :aria-valuenow="progress" aria-valuemin="0" aria-valuemax="100"
-                 style="height: 10px">
-              <div class="progress-bar"
-                   :class="progress === 100 ? 'bg-success' : 'bg-brand'"
-                   :style="{ width: progress + '%' }"></div>
-            </div>
-          </div>
-
-          <div v-if="serverError" class="alert alert-danger py-2" role="alert" data-testid="reg-error">
-            {{ serverError }}
-          </div>
-
-          <form @submit.prevent="register" novalidate>
-            <!-- Name -->
-            <div class="mb-3">
-              <label for="name" class="form-label fw-semibold">Name</label>
-              <input id="name" v-model="name" type="text"
-                     class="form-control form-control-lg"
-                     :class="{ 'is-invalid': errors.name, 'is-valid': isOk('name') }"
-                     @blur="touch('name')" data-testid="reg-name" autocomplete="name" />
-              <div class="invalid-feedback"><i class="bi bi-x-circle-fill"></i> {{ errors.name }}</div>
-              <div class="valid-feedback"><i class="bi bi-check-circle-fill"></i> Looks good!</div>
-            </div>
-
-            <!-- Email -->
-            <div class="mb-3">
-              <label for="email" class="form-label fw-semibold">Email</label>
-              <input id="email" v-model="email" type="email"
-                     class="form-control form-control-lg"
-                     :class="{ 'is-invalid': errors.email, 'is-valid': isOk('email') }"
-                     @blur="touch('email')" data-testid="reg-email" autocomplete="email" />
-              <div class="invalid-feedback"><i class="bi bi-x-circle-fill"></i> {{ errors.email }}</div>
-              <div class="valid-feedback"><i class="bi bi-check-circle-fill"></i> Looks good!</div>
-
-              <!-- Quick-pick buttons: one per suggested domain (v-for = list rendering) -->
-              <div v-if="domainSuggestions.length" class="d-flex flex-wrap gap-2 mt-2">
-                <button v-for="domain in domainSuggestions" :key="domain"
-                        type="button"
-                        class="btn btn-sm btn-outline-secondary rounded-pill"
-                        @mousedown.prevent
-                        @click="pickDomain(domain)">
-                  @{{ domain }}
-                </button>
+            <!-- Progress bar (Bootstrap) – width is bound to the computed "progress" -->
+            <div class="mb-4">
+              <div class="d-flex justify-content-between small mb-1">
+                <span class="fw-semibold"
+                  >{{ filledCount }} of {{ fieldNames.length }} fields done</span
+                >
+                <span class="fw-semibold">{{ progress }}%</span>
+              </div>
+              <div
+                class="progress"
+                role="progressbar"
+                aria-label="Form completion"
+                :aria-valuenow="progress"
+                aria-valuemin="0"
+                aria-valuemax="100"
+                style="height: 10px"
+              >
+                <div
+                  class="progress-bar"
+                  :class="progress === 100 ? 'bg-success' : 'bg-brand'"
+                  :style="{ width: progress + '%' }"
+                ></div>
               </div>
             </div>
 
-            <!-- Phone (input-group: feedback goes INSIDE) -->
-            <div class="mb-3">
-              <label for="phone" class="form-label fw-semibold">Phone number</label>
-              <div class="input-group input-group-lg has-validation">
-                <span class="input-group-text">+65</span>
-                <input id="phone" v-model="phone" type="tel" inputmode="numeric"
-                       maxlength="8" placeholder="91234567" class="form-control"
-                       :class="{ 'is-invalid': errors.phone, 'is-valid': isOk('phone') }"
-                       @blur="touch('phone')" data-testid="reg-phone" autocomplete="tel-national" />
-                <div class="invalid-feedback"><i class="bi bi-x-circle-fill"></i> {{ errors.phone }}</div>
-                <div class="valid-feedback"><i class="bi bi-check-circle-fill"></i> Looks good!</div>
-              </div>
+            <div
+              v-if="serverError"
+              class="alert alert-danger py-2"
+              role="alert"
+              data-testid="reg-error"
+            >
+              {{ serverError }}
             </div>
 
-            <!-- Postal code (moved ABOVE address: type postal -> address fills itself) -->
-            <div class="mb-3">
-              <label for="postalCode" class="form-label fw-semibold">Postal code</label>
-              <input id="postalCode" v-model="postalCode" type="text"
-                     inputmode="numeric" maxlength="6" placeholder="560123"
-                     class="form-control form-control-lg"
-                     :class="{ 'is-invalid': errors.postalCode, 'is-valid': isOk('postalCode') }"
-                     @blur="touch('postalCode')" autocomplete="postal-code"
-                     data-testid="reg-postal" />
-              <div class="invalid-feedback"><i class="bi bi-x-circle-fill"></i> {{ errors.postalCode }}</div>
-
-              <!-- OneMap result under the postal box -->
-              <div v-if="postalStatus !== 'idle' && postalStatus !== 'notfound'" class="small mt-1" data-testid="reg-postal-preview">
-                <span v-if="postalStatus === 'loading'" class="text-muted">
-                  <span class="spinner-border spinner-border-sm me-1"></span> Looking up address…
-                </span>
-                <span v-else-if="postalStatus === 'found'" class="text-success">
-                  <i class="bi bi-geo-alt-fill"></i> Found: {{ postalPreview }}
-                </span>
-                <span v-else class="text-warning">
-                  <i class="bi bi-wifi-off"></i> Couldn't reach OneMap. Please type your address below.
-                </span>
-              </div>
-            </div>
-
-            <!-- Address: fills in from the postal code, OR type it and pick from the list -->
-            <div class="mb-3">
-              <label for="address" class="form-label fw-semibold">Address</label>
-              <input id="address" v-model="address" type="text"
-                     placeholder="123 Ang Mo Kio Ave 3"
-                     class="form-control form-control-lg"
-                     :class="{ 'is-invalid': errors.address, 'is-valid': isOk('address') }"
-                     @blur="onAddressBlur" data-testid="reg-address" autocomplete="off" />
-              <div class="invalid-feedback"><i class="bi bi-x-circle-fill"></i> {{ errors.address }}</div>
-
-              <!-- OneMap suggestions: click one to fill in the address AND postal code -->
-              <div v-if="addressSuggestions.length" class="list-group mt-1 shadow-sm" data-testid="reg-address-suggestions">
-                <button v-for="place in addressSuggestions" :key="place.address + place.postal"
-                        type="button"
-                        class="list-group-item list-group-item-action small"
-                        @mousedown.prevent
-                        @click="pickAddress(place)">
-                  <i class="bi bi-geo-alt text-muted me-1"></i>
-                  {{ place.address }} <span class="text-muted">S({{ place.postal }})</span>
-                </button>
+            <form @submit.prevent="register" novalidate>
+              <!-- Name -->
+              <div class="mb-3">
+                <label for="name" class="form-label fw-semibold">Name</label>
+                <input
+                  id="name"
+                  v-model="name"
+                  type="text"
+                  class="form-control form-control-lg"
+                  :class="{ 'is-invalid': errors.name, 'is-valid': isOk('name') }"
+                  @blur="touch('name')"
+                  data-testid="reg-name"
+                  autocomplete="name"
+                />
+                <div class="invalid-feedback">
+                  <i class="bi bi-x-circle-fill"></i> {{ errors.name }}
+                </div>
+                <div class="valid-feedback">
+                  <i class="bi bi-check-circle-fill"></i> Looks good!
+                </div>
               </div>
 
-              <div v-else class="valid-feedback"><i class="bi bi-check-circle-fill"></i> Looks good!</div>
-            </div>
+              <!-- Email -->
+              <div class="mb-3">
+                <label for="email" class="form-label fw-semibold">Email</label>
+                <input
+                  id="email"
+                  v-model="email"
+                  type="email"
+                  class="form-control form-control-lg"
+                  :class="{ 'is-invalid': errors.email, 'is-valid': isOk('email') }"
+                  @blur="touch('email')"
+                  data-testid="reg-email"
+                  autocomplete="email"
+                />
+                <div class="invalid-feedback">
+                  <i class="bi bi-x-circle-fill"></i> {{ errors.email }}
+                </div>
+                <div class="valid-feedback">
+                  <i class="bi bi-check-circle-fill"></i> Looks good!
+                </div>
 
-            <!-- Password (input-group: feedback goes INSIDE) -->
-            <div class="mb-3">
-              <label for="password" class="form-label fw-semibold">Password</label>
-              <div class="input-group input-group-lg has-validation">
-                <input id="password" v-model="password"
-                       :type="showPassword ? 'text' : 'password'"
-                       class="form-control"
-                       :class="{ 'is-invalid': errors.password, 'is-valid': isOk('password') }"
-                       @blur="touch('password')" data-testid="reg-password" autocomplete="new-password" />
-                <button type="button" class="btn btn-outline-secondary border rounded-end"
-                        :aria-label="showPassword ? 'Hide password' : 'Show password'"
-                        @click="showPassword = !showPassword">
-                  <i class="bi" :class="showPassword ? 'bi-eye' : 'bi-eye-slash'"></i>
-                </button>
-                <div class="invalid-feedback"><i class="bi bi-x-circle-fill"></i> {{ errors.password }}</div>
-                <div class="valid-feedback"><i class="bi bi-check-circle-fill"></i> Looks good!</div>
+                <!-- Quick-pick buttons: one per suggested domain (v-for = list rendering) -->
+                <div v-if="domainSuggestions.length" class="d-flex flex-wrap gap-2 mt-2">
+                  <button
+                    v-for="domain in domainSuggestions"
+                    :key="domain"
+                    type="button"
+                    class="btn btn-sm btn-outline-secondary rounded-pill"
+                    @mousedown.prevent
+                    @click="pickDomain(domain)"
+                  >
+                    @{{ domain }}
+                  </button>
+                </div>
               </div>
 
-              <!-- Password checklist: each rule turns green with a tick once it's met -->
-              <ul class="list-unstyled small mt-2 mb-0" data-testid="reg-password-rules">
-                <li v-for="check in passwordChecks" :key="check.label"
-                    :class="check.met ? 'text-success' : 'text-muted-hw'">
-                  <i class="bi me-1" :class="check.met ? 'bi-check-circle-fill' : 'bi-circle'"></i>
-                  {{ check.label }}
-                </li>
-              </ul>
-            </div>
-
-            <!-- Confirm password (input-group: feedback goes INSIDE) -->
-            <div class="mb-3">
-              <label for="confirmPassword" class="form-label fw-semibold">Confirm password</label>
-              <div class="input-group input-group-lg has-validation">
-                <input id="confirmPassword" v-model="confirmPassword"
-                       :type="showConfirmPassword ? 'text' : 'password'"
-                       class="form-control"
-                       :class="{ 'is-invalid': errors.confirmPassword, 'is-valid': isOk('confirmPassword') }"
-                       @blur="touch('confirmPassword')" autocomplete="new-password" />
-                <button type="button" class="btn btn-outline-secondary border rounded-end"
-                        :aria-label="showConfirmPassword ? 'Hide password' : 'Show password'"
-                        @click="showConfirmPassword = !showConfirmPassword">
-                  <i class="bi" :class="showConfirmPassword ? 'bi-eye' : 'bi-eye-slash'"></i>
-                </button>
-                <div class="invalid-feedback"><i class="bi bi-x-circle-fill"></i> {{ errors.confirmPassword }}</div>
-                <div class="valid-feedback"><i class="bi bi-check-circle-fill"></i> Looks good!</div>
+              <!-- Phone (input-group: feedback goes INSIDE) -->
+              <div class="mb-3">
+                <label for="phone" class="form-label fw-semibold">Phone number</label>
+                <div class="input-group input-group-lg has-validation">
+                  <span class="input-group-text">+65</span>
+                  <input
+                    id="phone"
+                    v-model="phone"
+                    type="tel"
+                    inputmode="numeric"
+                    maxlength="8"
+                    placeholder="91234567"
+                    class="form-control"
+                    :class="{ 'is-invalid': errors.phone, 'is-valid': isOk('phone') }"
+                    @blur="touch('phone')"
+                    data-testid="reg-phone"
+                    autocomplete="tel-national"
+                  />
+                  <div class="invalid-feedback">
+                    <i class="bi bi-x-circle-fill"></i> {{ errors.phone }}
+                  </div>
+                  <div class="valid-feedback">
+                    <i class="bi bi-check-circle-fill"></i> Looks good!
+                  </div>
+                </div>
               </div>
-            </div>
 
-            <!-- NEW: location consent. Required, so the button below stays disabled until it is ticked. -->
-            <div class="form-check mb-3">
-              <input id="locationConsent" v-model="consent" type="checkbox" class="form-check-input"
-                     data-testid="reg-consent" />
-              <label for="locationConsent" class="form-check-label small">
-                I agree that Heartware Ops can collect my device's location on event day so coordinators can see my
-                progress and keep everyone safe. I can stop sharing at any time by closing the Event day page.
-              </label>
-            </div>
+              <!-- Postal code (moved ABOVE address: type postal -> address fills itself) -->
+              <div class="mb-3">
+                <label for="postalCode" class="form-label fw-semibold">Postal code</label>
+                <input
+                  id="postalCode"
+                  v-model="postalCode"
+                  type="text"
+                  inputmode="numeric"
+                  maxlength="6"
+                  placeholder="560123"
+                  class="form-control form-control-lg"
+                  :class="{ 'is-invalid': errors.postalCode, 'is-valid': isOk('postalCode') }"
+                  @blur="touch('postalCode')"
+                  autocomplete="postal-code"
+                  data-testid="reg-postal"
+                />
+                <div class="invalid-feedback">
+                  <i class="bi bi-x-circle-fill"></i> {{ errors.postalCode }}
+                </div>
 
-            <button type="submit" class="btn btn-brand btn-lg w-100 mt-2 tap-target" :disabled="!canSubmit"
-                    data-testid="reg-submit">
-              <span v-if="loading" class="spinner-border spinner-border-sm me-2"></span>
-              {{ loading ? 'Sending code…' : 'Sign up' }}
-            </button>
+                <!-- OneMap result under the postal box -->
+                <div
+                  v-if="postalStatus !== 'idle' && postalStatus !== 'notfound'"
+                  class="small mt-1"
+                  data-testid="reg-postal-preview"
+                >
+                  <span v-if="postalStatus === 'loading'" class="text-muted">
+                    <span class="spinner-border spinner-border-sm me-1"></span> Looking up address…
+                  </span>
+                  <span v-else-if="postalStatus === 'found'" class="text-success">
+                    <i class="bi bi-geo-alt-fill"></i> Found: {{ postalPreview }}
+                  </span>
+                  <span v-else class="text-warning">
+                    <i class="bi bi-wifi-off"></i> Couldn't reach OneMap. Please type your address
+                    below.
+                  </span>
+                </div>
+              </div>
 
-            <!-- Tells the user WHY the button is still greyed out -->
-            <p v-if="!canSubmit && !loading" class="small text-muted-hw text-center mt-2 mb-0" data-testid="reg-submit-hint">
-              <template v-if="postalStatus === 'loading'">Checking your postal code…</template>
-              <!-- all fields done but the box is not ticked: say so, otherwise the greyed button looks broken -->
-              <template v-else-if="fieldsLeft === 0 && !consent">Tick the location consent box to sign up.</template>
-              <template v-else>
-                Complete {{ fieldsLeft }} more {{ fieldsLeft === 1 ? 'field' : 'fields' }} to sign up.
-              </template>
-            </p>
-          </form>
+              <!-- Address: fills in from the postal code, OR type it and pick from the list -->
+              <div class="mb-3">
+                <label for="address" class="form-label fw-semibold">Address</label>
+                <input
+                  id="address"
+                  v-model="address"
+                  type="text"
+                  placeholder="123 Ang Mo Kio Ave 3"
+                  class="form-control form-control-lg"
+                  :class="{ 'is-invalid': errors.address, 'is-valid': isOk('address') }"
+                  @blur="onAddressBlur"
+                  data-testid="reg-address"
+                  autocomplete="off"
+                />
+                <div class="invalid-feedback">
+                  <i class="bi bi-x-circle-fill"></i> {{ errors.address }}
+                </div>
+
+                <!-- OneMap suggestions: click one to fill in the address AND postal code -->
+                <div
+                  v-if="addressSuggestions.length"
+                  class="list-group mt-1 shadow-sm"
+                  data-testid="reg-address-suggestions"
+                >
+                  <button
+                    v-for="place in addressSuggestions"
+                    :key="place.address + place.postal"
+                    type="button"
+                    class="list-group-item list-group-item-action small"
+                    @mousedown.prevent
+                    @click="pickAddress(place)"
+                  >
+                    <i class="bi bi-geo-alt text-muted me-1"></i>
+                    {{ place.address }} <span class="text-muted">S({{ place.postal }})</span>
+                  </button>
+                </div>
+
+                <div v-else class="valid-feedback">
+                  <i class="bi bi-check-circle-fill"></i> Looks good!
+                </div>
+              </div>
+
+              <!-- Password (input-group: feedback goes INSIDE) -->
+              <div class="mb-3">
+                <label for="password" class="form-label fw-semibold">Password</label>
+                <div class="input-group input-group-lg has-validation">
+                  <input
+                    id="password"
+                    v-model="password"
+                    :type="showPassword ? 'text' : 'password'"
+                    class="form-control"
+                    :class="{ 'is-invalid': errors.password, 'is-valid': isOk('password') }"
+                    @blur="touch('password')"
+                    data-testid="reg-password"
+                    autocomplete="new-password"
+                  />
+                  <button
+                    type="button"
+                    class="btn btn-outline-secondary border rounded-end"
+                    :aria-label="showPassword ? 'Hide password' : 'Show password'"
+                    @click="showPassword = !showPassword"
+                  >
+                    <i class="bi" :class="showPassword ? 'bi-eye' : 'bi-eye-slash'"></i>
+                  </button>
+                  <div class="invalid-feedback">
+                    <i class="bi bi-x-circle-fill"></i> {{ errors.password }}
+                  </div>
+                  <div class="valid-feedback">
+                    <i class="bi bi-check-circle-fill"></i> Looks good!
+                  </div>
+                </div>
+
+                <!-- Password checklist: each rule turns green with a tick once it's met -->
+                <ul class="list-unstyled small mt-2 mb-0" data-testid="reg-password-rules">
+                  <li
+                    v-for="check in passwordChecks"
+                    :key="check.label"
+                    :class="check.met ? 'text-success' : 'text-muted-hw'"
+                  >
+                    <i
+                      class="bi me-1"
+                      :class="check.met ? 'bi-check-circle-fill' : 'bi-circle'"
+                    ></i>
+                    {{ check.label }}
+                  </li>
+                </ul>
+              </div>
+
+              <!-- Confirm password (input-group: feedback goes INSIDE) -->
+              <div class="mb-3">
+                <label for="confirmPassword" class="form-label fw-semibold">Confirm password</label>
+                <div class="input-group input-group-lg has-validation">
+                  <input
+                    id="confirmPassword"
+                    v-model="confirmPassword"
+                    :type="showConfirmPassword ? 'text' : 'password'"
+                    class="form-control"
+                    :class="{
+                      'is-invalid': errors.confirmPassword,
+                      'is-valid': isOk('confirmPassword'),
+                    }"
+                    @blur="touch('confirmPassword')"
+                    autocomplete="new-password"
+                  />
+                  <button
+                    type="button"
+                    class="btn btn-outline-secondary border rounded-end"
+                    :aria-label="showConfirmPassword ? 'Hide password' : 'Show password'"
+                    @click="showConfirmPassword = !showConfirmPassword"
+                  >
+                    <i class="bi" :class="showConfirmPassword ? 'bi-eye' : 'bi-eye-slash'"></i>
+                  </button>
+                  <div class="invalid-feedback">
+                    <i class="bi bi-x-circle-fill"></i> {{ errors.confirmPassword }}
+                  </div>
+                  <div class="valid-feedback">
+                    <i class="bi bi-check-circle-fill"></i> Looks good!
+                  </div>
+                </div>
+              </div>
+
+              <!-- NEW: location consent. Required, so the button below stays disabled until it is ticked. -->
+              <div class="form-check mb-3">
+                <input
+                  id="locationConsent"
+                  v-model="consent"
+                  type="checkbox"
+                  class="form-check-input"
+                  data-testid="reg-consent"
+                />
+                <label for="locationConsent" class="form-check-label small">
+                  I agree that Heartware Ops can collect my device's location for the purpose of
+                  live monitoring, it will switched off once logged out.
+                </label>
+              </div>
+
+              <button
+                type="submit"
+                class="btn btn-brand btn-lg w-100 mt-2 tap-target"
+                :disabled="!canSubmit"
+                data-testid="reg-submit"
+              >
+                <span v-if="loading" class="spinner-border spinner-border-sm me-2"></span>
+                {{ loading ? 'Sending code…' : 'Sign up' }}
+              </button>
+
+              <!-- Tells the user WHY the button is still greyed out -->
+              <p
+                v-if="!canSubmit && !loading"
+                class="small text-muted-hw text-center mt-2 mb-0"
+                data-testid="reg-submit-hint"
+              >
+                <template v-if="postalStatus === 'loading'">Checking your postal code…</template>
+                <!-- all fields done but the box is not ticked: say so, otherwise the greyed button looks broken -->
+                <template v-else-if="fieldsLeft === 0 && !consent"
+                  >Tick the location consent box to sign up.</template
+                >
+                <template v-else>
+                  Complete {{ fieldsLeft }} more {{ fieldsLeft === 1 ? 'field' : 'fields' }} to sign
+                  up.
+                </template>
+              </p>
+            </form>
           </div>
           <!-- ================= end of STEP 1 ================= -->
 

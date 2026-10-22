@@ -5,6 +5,7 @@ import MapLoading from '@/components/MapLoading.vue'
 import MapNotice from '@/components/MapNotice.vue'
 import axios from 'axios'
 import polyline from '@mapbox/polyline'
+import { createDestIcon, createSchoolIcon, createDotIcon, createRouteLabelIcon, tipCard, bindTip } from '@/utils/map-icons'
 import { VENUES } from '@/utils/constants'
 import { startTracking, stopTracking, geolocationMessage } from '@/utils/geolocation'
 
@@ -212,86 +213,6 @@ function bearingDeg(a, b) {
 /* ------------------------------------------------------------------ */
 /* Map icons                                                           */
 /* ------------------------------------------------------------------ */
-
-// Destination marker: red location pin resting on a small grey dot
-function createDestIcon() {
-  return L.divIcon({
-    className: 'dest-marker',
-    html: `
-      <div class="dest-pin">
-        <span class="dest-dot"></span>
-        <i class="bi bi-geo-alt-fill"></i>
-      </div>`,
-    iconSize: [32, 40],
-    iconAnchor: [16, 32], // the tip of the pin / center of the grey dot is the real location
-    tooltipAnchor: [0, -34],
-  })
-}
-
-// Rounded indigo badge with a graduation cap (the allocated school)
-function createSchoolIcon() {
-  return L.divIcon({
-    className: 'school-marker',
-    html: `<div class="school-badge"><i class="bi bi-mortarboard-fill"></i></div>`,
-    iconSize: [36, 36],
-    iconAnchor: [18, 18],
-    tooltipAnchor: [0, -20],
-  })
-}
-
-// Tooltip card (same look as the Live Board): icon badge + name.
-// Built with the DOM (textContent) so a name can't inject HTML.
-function tipCard({ icon, tone, title }) {
-  const el = document.createElement('div')
-  el.className = 'tip'
-
-  const badge = document.createElement('div')
-  badge.className = `tip-icon ${tone}`
-  const i = document.createElement('i')
-  i.className = `bi ${icon}`
-  badge.appendChild(i)
-
-  const t = document.createElement('div')
-  t.className = 'tip-title'
-  t.textContent = title
-
-  el.append(badge, t)
-  return el
-}
-
-// Attaches a tooltip card to a marker (shows on hover or tap)
-function bindTip(marker, content) {
-  marker.bindTooltip(content, {
-    className: 'hq-tip',
-    direction: 'top',
-    offset: [0, -6], // keeps the card clear of the marker
-    opacity: 1,
-  })
-}
-
-// Blue dot with a hidden heading cone (used for the user)
-function createDotIcon() {
-  return L.divIcon({
-    className: 'me-dot',
-    html: `
-      <div class="me-dot-wrap">
-        <div class="me-dot-cone"></div>
-        <div class="me-dot-core"></div>
-      </div>`,
-    iconSize: [40, 40],
-    iconAnchor: [20, 20],
-    tooltipAnchor: [0, -14],
-  })
-}
-
-// "xx min" pill shown on the route line
-function createRouteLabelIcon(minutes) {
-  return L.divIcon({
-    className: 'route-label',
-    html: `<div class="route-label-pill">${minutes} min</div>`,
-    iconSize: [0, 0], // the pill centers itself with CSS
-  })
-}
 
 // Point halfway along the route's length (not just the middle vertex)
 function routeMidpoint(coords) {
@@ -952,42 +873,6 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-/* Destination marker: red pin on a grey dot */
-:global(.dest-pin) {
-  position: relative;
-  width: 32px;
-  height: 40px;
-}
-
-:global(.dest-dot) {
-  position: absolute;
-  left: 11px;
-  top: 27px; /* center sits at (16px, 32px), the marker's anchor */
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: #9aa0a6;
-  border: 2px solid #fff;
-  box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
-}
-
-:global(.dest-pin i) {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: #ea4335; /* Google red */
-  font-size: 32px;
-  line-height: 1;
-  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.35));
-}
-
-/* Overlay shown while a route is loading */
-
 /* Recenter button */
 .recenter-btn {
   position: absolute;
@@ -1029,47 +914,6 @@ onUnmounted(() => {
   color: #1a73e8;
 }
 
-/* User location dot */
-:global(.me-dot-wrap) {
-  position: relative;
-  width: 40px;
-  height: 40px;
-}
-
-:global(.me-dot-core) {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 18px;
-  height: 18px;
-  margin: -9px 0 0 -9px;
-  background: #1a73e8;
-  border: 3px solid #fff;
-  border-radius: 50%;
-  box-shadow: 0 0 4px rgb(0 0 0 / 0.4);
-}
-
-/* Heading cone: a wedge pointing up (north); JS will rotate it */
-:global(.me-dot-cone) {
-  position: absolute;
-  inset: 0;
-  display: none;
-  transform-origin: 50% 50%;
-  background: radial-gradient(
-    circle at 50% 50%,
-    rgb(26 115 232 / 0.55) 0%,
-    rgb(26 115 232 / 0) 70%
-  );
-  clip-path: polygon(50% 50%, 15% 0%, 85% 0%);
-}
-
-/* Map fills everything below the navbar */
-
-
-/* Make Leaflet fill the stage with square corners */
-
-/* Lift the zoom buttons so they sit just above the recenter button */
-
 /* Bottom sheet */
 .sheet {
   position: absolute;
@@ -1078,6 +922,7 @@ onUnmounted(() => {
   bottom: 0;
   z-index: 1050; /* above Leaflet controls (1000), below the loading overlay (1100) */
   background: #fff;
+  color: #1f2430; /* CHANGED: dark text on this fixed-white panel; without it the text follows the dark theme and turns pale */
   border-radius: 16px 16px 0 0;
   box-shadow: 0 -2px 12px rgb(0 0 0 / 0.15);
 }
@@ -1187,21 +1032,6 @@ onUnmounted(() => {
 
 
 /* Hide hairline seams between map tiles */
-
-/* "xx min" pill on the route */
-:global(.route-label-pill) {
-  position: absolute;
-  transform: translate(-50%, -50%);
-  padding: 3px 10px;
-  border-radius: 12px;
-  background: #fff;
-  color: #2563eb;
-  font-size: 13px;
-  font-weight: 600;
-  white-space: nowrap;
-  box-shadow: 0 1px 4px rgb(0 0 0 / 0.3);
-  pointer-events: none;
-}
 
 /* Popup message (tracking info and errors) */
 
@@ -1330,6 +1160,7 @@ onUnmounted(() => {
   max-width: 340px;
   padding: 22px 20px;
   background: #fff;
+  color: #1f2430; /* CHANGED: dark text on this fixed-white panel; without it the text follows the dark theme and turns pale */
   border-radius: 18px;
   box-shadow: 0 4px 20px rgb(0 0 0 / 0.2);
   text-align: center;

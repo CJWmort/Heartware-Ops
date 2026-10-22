@@ -105,9 +105,10 @@ export function formatDate(date) {
   return new Date(date).toLocaleDateString('en-SG', { day: 'numeric', month: 'long', year: 'numeric' })
 }
 
-// Work out a show's status from assignment + availability
+// Work out a show's status from assignment + withdrawal log + availability
 export function showStatus(show, availableShows) {
-  if (show.assignment) return show.assignment.status // 'Pending' | 'Accepted' | 'Declined'
+  if (show.assignment) return show.assignment.status // 'Pending' | 'Accepted'
+  if (show.withdrawal) return show.withdrawal.status // 'Declined' | 'Withdrawn' (assignment was deleted, only the log is left)
   if (!availableShows.includes(show.name)) return 'Not available'
   if (show.onReserve) return 'On reserve list' // NEW: allocated but no school place was free (a published Reserve row)
   return 'Awaiting allocation'
@@ -145,10 +146,13 @@ export function useMyAssignment() {
       volData.value = profile
       volAvailableShows.value = profile.availableShows || []
 
-      // Attach the volunteer's assignment to its show (skip ones whose school no longer exists)
+      // Attach the volunteer's assignment to its show (skip ones whose school no longer exists),
+      // and their latest decline / withdraw log for that show (from withdrawnShows on their account)
+      const withdrawnShows = profile.withdrawnShows || []
       shows.value = showList.map(s => ({
         ...s,
         assignment: assignments.find(a => a.show === s.name && a.school) || null,
+        withdrawal: withdrawnShows.findLast(w => w.show === s.name) || null,
         onReserve: assignments.some(a => a.show === s.name && !a.school), // allocated, but no school free for them
       }))
       loaded.value = true
@@ -207,7 +211,8 @@ export function useMyAssignment() {
       const show = withdrawShow.value
       // pick the endpoint that matches the popup mode (decline = not accepted yet, withdraw = already accepted)
       const send = pullOutMode.value === 'decline' ? declineAssignment : withdrawAssignment
-      show.assignment = await send(show.assignment._id, withdrawReason.value) // updated status comes back
+      await send(show.assignment._id, withdrawReason.value)
+      await loadData() // the assignment is gone now, so reload to show the Declined / Withdrawn log
       closeWithdrawModal()
     } catch (error) {
       withdrawError.value = error.friendlyMessage
@@ -241,7 +246,7 @@ export function useMyAssignment() {
       volAvailableShows.value = selectedShows.value
       closeAvailabilityModal()
     } catch (error) {
-      // NEW: show the server's reason when it has one (e.g. "You have accepted a place in NE Show 2. Press No-Show/Withdrawn first..."),
+      // NEW: show the server's reason when it has one (e.g. "You have accepted a place in NE Show 2. Press Withdraw first..."),
       // otherwise the generic text
       modalError.value = error.response?.data?.message || 'Failed to save your availability. Please try again.'
     }

@@ -31,8 +31,11 @@ async function logout() {
 <template>
   <nav class="navbar navbar-expand-lg navbar-dark sticky-top app-navbar" data-testid="navbar">
     <div class="container">
-      <RouterLink class="navbar-brand fw-semibold d-flex align-items-center gap-2" to="/"
-        @click="closeMenu">
+      <RouterLink
+        class="navbar-brand fw-semibold d-flex align-items-center gap-2"
+        to="/"
+        @click="closeMenu"
+      >
         <i class="bi bi-heart-fill text-danger" aria-hidden="true"></i>
         Heartware Ops
       </RouterLink>
@@ -66,15 +69,15 @@ async function logout() {
               {{ auth.user.name }} <span class="badge text-bg-light ms-1">{{ auth.role }}</span>
             </span>
             <button class="btn btn-outline-light btn-sm" data-testid="nav-logout" @click="logout">
-              Log out
+              Log Out
             </button>
           </template>
           <template v-else>
             <RouterLink class="btn btn-outline-light btn-sm" to="/login" data-testid="nav-login">
-              Log in
+              Log In
             </RouterLink>
             <RouterLink class="btn btn-brand btn-sm" to="/register" data-testid="nav-register">
-              Volunteer sign-up
+              Sign-up
             </RouterLink>
           </template>
         </div>

@@ -510,7 +510,7 @@ onMounted(async () => {
 .tile-icon {
   font-size: 1.5rem;
   line-height: 1;
-  color: var(--hw-navy);
+  color: var(--hw-heading); /* CHANGED: stays readable in dark mode */
 }
 /* Selected: border + tint + bold label + tick (not colour alone) */
 .btn-check:checked + .option-tile {
@@ -581,7 +581,7 @@ onMounted(async () => {
   padding: 0.75rem 1rem;
   border-radius: 0.6rem;
   background: rgb(20 33 61 / 0.06);
-  color: var(--hw-navy);
+  color: var(--hw-heading); /* CHANGED: stays readable in dark mode */
 }
 .locked-note > i {
   font-size: 1.25rem;
@@ -620,7 +620,7 @@ onMounted(async () => {
 .spec-icon {
   font-size: 1.1rem;
   line-height: 1;
-  color: var(--hw-navy);
+  color: var(--hw-heading); /* CHANGED: stays readable in dark mode */
 }
 /* Full-strength colour (the ordered colour, not a faded one); the inner edge keeps white visible */
 .swatch {
@@ -672,7 +672,7 @@ onMounted(async () => {
   padding: 0.25rem 0.65rem;
   border-radius: 999px;
   background: rgb(20 33 61 / 0.08);
-  color: var(--hw-navy);
+  color: var(--hw-heading); /* CHANGED: stays readable in dark mode */
   font-size: 0.75rem;
   font-weight: 600;
   white-space: nowrap;
