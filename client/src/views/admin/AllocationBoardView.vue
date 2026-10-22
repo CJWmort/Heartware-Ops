@@ -12,7 +12,7 @@
 //    volunteers cannot see it yet. "Publish" makes it visible so they can accept or decline.
 // 5. The map and the school cards are linked: the map always shows every school as a red pin, and shows
 //    the volunteers (blue pins + lines) for ONE school only: the card you opened last (focusedSchoolId).
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import axios from 'axios'
 import BaseMap from '@/components/BaseMap.vue'
 import { createSchoolIcon, createVolIcon, volTip, schoolTip, bindTip } from '@/utils/map-icons'
@@ -194,6 +194,24 @@ function toggleSchool(school) {
   }
 }
 
+// ADDED: used when a school icon on the map is clicked
+// Unlike toggleSchool, it will never close the card: clicking a icon always opens it (another way for admin to zoom in to zones to view schools)
+// makes it the map's focus and zooms to it.
+function selectSchool(school) {
+  if (!openSchools.value[school._id]) {
+    openSchools.value[school._id] = true
+    openOrder.value.push(school._id) // remember the order, as toggleSchool does
+  }
+  focusedSchoolId.value = school._id // map shows this school's volunteers
+  focusSchool(school) // zoom to the school + its volunteers
+  // ADDED: bring the opened card into view in the list
+  nextTick(() =>
+    document
+      .getElementById(`school-${school._id}`)
+      ?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }),
+  )
+}
+
 // ADDED: return to the zoomed-out starting view
 function resetMapView() {
   if (!map || !homeView) return // map not ready yet: nothing to do
@@ -361,6 +379,7 @@ function renderMapElements() {
       // CHANGED: shared school badge + hover tooltip (same look as the Live Board)
       const schoolMarker = L.marker([school.lat, school.lng], { icon: createSchoolIcon() })
       bindTip(schoolMarker, schoolTip(school))
+      schoolMarker.on('click', () => selectSchool(school)) // ADDED: clicking the icon opens + zooms to this school
       markersGroup.addLayer(schoolMarker)
 
       // Loop through assigned volunteers
@@ -523,10 +542,10 @@ loadData()
     </div>
 
     <div class="row g-3">
-      <!-- Right column FIRST in the code so it shows first on phones; order-xl swaps it to the right on desktop -->
-      <div class="col-12 col-xl-5 order-1 order-xl-2">
+      <!-- Right column FIRST in the code so it shows first on phones; order-lg swaps it to the right from lg (992px) up -->
+      <div class="col-12 col-lg-5 order-1 order-lg-2">
         <div class="alloc-side">
-          <BaseMap :zoom="12" @ready="onMapReady" />
+          <BaseMap :zoom="12" :fill-bounds="false" @ready="onMapReady" />
           <div v-if="groupedAssignments[selectedShow]" class="card-hw p-3 mt-3">
             <!-- ADDED: same accordion pattern as the school cards (heading + button, aria-expanded) -->
             <h2 class="h5 mb-0">
@@ -576,13 +595,19 @@ loadData()
       </div>
 
       <!-- School list -->
-      <div class="col-12 col-xl-7 order-2 order-xl-1">
+      <div class="col-12 col-lg-7 order-2 order-lg-1">
         <p v-if="!groupedAssignments[selectedShow]" class="text-muted-hw">
           There are no assignments. Press "Allocate" to create them.
         </p>
         <template v-else>
           <p v-if="visibleSchools.length === 0" class="text-muted-hw">No schools match.</p>
-          <div v-for="school in visibleSchools" :key="school._id" class="card-hw p-3 mb-3">
+          <!-- ADDED: each card gets an id so selectSchool() (map pin click) can scroll to it -->
+          <div
+            v-for="school in visibleSchools"
+            :key="school._id"
+            :id="`school-${school._id}`"
+            class="card-hw px-2 px-md-3 py-2 mb-2"
+          >
             <!-- Heading + button together (same pattern as Bootstrap's accordion): click the title row to open or close the list -->
             <h2 class="h5 mb-0">
               <button
@@ -667,6 +692,7 @@ loadData()
     </div>
   </div>
 </template>
+
 <style scoped>
 .search-box {
   max-width: 24rem;
@@ -688,17 +714,34 @@ loadData()
   font-size: 0.8rem;
   font-weight: 600;
 }
-/* Map and Unassigned list stay in view while you scroll the long school list (desktop only) */
-@media (min-width: 1200px) {
+/* CHANGED: Map and Unassigned card stay in view while the long school list scrolls (from lg = 992px up,
+   which is where the two columns start) */
+@media (min-width: 992px) {
   .alloc-side {
     position: sticky;
     top: 72px;
   }
 }
-/* A shorter map than the default 420px, so map + Unassigned fit on a laptop screen */
+/* CHANGED: map height per screen size. Kept at 340px or less: any taller and BaseMap raises its minimum zoom,
+   so "all schools" no longer fits in view (see the fillMinZoom rule in BaseMap.vue) */
 .alloc-side :deep(.map-container) {
-  height: 320px;
+  height: 260px; /* sm: phones */
 }
+@media (min-width: 768px) {
+  .alloc-side :deep(.map-container) {
+    height: 340px; /* md and up */
+  }
+}
+
+/* ADDED: lg and up: the map fills the screen height (fillBounds is off in BaseMap, so all schools still fit) */
+/* @media (min-width: 992px) {
+  .alloc-side :deep(.map-container) {
+    height: max(
+      360px,
+      calc(100vh - 72px - 100px - 1rem)
+    ); /* 72 = sticky offset, 100 = Unassigned header, 1rem = gap */
+/* } */
+/* } */
 
 /* The title row looks like normal text but is a full-width button */
 .school-head {

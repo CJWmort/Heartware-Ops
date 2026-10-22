@@ -29,8 +29,11 @@ const props = defineProps({
   center: { type: Object, default: () => SINGAPORE_CENTER },
   zoom: { type: Number, default: 16 },
   testid: { type: String, default: 'map' },
+  // ADDED: true (default) = can't zoom out past the point where Singapore fills the view (no grey margins).
+  // false = may zoom out to the base minimum (11), so a tall map can still show the whole island.
+  fillBounds: { type: Boolean, default: true },
 })
-const emit = defineEmits(['ready']) 
+const emit = defineEmits(['ready'])
 
 const el = ref(null)
 let map = null
@@ -51,26 +54,27 @@ onMounted(() => {
 
   // OneMap only covers Singapore – stop users panning off the map
   // Mainland Singapore only – Tuas (west) to Changi (east), Southern coast to Woodlands (north)
-    const MAINLAND_SG = L.latLngBounds([1.235, 103.59], [1.475, 104.05])
-    map.setMaxBounds(MAINLAND_SG)
-    map.options.maxBoundsViscosity = 1.0 // 1.0 = hard edge, can't drag outside at all
+  const MAINLAND_SG = L.latLngBounds([1.235, 103.59], [1.475, 104.05])
+  map.setMaxBounds(MAINLAND_SG)
+  map.options.maxBoundsViscosity = 1.0 // 1.0 = hard edge, can't drag outside at all
 
-    // Don't let the user zoom out so far that the bounds no longer fill the screen.
-    // On tall phone screens this raises the minimum zoom above 11.
-    const BASE_MIN_ZOOM = 11
-    function fitMinZoom() {
-      const fillZoom = map.getBoundsZoom(MAINLAND_SG, true) // true = bounds must cover the whole view
-      map.setMinZoom(Math.max(BASE_MIN_ZOOM, fillZoom))
-    }
-    fitMinZoom()
-    map.on('resize', fitMinZoom) // recalculate on rotate / window resize
+  // Don't let the user zoom out so far that the bounds no longer fill the screen.
+  // On tall phone screens this raises the minimum zoom above 11.
+  const BASE_MIN_ZOOM = 11
+  function fitMinZoom() {
+    const fillZoom = map.getBoundsZoom(MAINLAND_SG, true) // true = bounds must cover the whole view
+    // CHANGED: only apply the "fill the view" rule when fillBounds is on (the default, so other maps are unchanged)
+    map.setMinZoom(props.fillBounds ? Math.max(BASE_MIN_ZOOM, fillZoom) : BASE_MIN_ZOOM)
+  }
+  fitMinZoom()
+  map.on('resize', fitMinZoom) // recalculate on rotate / window resize
 
-    // Tell Leaflet when the container changes size (e.g. layout settles or the navbar changes height)
-    resizeObserver = new ResizeObserver(() => map?.invalidateSize())
-    resizeObserver.observe(el.value)
+  // Tell Leaflet when the container changes size (e.g. layout settles or the navbar changes height)
+  resizeObserver = new ResizeObserver(() => map?.invalidateSize())
+  resizeObserver.observe(el.value)
 
-    emit('ready', map, L) // BaseMap emits "ready" and hands over map and L data, Views catches this emitting event, '<BaseMap @ready="onMapReady" />'
-  })
+  emit('ready', map, L) // BaseMap emits "ready" and hands over map and L data, Views catches this emitting event, '<BaseMap @ready="onMapReady" />'
+})
 
 onBeforeUnmount(() => {
   resizeObserver?.disconnect()
