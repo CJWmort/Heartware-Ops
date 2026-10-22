@@ -156,6 +156,13 @@ const allOpen = computed(
 )
 // ADDED: order in which cards were opened (last = most recent), so closing a card can fall back to the previous one
 const openOrder = ref([])
+// ADDED: the Unassigned card starts collapsed; click its header to open it
+const showUnassigned = ref(false)
+// ADDED: Unassigned volunteers sorted A–Z by name (change the sort here)
+const sortedUnassigned = computed(() => {
+  const list = groupedAssignments.value[selectedShow.value]?.unassigned || []
+  return [...list].sort((a, b) => (a.name || '').localeCompare(b.name || '')) // copy first so the original isn't reordered
+})
 
 // Runs when a school card's header is clicked.
 //  - Opening: remember the order, make this school the map's focus, zoom the map to it.
@@ -523,22 +530,46 @@ loadData()
         <div class="alloc-side">
           <BaseMap :zoom="12" @ready="onMapReady" />
           <div v-if="groupedAssignments[selectedShow]" class="card-hw p-3 mt-3">
-            <h2 class="h5 d-flex justify-content-between align-items-center">
-              Unassigned volunteers
-              <span class="badge text-bg-secondary">{{ stats.unassigned }}</span>
-            </h2>
-            <div class="unassigned-list">
-              <div
-                v-for="volunteer in groupedAssignments[selectedShow].unassigned"
-                :key="volunteer.assignmentId"
-                class="d-flex justify-content-between gap-2 py-1 border-top"
+            <!-- ADDED: same accordion pattern as the school cards (heading + button, aria-expanded) -->
+            <h2 class="h5 mb-0">
+              <button
+                type="button"
+                class="school-head align-items-center"
+                :aria-expanded="showUnassigned"
+                @click="showUnassigned = !showUnassigned"
               >
-                <span>{{ volunteer.name }}</span>
-                <span class="small text-muted-hw">{{ volunteer.phone }}</span>
+                <span>Unassigned volunteers</span>
+                <span class="d-flex align-items-center gap-2">
+                  <!-- amber while someone is waiting, green when everyone has a school -->
+                  <span
+                    class="badge"
+                    :class="stats.unassigned ? 'text-bg-warning' : 'text-bg-success'"
+                  >
+                    {{ stats.unassigned }}
+                  </span>
+                  <i class="bi bi-chevron-down chevron"></i>
+                </span>
+              </button>
+            </h2>
+
+            <div class="vol-collapse" :class="{ open: showUnassigned }">
+              <div class="vol-collapse-inner">
+                <p v-if="!stats.unassigned" class="small text-muted-hw mb-0">
+                  <i class="bi bi-check-circle-fill text-success me-1"></i>Everyone has a school.
+                </p>
+                <div v-else class="unassigned-list">
+                  <div
+                    v-for="volunteer in sortedUnassigned"
+                    :key="volunteer.assignmentId"
+                    class="d-flex align-items-center gap-2 py-2 border-top"
+                  >
+                    <!-- ADDED: round initial -->
+                    <span class="avatar">{{ (volunteer.name || '?').charAt(0).toUpperCase() }}</span>
+                    <span class="flex-grow-1 text-truncate">{{ volunteer.name }}</span>
+                    <a class="small" :href="`tel:${volunteer.phone}`">{{ volunteer.phone }}</a>
+                  </div>
+                </div>
               </div>
-              <p v-if="!stats.unassigned" class="small text-muted-hw mb-0">
-                Everyone has a school.
-              </p>
             </div>
           </div>
         </div>
@@ -643,6 +674,19 @@ loadData()
 .unassigned-list {
   max-height: 240px;
   overflow-y: auto;
+}
+/* ADDED: round initial for unassigned volunteers */
+.avatar {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--hw-bg);
+  border: 1px solid var(--bs-border-color);
+  font-size: 0.8rem;
+  font-weight: 600;
 }
 /* Map and Unassigned list stay in view while you scroll the long school list (desktop only) */
 @media (min-width: 1200px) {
