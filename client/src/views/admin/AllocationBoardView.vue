@@ -301,6 +301,18 @@ let markersGroup = null
 let linesGroup = null
 let homeView = null // ADDED: the zoomed-out starting view, so we can return to it
 
+// ADDED: zoom the map so EVERY school of the selected show is visible and centred,
+// then remember that view as the "overview" that resetMapView() returns to.
+function fitOverview() {
+  const data = groupedAssignments.value[selectedShow.value]
+  if (!map || !data) return
+  const pts = data.schools.filter((s) => s.lat && s.lng).map((s) => [s.lat, s.lng])
+  if (!pts.length) return
+  map.invalidateSize() // make sure Leaflet knows the map's real size before fitting
+  map.fitBounds(pts, { padding: [30, 30], animate: false })
+  homeView = { center: map.getCenter(), zoom: map.getZoom() }
+}
+
 function onMapReady(m, leaflet) {
   map = m
   L = leaflet
@@ -311,6 +323,7 @@ function onMapReady(m, leaflet) {
   // FIX: the map was empty on first load because it was only drawn when the dropdown changed.
   // Draw once here too, in case the assignments arrived before the map was ready.
   renderMapElements()
+  fitOverview() // ADDED: was homeView = the fixed starting view; now fits all the schools in
 }
 
 // Redraws the whole map from scratch (it is cheap, and simpler than updating pins one by one).
@@ -389,6 +402,11 @@ watch(
   },
   { deep: true }, // Ensures updates trigger when pushing or modifying array items
 )
+
+// ADDED: refit the overview when the show changes or the data (re)loads, but not while a school is zoomed in
+watch([selectedShow, assignments], () => {
+  if (focusedSchoolId.value === null) fitOverview()
+})
 
 loadData()
 </script>
