@@ -108,3 +108,135 @@
 .info-label i { font-size: 0.95rem; color: #4f46e5; }
 .info-value { margin-top: 4px; font-size: 0.95rem; font-weight: 600; line-height: 1.25; }
 .info-number { font-size: 1.5rem; line-height: 1.1; }
+
+/* ---- markers moved from TrackingView ---- */
+/* Destination marker: red pin on a grey dot */
+.dest-pin {
+  position: relative;
+  width: 32px;
+  height: 40px;
+}
+
+.dest-dot {
+  position: absolute;
+  left: 11px;
+  top: 27px; /* center sits at (16px, 32px), the marker's anchor */
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #9aa0a6;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.35);
+}
+
+.dest-pin i {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ea4335; /* Google red */
+  font-size: 32px;
+  line-height: 1;
+  filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.35));
+}
+
+/* User location dot */
+.me-dot-wrap {
+  position: relative;
+  width: 40px;
+  height: 40px;
+}
+
+.me-dot-core {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  background: #1a73e8;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 4px rgb(0 0 0 / 0.4);
+}
+
+/* Heading cone: a wedge pointing up (north); JS will rotate it */
+.me-dot-cone {
+  position: absolute;
+  inset: 0;
+  display: none;
+  transform-origin: 50% 50%;
+  background: radial-gradient(
+    circle at 50% 50%,
+    rgb(26 115 232 / 0.55) 0%,
+    rgb(26 115 232 / 0) 70%
+  );
+  clip-path: polygon(50% 50%, 15% 0%, 85% 0%);
+}
+
+/* "xx min" pill on the route */
+.route-label-pill {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  padding: 3px 10px;
+  border-radius: 12px;
+  background: #fff;
+  color: #2563eb;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.3);
+  pointer-events: none;
+}
+
+
+/* ---- markers moved from HqLiveBoardView ---- */
+/* Volunteer marker: round badge with a person icon */
+.vol-dot {
+  position: relative;
+  width: 34px;
+  height: 34px;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 3px solid #fff;
+  border-radius: 50%;
+  background: #9aa0a6;
+  color: #fff;
+  font-size: 1.05rem;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.4);
+}
+
+.vol-dot.live { background: #16a34a; }
+
+.vol-dot.stale { background: #f59e0b; }
+
+.vol-dot.offline { background: #dc2626; }
+
+/* Pulsing ring on live volunteers */
+.vol-dot.live::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 2px solid #16a34a;
+  /* use the "vol-pulse" animation defined below */
+  animation: vol-pulse 1s ease-out infinite;
+}
+
+/* The pulse animation */
+@keyframes vol-pulse {
+  0% {
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  100% {
+    transform: scale(1.8);
+    opacity: 0;
+  }
+}
