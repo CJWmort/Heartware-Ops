@@ -1,5 +1,8 @@
+const mongoose = require("mongoose");
 const Message = require("../models/messages-model");
+const ThreadState = require("../models/thread-state-model");
 const Account = require("../models/account-model");
+const presence = require("../sockets/presence");
 const { emit } = require("../sockets"); // same helper the incidents controller uses
 
 // Decides WHOSE conversation this request is about.
@@ -15,6 +18,23 @@ exports.listMessages = async (req, res) => {
     const thread = threadFor(req, req.query);
     if (!thread) return res.status(400).json({ message: "volunteerId is required" });
     res.json(await Message.retrieveThread(thread));
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// GET /api/messages/read-state?volunteerId=...  (volunteerId only needed for admin)
+// -> { volunteerLastReadAt, adminLastReadAt }. The client uses the OTHER side's time to show "Seen" under my messages.
+exports.getReadState = async (req, res) => {
+  try {
+    const thread = threadFor(req, req.query);
+    if (!thread) return res.status(400).json({ message: "volunteerId is required" });
+    if (!mongoose.isValidObjectId(thread)) return res.status(400).json({ message: "Invalid volunteer" });
+    const state = await ThreadState.get(thread);
+    res.json({
+      volunteerLastReadAt: state?.volunteerLastReadAt || null,
+      adminLastReadAt: state?.adminLastReadAt || null,
+    });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -44,9 +64,16 @@ exports.sendMessage = async (req, res) => {
       text,
     });
 
+    // sending a message counts as "read" for the sender's own side
+    await ThreadState.markRead(thread, req.session.role, message.createdAt);
+
     // Push to both people in this chat: the volunteer's private room and the HQ room.
     emit("message:new", message, `user:${thread}`);
     emit("message:new", message, "hq");
+    // update the HQ thread list (preview line, order, unread badge, online dot) for every admin
+    const summary = await Message.threadSummary(thread);
+    emit("thread:updated", { ...summary, online: presence.isOnline(thread) }, "hq");
+
     res.status(201).json(message);
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -56,11 +83,13 @@ exports.sendMessage = async (req, res) => {
 // GET /api/messages/threads  (admin only) -> every volunteer + their latest message, newest chats first
 exports.listThreads = async (req, res) => {
   try {
-    const [volunteers, latest] = await Promise.all([
+    const [volunteers, latest, unread] = await Promise.all([
       Account.retrieveVolunteers(),
       Message.latestPerThread(),
+      Message.unreadForAdmin(), // NEW
     ]);
     const latestById = new Map(latest.map((t) => [String(t._id), t])); // quick lookup by volunteer id
+    const unreadById = new Map(unread.map((t) => [String(t._id), t.unread]));
     const threads = volunteers.map((v) => {
       const last = latestById.get(String(v._id));
       return {
@@ -68,6 +97,8 @@ exports.listThreads = async (req, res) => {
         name: v.name,
         lastText: last?.lastText || "",
         lastAt: last?.lastAt || null,
+        unreadAdmin: unreadById.get(String(v._id)) || 0, // for the badge
+        online: presence.isOnline(v._id), // green dot
       };
     });
     // Chats with messages first (newest on top), volunteers with no chat yet go to the bottom
@@ -75,6 +106,41 @@ exports.listThreads = async (req, res) => {
       (a, b) => (b.lastAt ? +new Date(b.lastAt) : 0) - (a.lastAt ? +new Date(a.lastAt) : 0),
     );
     res.json(threads);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// GET /api/messages/unread -> { unread: number } for the navbar badge
+// Volunteer: unread in their own chat. Admin: unread across every chat.
+exports.getUnread = async (req, res) => {
+  try {
+    if (req.session.role === "admin") {
+      const perThread = await Message.unreadForAdmin();
+      return res.json({ unread: perThread.reduce((sum, t) => sum + t.unread, 0) });
+    }
+    res.json({ unread: await Message.unreadForVolunteer(req.session.userId) });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// DELETE /api/messages/threads/:volunteerId  (admin only)
+// Closes the chat: permanently deletes ALL its messages. If the volunteer writes again later, a fresh chat starts.
+exports.closeThread = async (req, res) => {
+  try {
+    const { volunteerId } = req.params;
+    if (!mongoose.isValidObjectId(volunteerId))
+      return res.status(400).json({ message: "Invalid volunteer" });
+
+    const deleted = await Message.removeThread(volunteerId);
+    await ThreadState.remove(volunteerId);
+    if (!deleted) return res.status(404).json({ message: "Chat not found" });
+
+    // The volunteer's open chat clears, and the chat disappears from every admin's list
+    emit("thread:closed", { volunteerId }, `user:${volunteerId}`);
+    emit("thread:closed", { volunteerId }, "hq");
+    res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }

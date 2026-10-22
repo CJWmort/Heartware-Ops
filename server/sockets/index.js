@@ -3,12 +3,15 @@
 //
 // Server → client events we agreed on (see docs/API.md):
 //   incident:new, incident:updated, alert:new, tracking:update
+// Chat events (see sockets/chat.js and controllers/messages-controller.js):
+//   message:new, thread:updated, thread:closed, typing, read:update, presence:update, presence:list
 //
 // From any controller you can broadcast with:
 //   const { emit } = require('../sockets')
 //   emit('incident:new', incident)
 
 const { Server } = require("socket.io");
+const { registerChat } = require("./chat"); // live chat events
 
 let io = null;
 
@@ -37,6 +40,8 @@ function initSockets(httpServer, sessionMiddleware) {
     // so a volunteer's browser never receives other people's incident reports.
     if (role === "admin") socket.join("hq");
     socket.join(`user:${userId}`); // private room, for messages meant for one person
+
+    registerChat(io, socket); // typing, read receipts and online/offline presence
 
     socket.on("disconnect", () => console.log("socket disconnected", socket.id));
   });
