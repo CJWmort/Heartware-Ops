@@ -4,6 +4,7 @@ const mongoose = require("mongoose");
 const session = require("express-session");
 const http = require("http"); // added for sockets to work by weiming
 const { initSockets } = require("./sockets"); // added for sockets to work by weiming
+const ThreadState = require("./models/thread-state-model");
 
 const server = express();
 const dns = require("dns");
@@ -84,4 +85,4 @@ function startServer() {
 }
 
 // call connectDB first and when connection is ready we start the web server
-connectDB().then(startServer);
+connectDB().then(() => ThreadState.backfillLegacy()).then(startServer);

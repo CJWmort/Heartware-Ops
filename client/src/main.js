@@ -16,7 +16,7 @@ const app = createApp(App)
 app.use(createPinia())
 app.use(router)
 
-// NEW: handle an expired login. A session lasts 8 hours; before this, a volunteer whose session ran out kept
+// handle an expired login. A session lasts 8 hours; before this, a volunteer whose session ran out kept
 // seeing a page full of "Please log in" errors because the app still believed they were logged in
 // (auth.restore() only asks the server once per page load).
 // Now ANY 401 answer from the API clears the saved user and sends them to the login page, then back to where they were.

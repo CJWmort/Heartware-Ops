@@ -7,7 +7,7 @@ import AppNavbar from '@/components/AppNavbar.vue'
 const route = useRoute()
 const auth = useAuthStore()
 
-// NEW: the guest landing page is full-width, so it must NOT sit inside Bootstrap's centred .container.
+// the guest landing page is full-width, so it must NOT sit inside Bootstrap's centred .container.
 // Every other page (and the logged-in home dashboard) keeps the container exactly as before.
 const isLanding = computed(() => route.name === 'home' && !auth.isLoggedIn)
 </script>

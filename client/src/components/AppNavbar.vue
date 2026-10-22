@@ -1,8 +1,10 @@
 <script setup>
-import { computed, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/services/auth'
 import { NAV_LINKS } from '@/router/nav-links'
+import ChatButton from '@/components/chat/ChatButton.vue'
+import ChatPanel from '@/components/chat/ChatPanel.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -22,6 +24,20 @@ function onMenuClick(e) {
   if (e.target.closest('a, button')) closeMenu()
 }
 
+// Collapse the open menu when the user clicks or taps ANYWHERE else (page, empty navbar space, chat panel...).
+// Links are skipped here because they already close the menu themselves (RouterLink @click / onMenuClick above),
+// and the burger is skipped because it toggles the menu on its own (closing here too would instantly re-open it).
+// pointerdown covers mouse, touch and pen. On desktop the menu is never ".show", so this does nothing there.
+function onDocumentPointerDown(e) {
+  if (!menu.value?.classList.contains('show')) return
+  const path = e.composedPath()
+  if (toggler.value && path.includes(toggler.value)) return
+  if (path.some((el) => el.tagName === 'A')) return
+  closeMenu()
+}
+onMounted(() => document.addEventListener('pointerdown', onDocumentPointerDown))
+onUnmounted(() => document.removeEventListener('pointerdown', onDocumentPointerDown))
+
 async function logout() {
   await auth.logout()
   router.push({ name: 'login' })
@@ -39,6 +55,13 @@ async function logout() {
         <i class="bi bi-heart-fill text-danger" aria-hidden="true"></i>
         Heartware Ops
       </RouterLink>
+
+      <!-- phone layout. The menu is collapsed there, so the chat button sits beside the burger and stays visible. -->
+      <ChatButton
+        v-if="auth.isLoggedIn"
+        class="d-lg-none ms-auto me-2"
+        data-testid="nav-chat-mobile"
+      />
 
       <button
         ref="toggler"
@@ -65,6 +88,8 @@ async function logout() {
 
         <div class="d-flex align-items-center gap-2">
           <template v-if="auth.isLoggedIn">
+            <!-- desktop layout. Left of the logged-in user's name. -->
+            <ChatButton class="d-none d-lg-inline-flex" data-testid="nav-chat" />
             <span class="navbar-text small" data-testid="nav-user-name">
               {{ auth.user.name }} <span class="badge text-bg-light ms-1">{{ auth.role }}</span>
             </span>
@@ -83,6 +108,9 @@ async function logout() {
         </div>
       </div>
     </div>
+
+    <!-- the chat panel. Only exists while logged in: logging in opens the live connection, logging out closes it. -->
+    <ChatPanel v-if="auth.isLoggedIn" />
   </nav>
 </template>
 

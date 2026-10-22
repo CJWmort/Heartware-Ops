@@ -28,10 +28,40 @@ export async function sendMessage(text, volunteerId) {
   }
 }
 
-// HQ only: every volunteer with their latest message
+// HQ only: every volunteer with their latest message and unread count
 export async function listThreads() {
   try {
     const { data } = await axios.get(`${BASE_URL}/threads`, { timeout: 15000 })
+    return data
+  } catch (error) {
+    throw addFriendlyMessage(error)
+  }
+}
+
+// Number for the navbar badge (volunteer: their chat, HQ: all chats). Returns a number.
+export async function getUnreadCount() {
+  try {
+    const { data } = await axios.get(`${BASE_URL}/unread`, { timeout: 15000 })
+    return data.unread
+  } catch (error) {
+    throw addFriendlyMessage(error)
+  }
+}
+
+// HQ only: closes the chat and permanently deletes its whole history
+export async function closeThread(volunteerId) {
+  try {
+    const { data } = await axios.delete(`${BASE_URL}/threads/${volunteerId}`, { timeout: 15000 })
+    return data
+  } catch (error) {
+    throw addFriendlyMessage(error)
+  }
+}
+
+// When each side last read the chat: { volunteerLastReadAt, adminLastReadAt } (used for "Seen")
+export async function getReadState(volunteerId) {
+  try {
+    const { data } = await axios.get(`${BASE_URL}/read-state`, { params: { volunteerId }, timeout: 15000 })
     return data
   } catch (error) {
     throw addFriendlyMessage(error)
