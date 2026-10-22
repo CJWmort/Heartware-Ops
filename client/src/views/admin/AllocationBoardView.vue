@@ -15,6 +15,7 @@
 import { ref, computed, watch } from 'vue'
 import axios from 'axios'
 import BaseMap from '@/components/BaseMap.vue'
+import { createSchoolIcon, createVolIcon, volTip, schoolTip, bindTip } from '@/utils/map-icons'
 
 // The raw list from the server: one row per volunteer assignment. Only loadData() / runAllocation() change it.
 const assignments = ref([])
@@ -349,22 +350,12 @@ function renderMapElements() {
   if (markersGroup) markersGroup.clearLayers()
   if (linesGroup) linesGroup.clearLayers()
 
-  const redDefaultIcon = L.divIcon({
-    className: 'red-pin-filter',
-    html: `<img src="https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png" style="width:25px;height:41px;"/>`,
-    iconSize: [25, 41],
-    iconAnchor: [12, 41],
-    popupAnchor: [1, -34],
-    shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/0.7.7/images/marker-shadow.png',
-    shadowSize: [41, 41],
-  })
-
   currentShowData.schools.forEach((school) => {
     // Check school coordinates
     if (school.lat && school.lng) {
-      const schoolMarker = L.marker([school.lat, school.lng], { icon: redDefaultIcon }).bindPopup(
-        `<b>${school.name}</b>`,
-      )
+      // CHANGED: shared school badge + hover tooltip (same look as the Live Board)
+      const schoolMarker = L.marker([school.lat, school.lng], { icon: createSchoolIcon() })
+      bindTip(schoolMarker, schoolTip(school))
       markersGroup.addLayer(schoolMarker)
 
       // Loop through assigned volunteers
@@ -375,7 +366,9 @@ function renderMapElements() {
       school.volunteers.forEach((vol) => {
         if (vol.lat && vol.lng) {
           // Add Volunteer Marker
-          const volMarker = L.marker([vol.lat, vol.lng]).bindPopup(`<b>${vol.name}</b> (Volunteer)`)
+          // CHANGED: round person badge coloured by status + hover tooltip
+          const volMarker = L.marker([vol.lat, vol.lng], { icon: createVolIcon(vol.status) })
+          bindTip(volMarker, volTip(vol))
           markersGroup.addLayer(volMarker)
 
           // 2. Draw connecting line between Volunteer and School
@@ -564,7 +557,9 @@ loadData()
                     class="d-flex align-items-center gap-2 py-2 border-top"
                   >
                     <!-- ADDED: round initial -->
-                    <span class="avatar">{{ (volunteer.name || '?').charAt(0).toUpperCase() }}</span>
+                    <span class="avatar">{{
+                      (volunteer.name || '?').charAt(0).toUpperCase()
+                    }}</span>
                     <span class="flex-grow-1 text-truncate">{{ volunteer.name }}</span>
                     <a class="small" :href="`tel:${volunteer.phone}`">{{ volunteer.phone }}</a>
                   </div>

@@ -240,3 +240,13 @@
     opacity: 0;
   }
 }
+
+/* Assignment statuses (Allocation board): badge on the map + in the tooltip */
+.vol-dot.Pending   { background: #f59e0b; }
+.vol-dot.Accepted  { background: #16a34a; }
+.vol-dot.Declined  { background: #dc2626; }
+.vol-dot.Withdrawn { background: #4b5563; }
+.tip-icon.Pending   { background: #f59e0b; }
+.tip-icon.Accepted  { background: #16a34a; }
+.tip-icon.Declined  { background: #dc2626; }
+.tip-icon.Withdrawn { background: #4b5563; }
