@@ -2,6 +2,8 @@ const mongoose = require("mongoose");
 const Assignments = require("../models/assignments-model");
 const Account = require("../models/account-model");
 const School = require("../models/schools-model");
+const Shows = require("../models/shows-model");
+const { replaceFromReserve } = require("../utils/reserve-replacement");
 const dotenv = require("dotenv");
 
 const { scarcityFirst } = require("../utils/scarcityFirst");
@@ -52,6 +54,9 @@ exports.runAssignments = async (req, res) => {
     const reset = req.body?.reset === true;
     // Rows that must survive this run (Accepted / Declined / Withdrawn); nothing is kept on a reset
     const kept = reset ? [] : await Assignments.findKept();
+    // A published show is locked: re-running it would undo the automatic replacements and rebuild the reserve
+    // list after volunteers have already seen their school. Reset ignores the lock.
+    const skippedShows = reset ? [] : await Assignments.publishedShows();
 
     // Work out every show first, so a bad record stops the run BEFORE anything is deleted
     // (before: delete first, so one error halfway left the table empty)
@@ -59,6 +64,7 @@ exports.runAssignments = async (req, res) => {
     // FIX: was `for (show of [...])` with no `const`, which created an accidental global variable.
     // Assignments.SHOWS comes from the model's enum, so the list of shows lives in one place instead of four.
     for (const show of Assignments.SHOWS) {
+      if (skippedShows.includes(show)) continue;
       const keptInShow = kept.filter((a) => a.show === show);
 
       // Volunteers who already have a final answer for this show are left out of the matching,
@@ -100,10 +106,11 @@ exports.runAssignments = async (req, res) => {
 
     // Remove only what is being re-calculated (or everything, on a reset), then save the new matches
     if (reset) await Assignments.deleteAll();
-    else await Assignments.deleteReplaceable();
+    else await Assignments.deleteReplaceable(skippedShows);
     await Assignments.createMany(results);
     const assignments = await Assignments.retrieveAll();
-    res.json(assignments);
+    // CHANGED: was the bare list; skippedShows tells the board which published shows were left alone
+    res.json({ assignments, skippedShows });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -146,54 +153,79 @@ exports.acceptMyAssignment = async (req, res) => {
   }
 };
 
+// Shared by decline and withdraw. Deletes the volunteer's assignment, then logs it in their
+// withdrawnShows (show id, reporting date / time / location, status, reason) and removes the show
+// from their availableShows. body: { reason?: "..." }
+async function leaveAssignment(req, res, status) {
+  const { id } = req.params;
+  // a malformed id would make MongoDB throw, so answer 400 before querying
+  if (!mongoose.Types.ObjectId.isValid(id)) {
+    return res.status(400).json({ message: "Invalid assignment id" });
+  }
+
+  // reason is optional; trim() removes stray spaces, and a missing body (req.body undefined) gives ''
+  const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
+  if (reason.length > 300) {
+    return res.status(400).json({ message: "Reason must be 300 characters or fewer." });
+  }
+
+  // the session user id (not a body field) decides whose row is removed, so nobody can act for someone else
+  const userId = req.session.userId;
+  const assignment = status === "Declined"
+    ? await Assignments.declineMine(id, userId)
+    : await Assignments.withdrawMine(id, userId);
+  // nothing matched = not yours, wrong status, or not published yet
+  if (!assignment) {
+    const message = status === "Declined"
+      ? "No pending assignment found to decline."
+      : "No accepted assignment found to withdraw from.";
+    return res.status(404).json({ message });
+  }
+
+  const show = await Shows.findByName(assignment.show);
+  const entry = {
+    showId: show?._id,
+    show: assignment.show,
+    reportingDate: show?.date,
+    reportingTime: assignment.school?.reportingTime,
+    reportingLocation: assignment.school?.name,
+    status,
+    reason,
+  };
+
+  try {
+    const user = await Account.logWithdrawnShow(userId, entry);
+    // Their place is open now: give it to the nearest volunteer on the reserve list straight away.
+    // The decline / withdrawal has already succeeded, so a problem here is only logged, never sent to the volunteer.
+    try {
+      const filled = await replaceFromReserve(assignment.show);
+      if (filled.length > 0) console.log(`Reserve replacement: filled ${filled.length} place(s) in ${assignment.show}`);
+    } catch (fillError) {
+      console.error(`Reserve replacement for ${assignment.show} failed:`, fillError.message);
+    }
+    res.json({ entry, availableShows: user?.availableShows || [] });
+  } catch (error) {
+    // logging failed: put the assignment back so the volunteer does not silently lose their place
+    const restored = assignment.toObject();
+    restored.school = assignment.school?._id;
+    await Assignments.restore(restored);
+    throw error;
+  }
+}
+
 // PATCH /api/assignments/:id/decline -- logged in volunteer declines a pending assignment
-// NEW: before this, a volunteer who could not go had no way to give the place back.
-// body: { reason?: "..." }
 exports.declineMyAssignment = async (req, res) => {
   try {
-    const { id } = req.params;
-    // a malformed id would make MongoDB throw, so answer 400 before querying
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ message: "Invalid assignment id" });
-    }
-
-    // reason is optional; trim() removes stray spaces, and a missing body (req.body undefined) gives ''
-    const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
-    if (reason.length > 300) {
-      return res.status(400).json({ message: "Reason must be 300 characters or fewer." });
-    }
-
-    // the session user id (not a body field) decides whose row is changed, so nobody can decline for someone else
-    const assignment = await Assignments.declineMine(id, req.session.userId, reason);
-    // nothing matched = not yours, not Pending, or not published yet
-    if (!assignment) {
-      return res.status(404).json({ message: "No pending assignment found to decline." });
-    }
-    res.json(assignment);
+    await leaveAssignment(req, res, "Declined");
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
 };
 
-// PATCH /api/assignments/:id/withdraw -- logged in volunteer pulls out of an accepted assignment
-// body: { reason?: "..." }
+// PATCH /api/assignments/:id/withdraw -- logged in volunteer withdraws from an accepted assignment
 exports.withdrawMyAssignment = async (req, res) => {
   try {
-    const { id } = req.params;
-    if (!mongoose.Types.ObjectId.isValid(id)) {
-      return res.status(400).json({ message: "Invalid assignment id" });
-    }
-
-    const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
-    if (reason.length > 300) {
-      return res.status(400).json({ message: "Reason must be 300 characters or fewer." });
-    }
-
-    const assignment = await Assignments.withdrawMine(id, req.session.userId, reason);
-    if (!assignment) {
-      return res.status(404).json({ message: "No accepted assignment found to pull out of." });
-    }
-    res.json(assignment);
+    await leaveAssignment(req, res, "Withdrawn");
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
