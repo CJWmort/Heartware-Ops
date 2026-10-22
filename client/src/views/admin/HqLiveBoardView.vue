@@ -1074,6 +1074,7 @@ onUnmounted(() => {
   min-width: 0;
   display: flex;
   flex-direction: column;
+  color: #1f2430;
 }
 
 .result-name {
@@ -1156,10 +1157,15 @@ onUnmounted(() => {
   min-width: 0;
 }
 
+.info-value {
+  color: #1f2430
+}
+
 .vol-name {
   font-size: 1.05rem;
   font-weight: 600;
   line-height: 1.2;
+  color: #1f2430;
 }
 
 .vol-status {
@@ -1459,6 +1465,7 @@ onUnmounted(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  color: #1f2430
 }
 
 .event-text {
