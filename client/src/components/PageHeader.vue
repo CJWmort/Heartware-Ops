@@ -1,7 +1,6 @@
 <script setup>
-// RESTORED: this file was deleted by a bad merge (b6dbf49); restored from the tracking-side commit fbeae7d.
 // Consistent page title block. Usage:
-//   <PageHeader title="Allocation" subtitle="NE Show 1 · National Stadium" icon="bi-grid-3x3-gap" />
+//   <PageHeader title="Allocation" subtitle="NE Show 1 · Padang" icon="bi-grid-3x3-gap" />
 defineProps({
   title: { type: String, required: true },
   subtitle: { type: String, default: '' },
