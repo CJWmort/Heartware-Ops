@@ -1,8 +1,6 @@
 <script setup>
 // Feature 5 – Badge Studio — owner: Hanafi
 // Spec: docs/FEATURES.md   ·   API calls: src/services/   ·   Tests: e2e/
-// RESTORED: these imports (and PageHeader) were lost in a bad merge (b6dbf49); the page needs all of them.
-import PageHeader from '@/components/PageHeader.vue'
 import { ref, computed, onMounted } from 'vue'
 import { getMyDesign, getMyOrders, saveMyDesign, placeOrder } from '@/services/badges.js'
 import { timeAgo } from '@/utils/time.js'
@@ -135,13 +133,9 @@ onMounted(async () => {
 
 <template>
   <section class="studio" :class="{ 'is-locked': locked }">
-    <PageHeader title="Badge Studio"
-                :subtitle="locked ? 'Your badge is locked in. Track your order here.' : 'Design your badge, then lock it in to order it.'"
-                icon="bi-palette">
-      <template #actions>
-        <RouterLink to="/volunteer/badges" class="btn btn-outline-secondary" data-testid="studio-back"><i class="bi bi-arrow-left me-1"></i>Back</RouterLink>
-      </template>
-    </PageHeader>
+    <div class="mb-3">
+      <RouterLink to="/volunteer/badges" class="btn btn-outline-secondary" data-testid="studio-back"><i class="bi bi-arrow-left me-1" aria-hidden="true"></i>Back to my badges</RouterLink>
+    </div>
  
     <div v-if="errorMessage" class="alert alert-danger d-flex align-items-start gap-2" role="alert" data-testid="studio-error">
       <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
