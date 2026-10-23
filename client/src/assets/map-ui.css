@@ -250,3 +250,54 @@
 .tip-icon.Accepted  { background: #16a34a; }
 .tip-icon.Declined  { background: #dc2626; }
 .tip-icon.Withdrawn { background: #4b5563; }
+
+/* ---- markers moved from main.css (Incident Queue) ---- */
+/* Incident pin: a round solid-colour badge with a white edge and white icon (same family as the volunteer badge). Built by createIncidentIcon() in utils/map-icons.js.
+   The ring/icon colour comes from --severity, set by the severity-* class below. */
+.leaflet-marker-icon.incident-pin {
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  border: 3px solid #fff; /* same white edge as the volunteer and school badges */
+  border-radius: 50%;
+  background: var(--severity, var(--bs-primary)); /* solid colour, set by the severity-* class below */
+  color: #fff;
+  font-size: 1rem;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.4);
+}
+
+.incident-pin.severity-high {
+  --severity: var(--bs-danger);
+}
+.incident-pin.severity-medium {
+  --severity: var(--bs-warning);
+}
+.incident-pin.severity-low {
+  --severity: var(--bs-primary);
+}
+.incident-pin.severity-resolved {
+  --severity: var(--bs-success);
+}
+
+/* Not acknowledged yet (status "new"): a ring in the pin's own colour pulses outwards to draw the admin's eye.
+   It uses the same "vol-pulse" animation as the live volunteer badges. The pin is already positioned by Leaflet,
+   so the ring can sit on top of it. It stops as soon as the incident is acknowledged (the class is removed). */
+.incident-pin.is-new::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  border: 2px solid var(--severity, var(--bs-primary));
+  animation: vol-pulse 1s ease-out infinite;
+  pointer-events: none; /* the ring never blocks clicks on the pin */
+}
+@media (prefers-reduced-motion: reduce) {
+  .incident-pin.is-new::after {
+    animation: none; /* no movement for people who turn animations off: a static ring is still shown */
+  }
+}
+
+/* Ring around the pin of the incident selected in the list */
+.incident-pin.is-selected {
+  box-shadow: 0 0 0 4px var(--bs-primary), 0 2px 6px rgb(0 0 0 / 0.4); /* ring + the normal shadow */
+}
