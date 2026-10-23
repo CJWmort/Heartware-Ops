@@ -585,7 +585,6 @@ onUnmounted(() => clearInterval(timer))
 loadData()
 </script>
 
-
 <template>
   <!-- LAYOUT: one full-screen map with a floating panel on top.
        .map-page and .map-stage come from assets/map-ui.css: they make the map fill the page under the navbar.
@@ -719,7 +718,7 @@ loadData()
                itself (see visibleSchools). The last button flips between "Expand all" and "Collapse all" using allOpen. -->
           <div class="d-flex flex-wrap align-items-center gap-2 mb-0">
             <input
-              type="text"
+              type="search"
               class="form-control search-box"
               placeholder="Search school or volunteer"
               v-model="searchbar"
