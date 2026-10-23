@@ -203,6 +203,7 @@ const markers = new Map() // volunteerId -> { marker, status, frame }
 
 let needFit = false // fit the map to all volunteers once the next board arrives
 let boardLoaded = false // true once data for the current show has arrived
+let hasFitted = false // false until the first fit: the very first fit jumps straight there, no animation
 let requestId = 0 // guards against slow responses overwriting newer ones
 let pollTimer = null
 let tickTimer = null
@@ -330,27 +331,29 @@ watch(rows, drawMarkers)
 /* Camera                                                              */
 /* ------------------------------------------------------------------ */
 
-// Zoom out to show every volunteer who has a location
-function fitAll() {
+// Show every volunteer who has a location. mode:
+//   'fly'    : flyTo animation (it zooms OUT then back IN; fine for the deselect button, where we come from a close zoom)
+//   'smooth' : straight pan/zoom to the target, no out-and-in arc (used when switching show)
+//   'jump'   : no animation at all (used for the first fit when the board opens)
+function fitAll(mode = 'fly') {
   if (!map) return
   const pts = rows.value.filter((v) => v.lat != null).map((v) => [v.lat, v.lng])
   if (!pts.length) {
-    map.flyTo(SINGAPORE_CENTER, 11, { duration: 0.5 })
+    if (mode === 'fly') map.flyTo(SINGAPORE_CENTER, 11, { duration: 0.5 })
+    else map.setView(SINGAPORE_CENTER, 11, { animate: mode === 'smooth' })
     return
   }
-  map.flyToBounds(pts, {
-    paddingTopLeft: [40, 90],
-    paddingBottomRight: [40, 40],
-    maxZoom: 15,
-    duration: 0.8,
-  })
+  const padding = { paddingTopLeft: [40, 90], paddingBottomRight: [40, 40], maxZoom: 15 }
+  if (mode === 'fly') map.flyToBounds(pts, { ...padding, duration: 0.8 })
+  else map.fitBounds(pts, { ...padding, animate: mode === 'smooth' })
 }
 
 // Fit to everyone, but only once per show, and only after both the map and data exist
 function applyFit() {
   if (!map || !boardLoaded || !needFit) return
   needFit = false
-  fitAll()
+  fitAll(hasFitted ? 'smooth' : 'jump') // first time: jump (no zoom-out-and-in); later shows: smooth
+  hasFitted = true
 }
 
 // Zoom so the volunteer and their school are both in view

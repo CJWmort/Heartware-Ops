@@ -17,10 +17,11 @@ export function createVolIcon(status) {
 }
 
 // Rounded indigo badge with a graduation cap (a school)
-export function createSchoolIcon() {
+//   dimmed : true gives the lighter indigo used for schools that are not the focused one (Allocation board)
+export function createSchoolIcon({ dimmed = false } = {}) {
   return L.divIcon({
     className: 'school-marker',
-    html: `<div class="school-badge"><i class="bi bi-mortarboard-fill"></i></div>`,
+    html: `<div class="school-badge${dimmed ? ' dimmed' : ''}"><i class="bi bi-mortarboard-fill"></i></div>`,
     iconSize: [36, 36],
     iconAnchor: [18, 18],
     tooltipAnchor: [0, -20],
@@ -71,11 +72,12 @@ export function createRouteLabelIcon(minutes) {
 //   severity : 'high' | 'medium' | 'low'  -> red / amber / blue
 //   status   : 'resolved' always shows green, whatever the severity; 'new' (not acknowledged yet) makes the pin pulse
 //   selected : true adds a ring around the pin (the incident chosen in the list)
+//   dimmed   : true gives a lighter shade (an incident that is not the focused one, as with the dimmed school pins)
 // The colours live in src/assets/map-ui.css (.incident-pin).
-export function createIncidentIcon({ icon, severity, status, selected = false }) {
+export function createIncidentIcon({ icon, severity, status, selected = false, dimmed = false }) {
   const colour = status === 'resolved' ? 'severity-resolved' : `severity-${severity}`
   return L.divIcon({
-    className: `incident-pin ${colour}${status === 'new' ? ' is-new' : ''}${selected ? ' is-selected' : ''}`, // is-new = not acknowledged yet: the pin pulses
+    className: `incident-pin ${colour}${status === 'new' ? ' is-new' : ''}${selected ? ' is-selected' : ''}${dimmed ? ' is-dimmed' : ''}`, // is-new = not acknowledged yet: the pin pulses
     html: `<i class="bi ${icon}"></i>`,
     iconSize: [34, 34], // same size as the volunteer badge
     iconAnchor: [17, 17],

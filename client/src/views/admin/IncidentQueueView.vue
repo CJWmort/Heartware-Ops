@@ -1,8 +1,9 @@
 <script setup>
 // =====================================================================================================
 // Incident Queue (admin / HQ) — Feature 4 (F4)
-// Same layout idea as the Allocation board: one full-screen map with a floating panel on top
-// (a left-hand card on tablet/desktop, a bottom sheet on phones).
+// Same design as the Allocation board: one full-screen map with the incident list (the "menu") on top of it.
+// Picking an incident collapses the menu, zooms the map to its pin and shows the focus card (left card on
+// tablet/desktop, bottom sheet on phones) with the details and the Acknowledge / Resolve buttons.
 // =====================================================================================================
 //
 // WHAT THIS PAGE DOES
@@ -12,19 +13,22 @@
 //
 // HOW IT WORKS
 //  1. The incidents come from the server (listIncidents). `incidents` holds them, already sorted by the server.
-//  2. Each incident is drawn twice: a pin on the map and a card in the panel. They are linked:
-//       - click a CARD  -> that incident becomes the selected one and the map zooms to its pin
-//         (click the same card again to deselect and zoom back out);
-//       - click a PIN   -> the panel opens, the card scrolls into view and flashes.
+//  2. Each incident is drawn twice: a pin on the map and a card in the menu. They are linked:
+//       - click a CARD or a PIN -> the incident is selected, the menu collapses, the map zooms to its pin and the
+//         focus card shows its details;
+//       - tap empty map, or the X on the focus card -> unselect and zoom back out; "Incidents" brings the menu back.
 //  3. The search box and the three stat buttons (New / Acknowledged / Resolved) filter the CARD LIST only (visibleIncidents).
-//     The map shows a pin for every New / Acknowledged incident (a Resolved one only while its card is selected), whatever the
-//     filters say, so a pin click may need to clear the filters first (see selectIncident).
+//     The map shows a pin for every New / Acknowledged incident (a Resolved one only while it is selected), whatever the
+//     filters say.
 //  4. Live updates: the server tells admins about new / changed incidents over a socket, and the page re-loads
 //     the list. The map is only fitted to the pins the FIRST time, so a live update never makes the map jump.
-import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import BaseMap from '@/components/BaseMap.vue'
 import { listIncidents, listTemplates, updateIncidentStatus } from '@/services/incidents'
 import IncidentCard from '@/components/IncidentCard.vue'
+import IncidentFocusCard from '@/components/IncidentFocusCard.vue'
+import MapNotice from '@/components/MapNotice.vue' // temporary status popup (same as the Allocation board)
+import ConfirmDialog from '@/components/ConfirmDialog.vue' // custom card instead of the browser's prompt()
 import { connectSocket } from '@/services/socket' // live updates
 import { tipCard, bindTip, createIncidentIcon } from '@/utils/map-icons' // shared hover-card helpers (same as the Allocation and Live boards)
 
@@ -33,13 +37,49 @@ import { tipCard, bindTip, createIncidentIcon } from '@/utils/map-icons' // shar
 // ---------------------------------------------------------------------------------------------------
 const incidents = ref([]) // every incident from the server
 const templatesByType = ref({}) // { STUDENT_UNWELL: {label, icon...}, BUS_DELAYED: {...}, ... } used for names and icons
-const selectedId = ref(null) // _id of the selected incident (null = none); its card has a ring, its pin is ringed too
-const highlightedId = ref(null) // the card that flashes briefly after a pin click
-const errorMessage = ref('') // red box at the top of the panel
+const selectedId = ref(null) // _id of the selected incident (null = none); its pin is ringed and the focus card shows it
 const searchbar = ref('') // text in the search box
 const statusFilter = ref('') // which stat button is pressed: 'new' | 'acknowledged' | 'resolved' | '' (empty = show all)
-// The panel starts open on tablet/desktop (768px and wider) and hidden on phones, where it covers half the screen.
-const panelOpen = ref(window.matchMedia('(min-width: 768px)').matches)
+// true = the full-screen incident list (the "menu") covers the map; false = the map is visible.
+// Like the Allocation board, the menu starts open on every screen size: pick an incident first.
+const panelOpen = ref(true)
+// true = resolved incidents also get a pin on the map (pill at the top right of the map). Off by default.
+const showResolved = ref(false)
+
+// STATUS POPUP (same MapNotice popup as the Allocation board). Messages are temporary: they disappear after a few
+// seconds, or when the close button is pressed.
+const popup = ref(null) // { type: 'error' | 'info', icon, title, text } or null
+let popupTimer = null
+function showPopup(type, title, text, ms = 6000) {
+  clearTimeout(popupTimer)
+  popup.value = {
+    type,
+    icon: type === 'error' ? 'bi-exclamation-triangle-fill' : 'bi-check-circle-fill',
+    title,
+    text,
+  }
+  popupTimer = setTimeout(() => (popup.value = null), ms)
+}
+function dismissPopup() {
+  clearTimeout(popupTimer)
+  popup.value = null
+}
+
+// RESOLVE-NOTE DIALOG (custom card instead of the browser's prompt(), same ConfirmDialog as the Allocation board).
+// askNote() returns a promise: the typed note on OK, or null on Cancel.
+const confirmDialog = ref(null) // the card's content, or null while closed
+let confirmResolve = null
+function askNote(options) {
+  return new Promise((resolve) => {
+    confirmResolve = resolve
+    confirmDialog.value = options
+  })
+}
+function answerConfirm(ok, text) {
+  confirmDialog.value = null
+  confirmResolve?.(ok ? text : null)
+  confirmResolve = null
+}
 
 // ---------------------------------------------------------------------------------------------------
 // 2. DERIVED DATA (computed: rebuilt automatically when what it reads changes)
@@ -49,6 +89,11 @@ const panelOpen = ref(window.matchMedia('(min-width: 768px)').matches)
 function labelOf(incident) {
   return templatesByType.value[incident.type]?.label || incident.type
 }
+
+// The selected incident (null if none, or if it no longer exists in the list).
+const selectedIncident = computed(
+  () => incidents.value.find((i) => i._id === selectedId.value) || null,
+)
 
 // Numbers for the three status chips.
 const stats = computed(() => {
@@ -107,22 +152,24 @@ let hasFitted = false
 function onMapReady(map, L) {
   mapRef = map
   leafletRef = L
+  map.zoomControl?.setPosition('bottomright') // zoom buttons at the bottom right (as on the Allocation board)
+  map.on('click', clearSelection) // tap on empty map: unselect the incident (pins don't bubble up to this)
   incidentLayer = L.layerGroup().addTo(map)
   plotIncidents() // the incidents may have arrived before the map was ready
 }
 
-// The floating panel covers part of the map, so when fitting the map we leave that part empty (padding) and the
-// pins land in the visible area. Desktop 420px / tablet 340px on the left, phones: bottom sheet (55% of the height).
-// These numbers must match the panel CSS at the bottom of this file.
+// While an incident is selected, the focus card covers part of the map (left card on tablet/desktop, 45% bottom sheet on
+// phones), so when fitting the map we leave that part empty (padding) and the pin lands in the visible area.
+// These numbers must match the focus card CSS in components/IncidentFocusCard.vue. With nothing selected the whole map is free.
 function fitPadding() {
-  if (!panelOpen.value) return { padding: [30, 30] } // panel hidden: the whole map is free
+  if (selectedId.value === null) return { padding: [30, 30] } // overview: the whole map is free
   if (window.matchMedia('(min-width: 992px)').matches) {
-    return { paddingTopLeft: [420 + 30, 30], paddingBottomRight: [30, 30] } // desktop
+    return { paddingTopLeft: [420 + 30, 30], paddingBottomRight: [30, 30] } // desktop: card 420px
   }
   if (window.matchMedia('(min-width: 768px)').matches) {
-    return { paddingTopLeft: [340 + 30, 30], paddingBottomRight: [30, 30] } // tablet
+    return { paddingTopLeft: [340 + 30, 30], paddingBottomRight: [30, 30] } // tablet: card 340px
   }
-  return { paddingTopLeft: [30, 30], paddingBottomRight: [30, window.innerHeight * 0.55 + 30] } // phone
+  return { paddingTopLeft: [30, 30], paddingBottomRight: [30, window.innerHeight * 0.45 + 30] } // phone: sheet 45vh
 }
 
 // Every incident that has usable coordinates, as [lat, lng] pairs.
@@ -165,7 +212,8 @@ function toneOf(incident) {
   return { high: 'offline', medium: 'stale', low: 'me' }[incident.severity] || 'me'
 }
 
-// Draws one pin per incident that is not resolved (plus the selected one, even if resolved), whatever the list filters say.
+// Draws one pin per incident that is not resolved (plus the selected one, even if resolved, and every resolved one while
+// the "Resolved" pill is on), whatever the list filters say.
 // Runs when the incidents change or the selection changes (so the selected pin gets its ring).
 function plotIncidents() {
   if (!mapRef || !leafletRef) return // map not ready yet: onMapReady() calls this again
@@ -173,7 +221,7 @@ function plotIncidents() {
 
   incidents.value.forEach((incident) => {
     // Resolved incidents have no pin, unless that incident is the selected one: clicking its card shows where it happened
-    if (incident.status === 'resolved' && incident._id !== selectedId.value) return
+    if (incident.status === 'resolved' && !showResolved.value && incident._id !== selectedId.value) return
     const { lat, lng } = incident.location || {}
     if (typeof lat !== 'number' || typeof lng !== 'number') return // no usable location: no pin
 
@@ -185,8 +233,13 @@ function plotIncidents() {
       severity: incident.severity,
       status: incident.status,
       selected: incident._id === selectedId.value,
+      dimmed: selectedId.value !== null && incident._id !== selectedId.value, // another incident is focused: lighter shade
     })
-    const marker = leafletRef.marker([lat, lng], { icon: pin })
+    // The focused pin is lifted above the others so it is easy to find when pins overlap
+    const marker = leafletRef.marker([lat, lng], {
+      icon: pin,
+      zIndexOffset: incident._id === selectedId.value ? 1000 : 0,
+    })
     bindTip(
       marker,
       tipCard({
@@ -211,40 +264,19 @@ function plotIncidents() {
 // 4. CARDS <-> MAP ACTIONS
 // ---------------------------------------------------------------------------------------------------
 
-// A CARD was clicked: select it and zoom to its pin. Clicking the selected card again deselects it
-// and zooms back out.
-function onSelect(incident) {
-  if (selectedId.value === incident._id) {
-    selectedId.value = null
-    resetMapView()
-    return
-  }
+// A card in the menu, or a PIN on the map, was chosen: select it, collapse the menu and zoom to its pin.
+// The focus card then shows the details.
+function selectIncident(incident) {
   selectedId.value = incident._id
+  panelOpen.value = false // collapse the menu so the map is visible
   focusIncident(incident)
 }
 
-// A PIN was clicked: it never deselects. It selects the incident, zooms to it, scrolls the list to its card
-// and flashes the card.
-function selectIncident(incident) {
-  // The pins ignore the list filters, but the list may be filtered. If this card is hidden by a filter, clear the
-  // filters first, otherwise there would be no card to show.
-  if (!visibleIncidents.value.some((i) => i._id === incident._id)) {
-    statusFilter.value = '' // clear the pressed button so the clicked pin's card can show
-    searchbar.value = ''
-  }
-  panelOpen.value = true // the panel may be hidden: bring it back
-  selectedId.value = incident._id
-  focusIncident(incident)
-  // nextTick = wait until Vue has drawn the card (it may have just come back after clearing a filter), then scroll to it
-  nextTick(() =>
-    document
-      .getElementById(`incident-${incident._id}`)
-      ?.scrollIntoView({ block: 'start', behavior: 'auto' }),
-  )
-  highlightedId.value = incident._id // flash the card for about 1.2 seconds
-  setTimeout(() => {
-    if (highlightedId.value === incident._id) highlightedId.value = null // only clear our own flash
-  }, 1200)
+// Unselect the incident and zoom back out (tap on the map, or the X on the focus card).
+function clearSelection() {
+  if (selectedId.value === null) return // nothing selected: nothing to undo
+  selectedId.value = null
+  resetMapView()
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -257,10 +289,9 @@ function selectIncident(incident) {
 async function loadIncidents() {
   try {
     incidents.value = await listIncidents()
-    errorMessage.value = ''
     plotIncidents()
   } catch (error) {
-    errorMessage.value = error.friendlyMessage
+    showPopup('error', 'Could not load', error.friendlyMessage)
   }
 }
 
@@ -269,23 +300,31 @@ async function onAcknowledge(incident) {
   try {
     await updateIncidentStatus(incident._id, 'acknowledged')
   } catch (error) {
-    errorMessage.value = error.friendlyMessage
+    showPopup('error', 'Acknowledge failed', error.friendlyMessage)
     return
   }
   await loadIncidents()
+  showPopup('info', 'Acknowledged', 'The incident was marked as acknowledged.')
 }
 
 // "Resolve" button on a card: acknowledged -> resolved. A note about how it was resolved is required.
 async function onResolve(incident) {
-  const note = prompt('Please include details on how was it resolved.')
-  if (!note) return // no note = it cannot be resolved
+  const note = await askNote({
+    title: 'Resolve incident',
+    text: 'Please include details on how it was resolved.',
+    icon: 'bi-check-circle-fill',
+    confirmText: 'Resolve',
+    input: { label: 'Resolution details', placeholder: 'e.g. Student was taken to the first-aid room and recovered.', required: true },
+  })
+  if (!note) return // cancelled or empty = it cannot be resolved
   try {
     await updateIncidentStatus(incident._id, 'resolved', note)
   } catch (error) {
-    errorMessage.value = error.friendlyMessage
+    showPopup('error', 'Resolve failed', error.friendlyMessage)
     return
   }
   await loadIncidents()
+  showPopup('info', 'Resolved', 'The incident was marked as resolved.')
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -294,14 +333,8 @@ async function onResolve(incident) {
 
 // The selection changed: redraw the pins so the selected one gets (or loses) its ring.
 watch(selectedId, plotIncidents)
-
-// When the panel is hidden or shown, the map's free area changes: refit the overview (unless an incident is selected).
-// nextTick = wait for the panel to finish appearing/disappearing before measuring.
-watch(panelOpen, () => {
-  nextTick(() => {
-    if (selectedId.value === null) fitOverview()
-  })
-})
+// The "Resolved" pill was toggled: show or hide the green pins.
+watch(showResolved, plotIncidents)
 
 // Live updates: the server sends incident:new / incident:updated to admins only (the "hq" room).
 let socket = null
@@ -318,139 +351,159 @@ onMounted(async () => {
     incidents.value = list
     plotIncidents()
   } catch (error) {
-    errorMessage.value = error.friendlyMessage
+    showPopup('error', 'Could not load', error.friendlyMessage)
   }
 })
 // Stop listening when the admin leaves the page, otherwise handlers pile up each time they come back.
 onUnmounted(() => {
   socket?.off('incident:new', loadIncidents)
   socket?.off('incident:updated', loadIncidents)
+  clearTimeout(popupTimer)
 })
 </script>
 
 <template>
-  <!-- LAYOUT: one full-screen map with a floating panel on top (same pattern as the Allocation board).
+  <!-- LAYOUT (same as the Allocation board): one full-screen map with the incident list (the "menu") on top of it.
        .map-page and .map-stage come from assets/map-ui.css: they make the map fill the page under the navbar.
-       :class="{ sheet-open: panelOpen }" adds the class sheet-open while the panel is showing: on phones the CSS
-       uses it to lift the map credit above the bottom sheet. -->
+       Inside the stage, stacked on each other: the map, the full-screen menu (title, stat chips, search, then the
+       scrolling list of cards), a small "Incidents" button (only when the menu is hidden and nothing is selected),
+       the focus card (the selected incident's details, shown when the menu is hidden) and the popup.
+       :class="{ focus-open }" is added while the focus card is showing: on phones the CSS lifts the map's zoom
+       buttons and credit above the bottom sheet. -->
   <div class="map-page">
-    <div class="map-stage inc-stage" :class="{ 'sheet-open': panelOpen }">
+    <div class="map-stage inc-stage" :class="{ 'focus-open': selectedIncident && !panelOpen }">
       <!-- The map. BaseMap builds the Leaflet map and calls onMapReady(map, L) in the script when it is ready;
            every pin is drawn from the script, not from this template. -->
       <BaseMap testid="incident-map" :zoom="12" @ready="onMapReady" />
 
-      <!-- Button to bring the panel back after it was hidden (only exists while the panel is hidden) -->
+      <!-- Button to bring the menu back after it was hidden (only exists while the menu is hidden and nothing is selected) -->
+      <button
+        v-if="!panelOpen && !selectedIncident"
+        type="button"
+        class="btn btn-primary shadow inc-reopen"
+        @click="panelOpen = true"
+      >
+        <i class="bi bi-layout-sidebar-inset me-1"></i>Live Incidents
+      </button>
+
+      <!-- Pill at the top right of the map (same height and top offset as the button above): show / hide resolved pins.
+           Only visible while the map is showing (menu hidden). -->
       <button
         v-if="!panelOpen"
         type="button"
-        class="btn btn-light shadow inc-reopen"
-        @click="panelOpen = true"
+        class="btn shadow inc-resolved-pill"
+        :class="showResolved ? 'btn-success' : 'btn-light'"
+        :aria-pressed="showResolved"
+        data-testid="inc-toggle-resolved"
+        @click="showResolved = !showResolved"
       >
-        <i class="bi bi-layout-sidebar-inset me-1"></i>Incidents
+        <i class="bi me-1" :class="showResolved ? 'bi-eye-fill' : 'bi-eye-slash'"></i>Resolved
+        <span class="badge text-bg-light">{{ stats.resolved }}</span>
       </button>
 
-      <!-- The floating panel. v-show (not v-if) only hides it with CSS, so the selection, the scroll position
-           and the search text are all kept while it is hidden. -->
-      <aside v-show="panelOpen" class="inc-panel">
-        <!-- Hide button in the panel's top-right corner: hides the panel so the whole map can be seen -->
-        <button
-          type="button"
-          class="btn btn-sm btn-outline-secondary inc-hide"
-          aria-label="Hide panel"
-          title="Hide panel"
-          @click="panelOpen = false"
-        >
-          <i class="bi bi-chevron-bar-left"></i>
-        </button>
-
-        <!-- TOP PART of the panel. It never scrolls; only .inc-panel-scroll below scrolls. -->
-        <div class="inc-panel-head">
-          <h1 class="h4 mb-2">Incidents</h1>
-
-          <!-- Red box with the last error (failed load, acknowledge or resolve) -->
-          <div v-if="errorMessage" class="alert alert-danger py-2" role="alert">
-            {{ errorMessage }}
-          </div>
-
-          <!-- Alerts strip (not built yet). The data-testid is used by the e2e tests. -->
-          <div class="mb-2" data-testid="alerts-panel">
-            <!-- <AlertItem v-for="…" /> -->
-            <p class="small text-muted-hw mb-0">Alerts will appear here.</p>
-          </div>
-
-          <!-- Stat chips: how many incidents are New, Acknowledged and Resolved. Drawn with one v-for over statChips; each one is a button that filters the list. -->
-          <div class="row g-1 mb-2 inc-chips">
-            <div v-for="chip in statChips" :key="chip.key" class="col-4">
-              <!-- A real <button> so it works with keyboard and screen readers.
-                   aria-pressed tells them whether the filter is on; the is-active class draws the ring.
-                   Both are off while the search box has text, because a search looks through ALL statuses and ignores this button. -->
+      <!-- THE MENU. v-show (not v-if) only hides it with CSS, so the search text and the scroll position are kept
+           while it is hidden. -->
+      <Transition name="inc-panel-fade">
+        <aside v-show="panelOpen" class="inc-panel">
+          <!-- TOP PART of the menu. It never scrolls; only .inc-panel-scroll below scrolls. -->
+          <div class="inc-panel-head">
+            <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
+              <h1 class="h4 mb-0">Live Incidents</h1>
+              <!-- Collapse the menu to see the map -->
               <button
                 type="button"
-                class="stat-btn card-hw py-1 px-0 text-center w-100"
-                :class="{ 'is-active': statusFilter === chip.key && !searchbar.trim() }"
-                :aria-pressed="statusFilter === chip.key && !searchbar.trim()"
-                :data-testid="`stat-${chip.key}`"
-                @click="toggleStatus(chip.key)"
+                class="btn btn-outline-primary"
+                title="Hide the list and show the map"
+                data-testid="inc-show-map"
+                @click="panelOpen = false"
               >
-                <div class="fs-6 fw-semibold">{{ chip.value }}</div>
-                <div class="chip-label text-muted-hw">{{ chip.label }}</div>
+                <i class="bi bi-map me-1"></i>Map
               </button>
+            </div>
+
+            <!-- Stat chips: how many incidents are New, Acknowledged and Resolved. Each one is a button that filters the list.
+                 aria-pressed / is-active are off while the search box has text, because a search ignores this button. -->
+            <div class="row g-1 mb-2 inc-chips">
+              <div v-for="chip in statChips" :key="chip.key" class="col-4">
+                <button
+                  type="button"
+                  class="stat-btn card-hw py-1 px-0 text-center w-100"
+                  :class="{ 'is-active': statusFilter === chip.key && !searchbar.trim() }"
+                  :aria-pressed="statusFilter === chip.key && !searchbar.trim()"
+                  :data-testid="`stat-${chip.key}`"
+                  @click="toggleStatus(chip.key)"
+                >
+                  <div class="fs-6 fw-semibold">{{ chip.value }}</div>
+                  <div class="chip-label text-muted-hw">{{ chip.label }}</div>
+                </button>
+              </div>
+            </div>
+
+            <!-- Search box. v-model keeps it in sync with searchbar in the script (see visibleIncidents). -->
+            <div class="d-flex flex-wrap align-items-center gap-2 mb-0">
+              <input
+                type="search"
+                class="form-control search-box"
+                placeholder="Search school, name, type or note"
+                v-model="searchbar"
+              />
             </div>
           </div>
 
-          <!-- Search box. v-model keeps it in sync with searchbar in the script, and the card list filters
-               itself (see visibleIncidents). -->
-          <div class="d-flex flex-wrap align-items-center gap-2 mb-0">
-            <input
-              type="search"
-              class="form-control search-box"
-              placeholder="Search school, name, type or note"
-              v-model="searchbar"
-            />
-          </div>
-        </div>
+          <!-- BOTTOM PART of the menu: the only part that scrolls. -->
+          <div class="inc-panel-scroll">
+            <!-- Nothing to list: say why -->
+            <p v-if="visibleIncidents.length === 0" class="text-muted-hw">
+              {{
+                incidents.length === 0
+                  ? 'No incidents have been reported yet.'
+                  : statusFilter && !searchbar.trim()
+                    ? `No ${statusFilter} incidents.`
+                    : 'No incidents match.'
+              }}
+            </p>
 
-        <!-- BOTTOM PART of the panel: the only part that scrolls. -->
-        <div class="inc-panel-scroll">
-          <!-- Nothing to list: say why (with a stat button pressed it reads e.g. "No resolved incidents.") -->
-          <p v-if="visibleIncidents.length === 0" class="text-muted-hw">
-            {{
-              incidents.length === 0
-                ? 'No incidents have been reported yet.'
-                : statusFilter && !searchbar.trim()
-                  ? `No ${statusFilter} incidents.`
-                  : 'No incidents match.'
-            }}
-          </p>
-
-          <!-- One card per incident in visibleIncidents (so the search and the stat buttons apply).
-               :id lets selectIncident() (a pin click) scroll to the card; the id lands on the card's root element.
-               inc-flash is the brief highlight after a pin click. The card itself decides how it looks
-               (components/IncidentCard.vue); here we only listen to what it says: select, acknowledge, resolve. -->
-          <div class="d-flex flex-column gap-2" data-testid="queue-new">
-            <IncidentCard
-              v-for="incident in visibleIncidents"
-              :key="incident._id"
-              :id="`incident-${incident._id}`"
-              :incident="incident"
-              :template="templatesByType[incident.type]"
-              :selected="selectedId === incident._id"
-              :class="{ 'inc-flash': highlightedId === incident._id }"
-              @select="onSelect"
-              @acknowledge="onAcknowledge"
-              @resolve="onResolve"
-            />
+            <!-- One card per incident in visibleIncidents, in a responsive grid. Clicking a card calls selectIncident():
+                 the menu collapses, the map zooms to the pin and the focus card shows the details. -->
+            <div class="inc-grid" data-testid="queue-new">
+              <IncidentCard
+                v-for="incident in visibleIncidents"
+                :key="incident._id"
+                :id="`incident-${incident._id}`"
+                :incident="incident"
+                :template="templatesByType[incident.type]"
+                :selected="selectedId === incident._id"
+                @select="selectIncident"
+              />
+            </div>
           </div>
-        </div>
-      </aside>
+        </aside>
+      </Transition>
+
+      <!-- FOCUS CARD: shown while the menu is collapsed and an incident is selected. "Incidents" brings the menu back;
+           X unselects the incident and zooms out (same as tapping the map). -->
+      <IncidentFocusCard
+        :incident="panelOpen ? null : selectedIncident"
+        :template="selectedIncident ? templatesByType[selectedIncident.type] : null"
+        @list="panelOpen = true"
+        @clear="clearSelection"
+        @acknowledge="onAcknowledge"
+        @resolve="onResolve"
+      />
+
+      <!-- Temporary status popup (errors, confirmations), same component as the Allocation board -->
+      <MapNotice :notice="popup" @close="dismissPopup" />
+
+      <!-- Custom prompt for the resolve note (replaces the browser's prompt()) -->
+      <ConfirmDialog :dialog="confirmDialog" @answer="answerConfirm" />
     </div>
   </div>
 </template>
 
 <style scoped>
-/* ===== STYLES (scoped: they only affect this page). They mirror the Allocation board's panel. ===== */
+/* ===== STYLES (scoped: they only affect this page). They mirror the Allocation board's menu. ===== */
 
-/* The search box never grows wider than 24rem (inside the panel it fills the row) */
+/* The search box never grows wider than 24rem (inside the menu it fills the row) */
 .search-box {
   max-width: 24rem;
 }
@@ -459,43 +512,37 @@ onUnmounted(() => {
   max-width: none;
 }
 
-/* Brief highlight (a blue outline) on the card a pin click just opened; removed after about 1.2 seconds by the script.
-   Scoped styles also reach the root element of a child component, which is why this works on IncidentCard. */
-.inc-flash {
-  box-shadow: 0 0 0 3px var(--bs-primary);
+/* Incident cards in the menu: a responsive grid */
+.inc-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: 8px;
+  padding: 5px;
 }
 
-/* THE FLOATING PANEL. Over the full-screen map: a card on the left for tablet/desktop, a bottom sheet on phones.
+/* THE MENU (incident list): covers the whole map area under the navbar, like the chat window on phones.
    It is a flex column: the header stays put and only the list inside (.inc-panel-scroll) scrolls.
-   Widths: 340px on tablet (this rule), 420px on desktop and wider (the 992px rule below), full width on phones.
-   If you change a width here, change the same number in fitPadding() in the script. */
+   The side padding keeps the content in a readable column (max 1100px) on wide screens. */
 .inc-panel {
   position: absolute;
-  z-index: 1100; /* above Leaflet's own layers (they go up to 1000) */
-  top: 12px;
-  left: 12px;
-  bottom: 12px;
-  width: min(340px, calc(100% - 24px)); /* tablet default; desktop widens it below */
+  inset: 0;
+  z-index: 1100; /* above Leaflet's own layers (they go up to 1000) and the focus card */
   display: flex;
   flex-direction: column;
   background: var(--hw-surface);
   color: var(--hw-text);
-  border-radius: var(--hw-radius);
-  box-shadow: var(--hw-shadow);
-  overflow: hidden;
 }
-/* Top part of the panel (title, messages, chips, filters): never shrinks or scrolls away */
 .inc-panel-head {
-  flex: 0 0 auto;
-  padding: 12px 12px 8px;
+  flex: 0 0 auto; /* title and filters never shrink or scroll away */
+  padding: 12px max(12px, calc((100% - 1100px) / 2)) 8px;
 }
-/* Bottom part of the panel: the list of cards */
 .inc-panel-scroll {
   flex: 1 1 auto;
   min-height: 0; /* lets the flex child scroll instead of growing */
   overflow-y: auto;
-  padding: 0 12px 12px;
+  padding: 0 max(12px, calc((100% - 1100px) / 2)) 12px;
 }
+
 /* Chip captions are small so the three chips stay tidy on phones */
 .inc-chips .chip-label {
   font-size: 0.7rem;
@@ -507,7 +554,7 @@ onUnmounted(() => {
     font-size: 0.75rem; /* tablet and desktop */
   }
 }
-/* The stat chips are buttons now: keep the card look, add a pointer, and ring the pressed one (same ring as a selected card) */
+/* The stat chips are buttons: keep the card look, add a pointer, and ring the pressed one */
 .stat-btn {
   border: 0;
   cursor: pointer;
@@ -521,13 +568,7 @@ onUnmounted(() => {
   box-shadow: 0 0 0 2px var(--bs-primary);
 }
 
-/* Hide-panel button in the panel's top-right corner, and the button that brings the panel back */
-.inc-hide {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  z-index: 1;
-}
+/* Button that brings the menu back (only shown when the menu is hidden and nothing is selected) */
 .inc-reopen {
   position: absolute;
   z-index: 1100;
@@ -535,33 +576,39 @@ onUnmounted(() => {
   left: 12px;
 }
 
-/* The default zoom buttons sit top-left, which is under the panel: move them to the top-right */
-.inc-stage :deep(.leaflet-top.leaflet-left) {
-  left: auto;
-  right: 0;
+/* Pill that shows / hides the resolved pins: mirrors .inc-reopen on the right so both sit on the same line */
+.inc-resolved-pill {
+  position: absolute;
+  z-index: 1100;
+  top: 12px;
+  right: 12px;
 }
 
-/* Desktop (992px and wider): a wider panel (keep in step with fitPadding() in the script) */
-@media (min-width: 992px) {
-  .inc-panel {
-    width: min(420px, calc(100% - 24px));
-  }
-}
-
-/* PHONES (under 768px): the panel becomes a bottom sheet taking 55% of the screen height, and the map's
-   bottom controls (the OneMap credit) ride above it. 55vh must match fitPadding() in the script. */
+/* PHONES (under 768px): lift the map's bottom controls (zoom buttons, OneMap credit) above the focus card's bottom
+   sheet (45vh, see IncidentFocusCard.vue) while it is showing. */
 @media (max-width: 767.98px) {
-  .inc-stage.sheet-open {
-    --map-inset-bottom: 55vh; /* lift the credit above the sheet only while the sheet is open */
+  .inc-stage.focus-open {
+    --map-inset-bottom: 45vh;
   }
-  .inc-panel {
-    top: auto;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    width: auto;
-    height: 55vh;
-    border-radius: var(--hw-radius) var(--hw-radius) 0 0;
+}
+
+/* OPEN / CLOSE ANIMATION: the menu fades and slides up a little. Short (0.2s) and switched off for people who
+   turned animations off in their system settings. */
+.inc-panel-fade-enter-active,
+.inc-panel-fade-leave-active {
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
+}
+.inc-panel-fade-enter-from,
+.inc-panel-fade-leave-to {
+  opacity: 0;
+  transform: translateY(12px);
+}
+@media (prefers-reduced-motion: reduce) {
+  .inc-panel-fade-enter-active,
+  .inc-panel-fade-leave-active {
+    transition: none;
   }
 }
 </style>
