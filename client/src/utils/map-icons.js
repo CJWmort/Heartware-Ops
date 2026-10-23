@@ -66,6 +66,23 @@ export function createRouteLabelIcon(minutes) {
   })
 }
 
+// Round pin for an incident (Incident Queue): a solid-colour badge with the incident type's icon, styled like createVolIcon.
+//   icon     : a Bootstrap icon class, e.g. 'bi-exclamation-circle-fill'
+//   severity : 'high' | 'medium' | 'low'  -> red / amber / blue
+//   status   : 'resolved' always shows green, whatever the severity; 'new' (not acknowledged yet) makes the pin pulse
+//   selected : true adds a ring around the pin (the incident chosen in the list)
+// The colours live in src/assets/map-ui.css (.incident-pin).
+export function createIncidentIcon({ icon, severity, status, selected = false }) {
+  const colour = status === 'resolved' ? 'severity-resolved' : `severity-${severity}`
+  return L.divIcon({
+    className: `incident-pin ${colour}${status === 'new' ? ' is-new' : ''}${selected ? ' is-selected' : ''}`, // is-new = not acknowledged yet: the pin pulses
+    html: `<i class="bi ${icon}"></i>`,
+    iconSize: [34, 34], // same size as the volunteer badge
+    iconAnchor: [17, 17],
+    tooltipAnchor: [0, -18], // lifts the hover card above the pin
+  })
+}
+
 /* ---------------------------- tooltips --------------------------- */
 
 // Tooltip card: icon badge + title. Built with the DOM so names can't inject HTML.

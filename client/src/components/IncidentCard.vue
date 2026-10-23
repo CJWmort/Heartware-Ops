@@ -9,6 +9,9 @@ const props = defineProps({
 })
 
 // 2. EMITS – what the card tells the page ("this button was clicked")
+//    select      : the card itself was clicked (or Enter was pressed on it): the page zooms the map to this incident
+//    acknowledge : the Acknowledge button was clicked
+//    resolve     : the Resolve button was clicked
 defineEmits(['select', 'acknowledge', 'resolve'])
 
 // 3. label
@@ -51,9 +54,16 @@ function formatDateTime(date) {
 
 <template>
   <!-- 8. TEMPLATE – how ONE card looks -->
+  <!-- The whole card is clickable: it tells the page "select" (the admin page then zooms the map to this incident).
+       tabindex + @keydown.enter make it work with the keyboard too. is-selected draws a ring around the chosen card.
+       The two buttons below use @click.stop so pressing them does not also select the card. -->
   <div
-    class="card card-hw border-start border-5"
+    class="card card-hw border-start border-5 incident-card"
+    tabindex="0"
+    @click="$emit('select', incident)"
+    @keydown.enter.self="$emit('select', incident)"
     :class="{
+      'is-selected': selected,
       'border-danger': incident.status !== 'resolved' && incident.severity === 'high',
       'border-warning': incident.status !== 'resolved' && incident.severity === 'medium',
       'border-primary': incident.status !== 'resolved' && incident.severity === 'low',
@@ -73,7 +83,7 @@ function formatDateTime(date) {
         v-if="incident.status === 'new'"
         class="btn btn-sm btn-outline-primary"
         data-testid="incident-ack"
-        @click="$emit('acknowledge', incident)"
+        @click.stop="$emit('acknowledge', incident)"
       >
         Acknowledge
       </button>
@@ -81,10 +91,21 @@ function formatDateTime(date) {
         v-if="incident.status === 'acknowledged'"
         class="btn btn-sm btn-success"
         data-testid="incident-resolve"
-        @click="$emit('resolve', incident)"
+        @click.stop="$emit('resolve', incident)"
       >
         Resolve
       </button>
     </div>
   </div>
 </template>
+
+<style scoped>
+/* The card can be clicked to select it */
+.incident-card {
+  cursor: pointer;
+}
+/* Ring around the selected card (the map pin gets a matching ring) */
+.incident-card.is-selected {
+  box-shadow: 0 0 0 2px var(--bs-primary);
+}
+</style>
