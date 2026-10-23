@@ -2,6 +2,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { useZoneEventsStore } from '@/services/zone-events'
+import { clearSavedShow } from '@/services/selected-show'
 import axios from 'axios'
 
 // Function used to create a global state management store in 'Pinia'
@@ -20,6 +21,7 @@ export const useAuthStore = defineStore('auth', () => {
     const res = await axios.post('/api/users/login', { email, password })
     user.value = res.data
     ready.value = true
+    clearSavedShow() // a fresh login never inherits someone else's show choice
     useZoneEventsStore().setOwner(user.value._id) // the history belongs to whoever just logged in
     return user.value
   }
@@ -46,6 +48,7 @@ export const useAuthStore = defineStore('auth', () => {
   async function logout() {
     user.value = null
     useZoneEventsStore().clear()
+    clearSavedShow() // the next person to log in starts fresh
     try {
       await axios.post('/api/users/logout')
     } catch (err) {

@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import BaseMap from '@/components/BaseMap.vue'
+import { getSavedShow, saveShow } from '@/services/selected-show'
 import MapLoading from '@/components/MapLoading.vue'
 import MapNotice from '@/components/MapNotice.vue'
 import axios from 'axios'
@@ -52,6 +53,7 @@ const activeMode = computed(() => MODES.find((m) => m.key === travelMode.value))
 const assignments = ref([]) // accepted shows: [{ show, school: { name, p5Classes } | null }]
 const assignStatus = ref('loading') // 'loading' | 'ready' | 'error'
 const selectedShow = ref('') // the show whose school is displayed
+watch(selectedShow, (s) => s && saveShow(s)) // remember the pick for this session
 
 const currentAssignment = computed(
   () => assignments.value.find((a) => a.show === selectedShow.value) ?? null,
@@ -118,7 +120,9 @@ async function loadAssignments() {
     assignments.value = res.data
       .filter((a) => a.status === 'Accepted')
       .sort((a, b) => a.show.localeCompare(b.show, undefined, { numeric: true }))
-    selectedShow.value = assignments.value[0]?.show ?? ''
+    // reopen on the show picked earlier this session if the volunteer has accepted it, else the first one
+    const saved = getSavedShow()
+    selectedShow.value = assignments.value.some((a) => a.show === saved) ? saved : (assignments.value[0]?.show ?? '')
     assignStatus.value = 'ready'
   } catch {
     assignStatus.value = 'error'

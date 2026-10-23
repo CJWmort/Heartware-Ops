@@ -30,6 +30,7 @@
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import axios from 'axios'
 import BaseMap from '@/components/BaseMap.vue'
+import { getSavedShow, saveShow } from '@/services/selected-show'
 import { createSchoolIcon, createVolIcon, volTip, schoolTip, bindTip } from '@/utils/map-icons'
 
 // ---------------------------------------------------------------------------------------------------
@@ -43,23 +44,16 @@ import { createSchoolIcon, createVolIcon, volTip, schoolTip, bindTip } from '@/u
 const assignments = ref([])
 // The four shows an admin can switch between (the dropdown is built from this list).
 const shows = ['NE Show 1', 'NE Show 2', 'NE Show 3', 'NE Show 4']
-const selectedShow = ref('NE Show 1') // the show currently displayed
-const searchbar = ref('') // text in the search box
-const runningAlloc = ref(false) // true while Allocate / Reset is running (disables those buttons)
-const errorMessage = ref('') // red box at the top of the panel; shown instead of a misleading "There are no assignments."
-const publishing = ref(false) // true while Publish is running (disables the Publish button)
-const notice = ref('') // green confirmation box, e.g. after publishing
-
-// ---------------------------------------------------------------------------------------------------
-// 2. DERIVED DATA (computed: rebuilt automatically whenever `assignments` changes)
-// ---------------------------------------------------------------------------------------------------
-
-// Reshapes the flat `assignments` list into something easy to display.
-// Result looks like:
-//   { 'NE Show 1': { schools: [{ ...school, volunteers: [ {...volunteer, status, distance, published} ] }],
-//                    unassigned: [ {...volunteer, assignmentId, status, published} ] },
-//     'NE Show 2': { ... }, ... }
-// Only shows that have at least one assignment appear as keys (so the template checks groupedAssignments[selectedShow]).
+const selectedShow = ref(shows.includes(getSavedShow()) ? getSavedShow() : 'NE Show 1') // remembered for this session
+watch(selectedShow, saveShow)
+const searchbar = ref('')
+const runningAlloc = ref(false)
+const errorMessage = ref('') // NEW: shown in a red box, so a failed load/run no longer looks like "There are no assignments."
+const publishing = ref(false) // NEW: disables the Publish button while the request is running
+const notice = ref('') // NEW: green confirmation after publishing
+// Reshapes the flat `assignments` list into something easy to display. A "computed" re-runs by itself
+// whenever `assignments` changes, so the cards, chips and map update automatically.
+// Result looks like: { 'NE Show 1': { schools: [{ ...school, volunteers: [...] }], unassigned: [...] }, ... }
 const groupedAssignments = computed(() => {
   // Step 1: build { show: { schools: [...], unassigned: [...] } } by walking the flat list once
   const byShow = {}
