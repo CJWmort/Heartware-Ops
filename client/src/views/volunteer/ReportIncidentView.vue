@@ -66,7 +66,7 @@ async function submitReport() {
   try {
     const template = templates.value.find((template) => template.type === selectedType.value)
 
-    // const { slotId, school, busNo, type, severity, note, lat, lng } = req.body;
+    // const { slotId, school, type, severity, note, lat, lng } = req.body;
     const payload = {
       type: selectedType.value,
       severity: template?.defaultSeverity || 'medium', //either takes defaultSeverity or baseline medium

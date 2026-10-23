@@ -31,5 +31,6 @@ const IncidentSchema = new mongoose.Schema(
 const Incident = mongoose.model("Incident", IncidentSchema, "incidents");
 
 exports.create = (data) => Incident.create(data);
-exports.retrieveAll = (filter) => Incident.find(filter).sort({ createdAt: -1 });
+exports.retrieveAll = (filter) =>
+  Incident.find(filter).sort({ createdAt: -1 }).populate("volunteer", "name"); // swaps the volunteer's ID for { _id, name }; "name" = only fetch that field (keeps emails etc. out of the response);
 exports.retrieveById = (id) => Incident.findById(id);
