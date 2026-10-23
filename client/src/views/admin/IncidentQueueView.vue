@@ -16,8 +16,9 @@
 //       - click a CARD  -> that incident becomes the selected one and the map zooms to its pin
 //         (click the same card again to deselect and zoom back out);
 //       - click a PIN   -> the panel opens, the card scrolls into view and flashes.
-//  3. The search box and the "Needs action" switch filter the CARD LIST only (visibleIncidents).
-//     All pins stay on the map, so a pin click may need to clear the filters first (see selectIncident).
+//  3. The search box and the three stat buttons (New / Acknowledged / Resolved) filter the CARD LIST only (visibleIncidents).
+//     The map shows a pin for every New / Acknowledged incident (a Resolved one only while its card is selected), whatever the
+//     filters say, so a pin click may need to clear the filters first (see selectIncident).
 //  4. Live updates: the server tells admins about new / changed incidents over a socket, and the page re-loads
 //     the list. The map is only fitted to the pins the FIRST time, so a live update never makes the map jump.
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
@@ -36,7 +37,7 @@ const selectedId = ref(null) // _id of the selected incident (null = none); its 
 const highlightedId = ref(null) // the card that flashes briefly after a pin click
 const errorMessage = ref('') // red box at the top of the panel
 const searchbar = ref('') // text in the search box
-const needsAction = ref(false) // switch: true = hide resolved incidents from the list
+const statusFilter = ref('') // which stat button is pressed: 'new' | 'acknowledged' | 'resolved' | '' (empty = show all)
 // The panel starts open on tablet/desktop (768px and wider) and hidden on phones, where it covers half the screen.
 const panelOpen = ref(window.matchMedia('(min-width: 768px)').matches)
 
@@ -59,17 +60,22 @@ const stats = computed(() => {
 })
 // The same numbers as a list, so the template can draw the chips with one v-for.
 const statChips = computed(() => [
-  { label: 'New', value: stats.value.new },
-  { label: 'Acknowledged', value: stats.value.acknowledged },
-  { label: 'Resolved', value: stats.value.resolved },
+  { key: 'new', label: 'New', value: stats.value.new }, // key = the incident.status this button filters by
+  { key: 'acknowledged', label: 'Acknowledged', value: stats.value.acknowledged },
+  { key: 'resolved', label: 'Resolved', value: stats.value.resolved },
 ])
 
-// The incidents whose cards are listed: the search AND the "Needs action" switch both apply.
+// Called when a stat button is clicked: pressing the active one again turns the filter off.
+function toggleStatus(key) {
+  statusFilter.value = statusFilter.value === key ? '' : key // same button again -> '' (show all)
+}
+
+// The incidents whose cards are listed: the search AND the pressed stat button both apply.
 // The search looks at the school name, the incident type name and the reporter's note.
 const visibleIncidents = computed(() => {
   const q = searchbar.value.trim().toUpperCase() // upper-case both sides so capitals are ignored
   return incidents.value.filter((incident) => {
-    if (needsAction.value && incident.status === 'resolved') return false // switch on: hide resolved
+    if (statusFilter.value && incident.status !== statusFilter.value) return false // a button is pressed: keep only that status
     if (!q) return true // empty search matches everything
     return (
       (incident.school || '').toUpperCase().includes(q) ||
@@ -119,8 +125,9 @@ function fitPadding() {
 // Every incident that has usable coordinates, as [lat, lng] pairs.
 function locatedPoints() {
   return incidents.value
+    .filter((i) => i.status !== 'resolved') // no pin by default, so they must not stretch the first map view
     .filter((i) => typeof i.location?.lat === 'number' && typeof i.location?.lng === 'number')
-    .map((i) => [i.location.lat, i.location.lng])
+    .map((i) => [i.location.lat, i.location.lng]) // Leaflet wants [lat, lng] pairs, not whole incidents
 }
 
 // Zoom out so EVERY pin is visible, and remember that view as the "overview" (homeView).
@@ -155,13 +162,15 @@ function toneOf(incident) {
   return { high: 'offline', medium: 'stale', low: 'me' }[incident.severity] || 'me'
 }
 
-// Draws one pin per incident (all of them, whatever the list filters say).
+// Draws one pin per incident that is not resolved (plus the selected one, even if resolved), whatever the list filters say.
 // Runs when the incidents change or the selection changes (so the selected pin gets its ring).
 function plotIncidents() {
   if (!mapRef || !leafletRef) return // map not ready yet: onMapReady() calls this again
   incidentLayer.clearLayers() // remove the old pins first so they don't pile up
 
   incidents.value.forEach((incident) => {
+    // Resolved incidents have no pin, unless that incident is the selected one: clicking its card shows where it happened
+    if (incident.status === 'resolved' && incident._id !== selectedId.value) return
     const { lat, lng } = incident.location || {}
     if (typeof lat !== 'number' || typeof lng !== 'number') return // no usable location: no pin
 
@@ -214,10 +223,10 @@ function onSelect(incident) {
 // A PIN was clicked: it never deselects. It selects the incident, zooms to it, scrolls the list to its card
 // and flashes the card.
 function selectIncident(incident) {
-  // All pins are on the map, but the list may be filtered. If this card is hidden by a filter, clear the
+  // The pins ignore the list filters, but the list may be filtered. If this card is hidden by a filter, clear the
   // filters first, otherwise there would be no card to show.
   if (!visibleIncidents.value.some((i) => i._id === incident._id)) {
-    needsAction.value = false
+    statusFilter.value = '' // clear the pressed button so the clicked pin's card can show
     searchbar.value = ''
   }
   panelOpen.value = true // the panel may be hidden: bring it back
@@ -225,7 +234,9 @@ function selectIncident(incident) {
   focusIncident(incident)
   // nextTick = wait until Vue has drawn the card (it may have just come back after clearing a filter), then scroll to it
   nextTick(() =>
-    document.getElementById(`incident-${incident._id}`)?.scrollIntoView({ block: 'start', behavior: 'auto' }),
+    document
+      .getElementById(`incident-${incident._id}`)
+      ?.scrollIntoView({ block: 'start', behavior: 'auto' }),
   )
   highlightedId.value = incident._id // flash the card for about 1.2 seconds
   setTimeout(() => {
@@ -298,7 +309,9 @@ onMounted(async () => {
   try {
     // Both at once: the pins need the templates (names + icons) and the incidents
     const [list, templates] = await Promise.all([listIncidents(), listTemplates()])
-    templatesByType.value = Object.fromEntries(templates.map((template) => [template.type, template]))
+    templatesByType.value = Object.fromEntries(
+      templates.map((template) => [template.type, template]),
+    )
     incidents.value = list
     plotIncidents()
   } catch (error) {
@@ -362,18 +375,27 @@ onUnmounted(() => {
             <p class="small text-muted-hw mb-0">Alerts will appear here.</p>
           </div>
 
-          <!-- Stat chips: how many incidents are New, Acknowledged and Resolved. Drawn with one v-for over statChips. -->
+          <!-- Stat chips: how many incidents are New, Acknowledged and Resolved. Drawn with one v-for over statChips; each one is a button that filters the list. -->
           <div class="row g-1 mb-2 inc-chips">
-            <div v-for="chip in statChips" :key="chip.label" class="col-4">
-              <div class="card-hw py-1 px-0 text-center">
+            <div v-for="chip in statChips" :key="chip.key" class="col-4">
+              <!-- A real <button> so it works with keyboard and screen readers.
+                   aria-pressed tells them whether the filter is on; the is-active class draws the ring. -->
+              <button
+                type="button"
+                class="stat-btn card-hw py-1 px-0 text-center w-100"
+                :class="{ 'is-active': statusFilter === chip.key }"
+                :aria-pressed="statusFilter === chip.key"
+                :data-testid="`stat-${chip.key}`"
+                @click="toggleStatus(chip.key)"
+              >
                 <div class="fs-6 fw-semibold">{{ chip.value }}</div>
                 <div class="chip-label text-muted-hw">{{ chip.label }}</div>
-              </div>
+              </button>
             </div>
           </div>
 
-          <!-- Search box + "Needs action" switch. v-model keeps each control in sync with searchbar / needsAction
-               in the script, and the card list filters itself (see visibleIncidents). -->
+          <!-- Search box. v-model keeps it in sync with searchbar in the script, and the card list filters
+               itself (see visibleIncidents). -->
           <div class="d-flex flex-wrap align-items-center gap-2 mb-0">
             <input
               type="text"
@@ -381,33 +403,23 @@ onUnmounted(() => {
               placeholder="Search school, type or note"
               v-model="searchbar"
             />
-            <div class="form-check form-switch mb-0">
-              <input
-                class="form-check-input"
-                type="checkbox"
-                role="switch"
-                id="needsAction"
-                v-model="needsAction"
-              />
-              <label class="form-check-label" for="needsAction">Needs action</label>
-            </div>
           </div>
         </div>
 
         <!-- BOTTOM PART of the panel: the only part that scrolls. -->
         <div class="inc-panel-scroll">
-          <!-- Nothing to list: say why -->
+          <!-- Nothing to list: say why (with a stat button pressed it reads e.g. "No resolved incidents.") -->
           <p v-if="visibleIncidents.length === 0" class="text-muted-hw">
             {{
               incidents.length === 0
                 ? 'No incidents have been reported yet.'
-                : needsAction && !searchbar.trim()
-                  ? 'Nothing needs action.'
+                : statusFilter && !searchbar.trim()
+                  ? `No ${statusFilter} incidents.`
                   : 'No incidents match.'
             }}
           </p>
 
-          <!-- One card per incident in visibleIncidents (so the search and the switch apply).
+          <!-- One card per incident in visibleIncidents (so the search and the stat buttons apply).
                :id lets selectIncident() (a pin click) scroll to the card; the id lands on the card's root element.
                inc-flash is the brief highlight after a pin click. The card itself decides how it looks
                (components/IncidentCard.vue); here we only listen to what it says: select, acknowledge, resolve. -->
@@ -434,7 +446,7 @@ onUnmounted(() => {
 <style scoped>
 /* ===== STYLES (scoped: they only affect this page). They mirror the Allocation board's panel. ===== */
 
-/* The search box never grows wider than 24rem (inside the panel it shares its row with the switch) */
+/* The search box never grows wider than 24rem (inside the panel it fills the row) */
 .search-box {
   max-width: 24rem;
 }
@@ -490,6 +502,19 @@ onUnmounted(() => {
   .inc-chips .chip-label {
     font-size: 0.75rem; /* tablet and desktop */
   }
+}
+/* The stat chips are buttons now: keep the card look, add a pointer, and ring the pressed one (same ring as a selected card) */
+.stat-btn {
+  border: 0;
+  cursor: pointer;
+  color: inherit;
+}
+.stat-btn:focus-visible {
+  outline: 2px solid var(--bs-primary); /* keyboard focus ring */
+  outline-offset: 2px;
+}
+.stat-btn.is-active {
+  box-shadow: 0 0 0 2px var(--bs-primary);
 }
 
 /* Hide-panel button in the panel's top-right corner, and the button that brings the panel back */

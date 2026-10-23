@@ -20,3 +20,15 @@ export function clockTime(date) {
     timeZone: 'Asia/Singapore',
   })
 }
+
+export function formatDateTime(date) {
+  return new Date(date).toLocaleString('en-SG', {
+    day: 'numeric',
+    month: 'short',
+    year: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    timeZone: 'Asia/Singapore',
+  })
+}
