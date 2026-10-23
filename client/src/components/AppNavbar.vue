@@ -33,6 +33,9 @@ function onDocumentPointerDown(e) {
   const path = e.composedPath()
   if (toggler.value && path.includes(toggler.value)) return
   if (path.some((el) => el.tagName === 'A')) return
+  // Presses inside the menu (e.g. the Log Out button) are handled by onMenuClick AFTER the click fires.
+  // Collapsing on pointerdown would shrink the button mid-press, so the click never lands and nothing happens.
+  if (menu.value && path.includes(menu.value)) return
   closeMenu()
 }
 onMounted(() => document.addEventListener('pointerdown', onDocumentPointerDown))

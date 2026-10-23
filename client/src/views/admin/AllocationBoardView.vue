@@ -6,8 +6,9 @@
 //
 // WHAT THIS PAGE IS FOR
 // The admin matches volunteers to schools for each National Education (NE) show, reviews the result,
-// then publishes it so volunteers can accept or decline. The page is one full-screen map with a floating
-// panel on top (a left-hand card on tablet/desktop, a bottom sheet on phones).
+// then publishes it so volunteers can accept or decline. The page is one full-screen map. The school list
+// (the "menu") opens full-screen on top of it; choosing a school closes the menu and zooms the map to that school,
+// and a small card shows that school's volunteers.
 //
 // HOW THE DATA FLOWS (read this first)
 //  1. loadData() asks the server for ALL assignments: one row per volunteer, saying which school (if any),
@@ -20,7 +21,7 @@
 //     volunteers cannot see it yet. "Publish" makes it visible so they can accept or decline.
 //     "Reset" (in the ... menu) erases everything and starts again.
 //  5. The map and the school cards are linked: the map always shows every school as a pin, and shows the
-//     volunteers (coloured pins + lines) for ONE school only: the card opened last (focusedSchoolId).
+//     volunteers (coloured pins + lines) for ONE school only: the school chosen last (focusedSchoolId).
 //  6. The page re-loads the data on a timer (see AUTO-REFRESH at the bottom), so the admin sees volunteers'
 //     accepts / declines without refreshing the browser.
 //
@@ -30,7 +31,10 @@
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import axios from 'axios'
 import BaseMap from '@/components/BaseMap.vue'
+import MapNotice from '@/components/MapNotice.vue'
+import ConfirmDialog from '@/components/ConfirmDialog.vue'
 import { getSavedShow, saveShow } from '@/services/selected-show'
+import { useChatStore } from '@/services/chat'
 import { createSchoolIcon, createVolIcon, volTip, schoolTip, bindTip } from '@/utils/map-icons'
 
 // ---------------------------------------------------------------------------------------------------
@@ -46,11 +50,65 @@ const assignments = ref([])
 const shows = ['NE Show 1', 'NE Show 2', 'NE Show 3', 'NE Show 4']
 const selectedShow = ref(shows.includes(getSavedShow()) ? getSavedShow() : 'NE Show 1') // remembered for this session
 watch(selectedShow, saveShow)
+
+// Custom show dropdown: open/closed state, the wrapper element (for outside-click detection) and the handlers
+const showMenuOpen = ref(false)
+const showEl = ref(null)
+function chooseShow(show) {
+  showMenuOpen.value = false
+  selectedShow.value = show
+}
+// Close the menu when the admin taps anywhere outside it
+function onDocPointerDown(e) {
+  if (showMenuOpen.value && showEl.value && !showEl.value.contains(e.target)) showMenuOpen.value = false
+}
 const searchbar = ref('')
 const runningAlloc = ref(false)
-const errorMessage = ref('') // NEW: shown in a red box, so a failed load/run no longer looks like "There are no assignments."
-const publishing = ref(false) // NEW: disables the Publish button while the request is running
-const notice = ref('') // NEW: green confirmation after publishing
+const publishing = ref(false) // disables the Publish button while the request is running
+
+// STATUS POPUP (same MapNotice popup as TrackingView). Messages are temporary: they disappear after a few seconds,
+// or when the close button is pressed. Running states ("Allocating...", "Publishing...") stay until the request ends.
+const popup = ref(null) // { type: 'error' | 'info', icon, title, text } or null
+let popupTimer = null
+function showPopup(type, title, text, ms = 6000) {
+  clearTimeout(popupTimer)
+  popup.value = {
+    type,
+    icon: type === 'error' ? 'bi-exclamation-triangle-fill' : 'bi-check-circle-fill',
+    title,
+    text,
+  }
+  popupTimer = setTimeout(() => (popup.value = null), ms)
+}
+function dismissPopup() {
+  clearTimeout(popupTimer)
+  popup.value = null
+}
+// CONFIRM DIALOG (custom card instead of the browser's confirm()). askConfirm() returns a promise that resolves to
+// true (OK) or false (Cancel), so callers can simply write: if (!(await askConfirm({...}))) return
+const confirmDialog = ref(null) // the card's content, or null while closed
+let confirmResolve = null
+function askConfirm(options) {
+  return new Promise((resolve) => {
+    confirmResolve = resolve
+    confirmDialog.value = options
+  })
+}
+function answerConfirm(ok) {
+  confirmDialog.value = null
+  confirmResolve?.(ok)
+  confirmResolve = null
+}
+// What the popup shows: a running request wins over any finished message.
+const popupNotice = computed(() => {
+  if (runningAlloc.value) {
+    return { type: 'info', icon: 'bi-hourglass-split', title: 'Allocating...', text: 'Matching volunteers to schools.' }
+  }
+  if (publishing.value) {
+    return { type: 'info', icon: 'bi-hourglass-split', title: 'Publishing...', text: `Publishing ${selectedShow.value}.` }
+  }
+  return popup.value
+})
 // Reshapes the flat `assignments` list into something easy to display. A "computed" re-runs by itself
 // whenever `assignments` changes, so the cards, chips and map update automatically.
 // Result looks like: { 'NE Show 1': { schools: [{ ...school, volunteers: [...] }], unassigned: [...] }, ... }
@@ -110,6 +168,16 @@ const groupedAssignments = computed(() => {
 // Base address of the backend API (the dev server forwards /api to Express).
 const API_URL = '/api/'
 
+// Chat with a volunteer (same behaviour as the volunteer name on the incident card).
+// toggle() opens the chat panel; it is only called while the panel is closed, otherwise it would close it.
+// selectThread() then jumps straight into this volunteer's one-to-one chat.
+const chat = useChatStore()
+async function openChat(volunteer) {
+  if (!volunteer?._id) return
+  if (!chat.isOpen) chat.toggle()
+  await chat.selectThread(volunteer._id)
+}
+
 // How many places a school has filled. Declined / Withdrawn volunteers no longer take a place,
 // so they are not counted in "Capacity x/y" (otherwise a school would look full while it has an empty place).
 // Pending DOES count: a place is reserved while we wait for the answer.
@@ -135,10 +203,7 @@ const stats = computed(() => {
 const statChips = computed(() => [
   { label: 'Schools', value: stats.value.schools },
   { label: 'Accepted', value: stats.value.Accepted },
-  { label: 'Pending', value: stats.value.Pending },
-  { label: 'Declined', value: stats.value.Declined },
-  { label: 'Withdrawn', value: stats.value.Withdrawn },
-  { label: 'Unassigned', value: stats.value.unassigned },
+  { label: 'Pending', value: stats.value.Pending }
 ])
 
 // ---------------------------------------------------------------------------------------------------
@@ -168,20 +233,6 @@ const visibleSchools = computed(() => {
   )
 })
 
-// When the search matches a VOLUNTEER inside a school, open that school's card so the person is visible.
-// Schools matched by their own name stay closed. It only opens cards, never closes them.
-watch(searchbar, (value) => {
-  const q = value.trim().toUpperCase()
-  if (!q) return // search cleared: leave the cards as they are
-  for (const s of visibleSchools.value) {
-    const nameMatch = s.name.toUpperCase().includes(q)
-    const volunteerMatch = s.volunteers.some(
-      (v) => (v.name || '').toUpperCase().includes(q) || String(v.phone || '').includes(q),
-    )
-    if (volunteerMatch && !nameMatch) openSchools.value[s._id] = true
-  }
-})
-
 // Capacity bar under each school's name: width in %, and colour (green = full, red = empty, amber = in between).
 function capacityPercent(school) {
   return school.p5Classes
@@ -195,28 +246,25 @@ function capacityClass(school) {
 }
 
 // ---------------------------------------------------------------------------------------------------
-// 4. CARDS <-> MAP: three pieces of state that work together
-//   openSchools     : which cards are expanded in the LIST (any number can be open). Only controls the list.
-//   focusedSchoolId : the ONE school whose volunteers are drawn on the MAP (the card opened most recently).
-//                     null means "overview": only the school pins are shown.
-//   openOrder       : the order cards were opened in, so closing the focused card can fall back to the
-//                     previous one that is still open instead of jumping straight to the overview.
-// Why separate? "Expand all" opens 45 cards, but drawing 260+ volunteers at once would clutter the map.
+// 4. MENU <-> MAP
+//   panelOpen       : true = the full-screen school list (the "menu") covers the map; false = the map is visible.
+//   focusedSchoolId : the ONE school the map is zoomed to: its volunteers are drawn, its pin keeps the full indigo
+//                     and its details show in the focus card. null = overview (only the school pins).
+// Choosing a school in the menu (or tapping its pin) closes the menu and focuses that school.
+// Tapping empty map, or the X on the focus card, unfocuses it and zooms back out.
 // ---------------------------------------------------------------------------------------------------
 
-// Which school cards are open: { [schoolId]: true }. Everything starts closed; clicking a school's title toggles it.
-const openSchools = ref({})
+// The menu starts open on every screen size: pick a school first.
+const panelOpen = ref(true)
 // The one school whose volunteers are shown on the map (null = schools only).
 const focusedSchoolId = ref(null)
-// The card that flashes briefly after a map click, so your eye finds it after the list jumps.
-const highlightedId = ref(null)
-// True when every school currently listed is open (decides whether the button says "Expand all" or "Collapse all").
-const allOpen = computed(
+// The focused school with its volunteers (null if none, or if it no longer exists in the selected show).
+const focusedSchool = computed(
   () =>
-    visibleSchools.value.length > 0 && visibleSchools.value.every((s) => openSchools.value[s._id]),
+    groupedAssignments.value[selectedShow.value]?.schools.find(
+      (s) => s._id === focusedSchoolId.value,
+    ) || null,
 )
-// Ids in the order the cards were opened (last = most recent), so closing a card can fall back to the previous one.
-const openOrder = ref([])
 // The Unassigned card starts collapsed; click its header to open it.
 const showUnassigned = ref(false)
 // Unassigned volunteers sorted A–Z by name (change the sort here).
@@ -226,68 +274,21 @@ const sortedUnassigned = computed(() => {
 })
 
 // ---------------------------------------------------------------------------------------------------
-// 5. CARD ACTIONS
+// 5. CHOOSING / UNSELECTING A SCHOOL
 // ---------------------------------------------------------------------------------------------------
 
-// Runs when a school card's header is clicked.
-//  - Opening: remember the order, make this school the map's focus, zoom the map to it.
-//  - Closing the focused card: fall back to the most recently opened card that is still open;
-//    if none are left, clear the focus and zoom back out to the overview.
-//  - Closing a card that is NOT the focused one: the map is left alone.
-// It receives the whole school (not just its id) so the map can zoom to its coordinates.
-function toggleSchool(school) {
-  openSchools.value[school._id] = !openSchools.value[school._id]
-  if (openSchools.value[school._id]) {
-    openOrder.value.push(school._id) // remember the order
-    focusedSchoolId.value = school._id // map focuses on this school
-    focusSchool(school) // opening: zoom to this school
-  } else {
-    openOrder.value = openOrder.value.filter((id) => id !== school._id) // forget it
-    if (focusedSchoolId.value === school._id) {
-      // Closed the focused card -> fall back to the last card still open
-      const prevId = openOrder.value[openOrder.value.length - 1]
-      const prev = visibleSchools.value.find((s) => s._id === prevId)
-      if (prev) {
-        focusedSchoolId.value = prev._id
-        focusSchool(prev)
-      } else {
-        focusedSchoolId.value = null // nothing left open: back to the overview
-        resetMapView()
-      }
-    }
-  }
+// A school card in the menu, or a school PIN on the map, was chosen: close the menu, focus the school, zoom to it.
+function selectSchool(school) {
+  focusedSchoolId.value = school._id // map shows this school's volunteers; the focus card shows its details
+  panelOpen.value = false // collapse the menu so the map is visible
+  focusSchool(school) // zoom to the school + its volunteers
 }
 
-// Runs when a school PIN on the map is clicked (a second way, besides the card, to zoom in on a school).
-// Unlike toggleSchool, it never closes a card: clicking a pin always opens it, makes it the map's focus,
-// zooms to it, scrolls the list to it and flashes it.
-function selectSchool(school) {
-  // The pins show every school, but the list may be filtered (search / "Needs Volunteers"). If this school's
-  // card is hidden by a filter, clear the filters first, otherwise there would be no card to open.
-  if (!visibleSchools.value.some((s) => s._id === school._id)) {
-    needsOnly.value = false
-    searchbar.value = ''
-  }
-  panelOpen.value = true // the panel may be hidden: bring it back so the card can be seen
-  if (!openSchools.value[school._id]) {
-    openSchools.value[school._id] = true
-    openOrder.value.push(school._id) // remember the order, as toggleSchool does
-  }
-  focusedSchoolId.value = school._id // map shows this school's volunteers
-  focusSchool(school) // zoom to the school + its volunteers
-  // Bring the opened card into view in the list. nextTick = wait until Vue has drawn the opened card,
-  // otherwise we would scroll to a card that is still collapsed.
-  nextTick(
-    () =>
-      document
-        .getElementById(`school-${school._id}`)
-        ?.scrollIntoView({ block: 'start', behavior: 'auto' }), // instant jump: smooth scrolling felt awkward
-  )
-  // Flash the card for about 1.2 seconds
-  highlightedId.value = school._id
-  setTimeout(() => {
-    if (highlightedId.value === school._id) highlightedId.value = null // only clear our own flash
-  }, 1200)
+// Unselect the focused school and zoom back out (tap on the map, or the X on the focus card).
+function clearFocus() {
+  if (focusedSchoolId.value === null) return // nothing focused: nothing to undo
+  focusedSchoolId.value = null
+  resetMapView()
 }
 
 // Return to the zoomed-out starting view (the "overview" that fitOverview() saved in homeView).
@@ -298,28 +299,33 @@ function resetMapView() {
   map.setView(homeView.center, homeView.zoom, { animate: true, duration: 0.5 })
 }
 
+// When the search matches a VOLUNTEER inside a school (but not the school's own name), the card lists who matched,
+// so the admin can see why that school is in the results.
+function matchedVolunteers(school) {
+  const q = searchbar.value.trim().toUpperCase()
+  if (!q || school.name.toUpperCase().includes(q)) return []
+  return school.volunteers.filter(
+    (v) => (v.name || '').toUpperCase().includes(q) || String(v.phone || '').includes(q),
+  )
+}
+
 // ---------------------------------------------------------------------------------------------------
-// 6. FLOATING PANEL + MAP SIZING
+// 6. MAP SIZING
 // ---------------------------------------------------------------------------------------------------
 
-// The floating panel can be hidden (button in its corner) to see the whole map.
-// It starts open on tablet/desktop (768px and wider) and hidden on phones, where it would cover half the screen.
-const panelOpen = ref(window.matchMedia('(min-width: 768px)').matches)
-
-// The floating panel covers part of the map, so when fitting the map to some pins we leave that part empty
-// (padding) and the pins land in the visible area. Desktop/tablet: panel on the left (420px / 340px wide).
-// Phones: the panel is a bottom sheet (55% of the screen height). The widths match the CSS at the bottom of this file.
+// While a school is focused, a card covers part of the map (left card on tablet/desktop, 45% bottom sheet on phones),
+// so when fitting the map to a school we leave that part empty (padding) and the pins land in the visible area.
+// The widths match the CSS at the bottom of this file. With no school focused the whole map is free.
 // Returns an options object that Leaflet's fitBounds() understands: [horizontal, vertical] padding in pixels.
 function fitPadding() {
-  const wide = window.matchMedia('(min-width: 768px)').matches // NOTE: not used below (leftover); safe to delete
-  if (!panelOpen.value) return { padding: [30, 30] } // panel hidden: the whole map is free
+  if (focusedSchoolId.value === null) return { padding: [30, 30] } // overview: the whole map is free
   if (window.matchMedia('(min-width: 992px)').matches) {
-    return { paddingTopLeft: [420 + 30, 30], paddingBottomRight: [30, 30] } // desktop: panel 420px
+    return { paddingTopLeft: [420 + 30, 30], paddingBottomRight: [30, 30] } // desktop: card 420px
   }
   if (window.matchMedia('(min-width: 768px)').matches) {
-    return { paddingTopLeft: [340 + 30, 30], paddingBottomRight: [30, 30] } // tablet: panel 340px
+    return { paddingTopLeft: [340 + 30, 30], paddingBottomRight: [30, 30] } // tablet: card 340px
   }
-  return { paddingTopLeft: [30, 30], paddingBottomRight: [30, window.innerHeight * 0.55 + 30] } // phone: sheet 55vh
+  return { paddingTopLeft: [30, 30], paddingBottomRight: [30, window.innerHeight * 0.45 + 30] } // phone: sheet 45vh
 }
 
 // Zoom the map so the school and all of its volunteers are visible (but never closer than zoom level 15).
@@ -327,19 +333,7 @@ function focusSchool(school) {
   if (!map || !L || !school.lat || !school.lng) return // map not ready, or the school has no coordinates
   const pts = [[school.lat, school.lng]]
   for (const v of school.volunteers) if (v.lat && v.lng) pts.push([v.lat, v.lng])
-  map.fitBounds(pts, { ...fitPadding(), maxZoom: 15 }) // padding keeps the pins clear of the floating panel
-}
-
-// Expand all / Collapse all (only schools currently shown, so the search and the "needs volunteers" filter apply).
-// It only changes the LIST. The map stays as the overview; if a school was zoomed in, it zooms back out.
-function setAllSchools(open) {
-  for (const s of visibleSchools.value) openSchools.value[s._id] = open
-  openOrder.value = [] // Expand all / Collapse all forget the opening order
-  // Only touch the map if a school is currently zoomed in; otherwise leave it alone
-  if (focusedSchoolId.value !== null) {
-    focusedSchoolId.value = null
-    resetMapView()
-  }
+  map.fitBounds(pts, { ...fitPadding(), maxZoom: 15 }) // padding keeps the pins clear of the focus card
 }
 
 // One small badge per status for the collapsed card, e.g. "3 Accepted". Statuses with zero volunteers are skipped.
@@ -366,12 +360,12 @@ function statusSummary(school) {
 // The try/catch matters: before it was added, any failure (e.g. 403 when not an admin) left the page saying
 // "There are no assignments." Now the real reason appears in the red box.
 async function loadData(quiet = false) {
-  if (!quiet) errorMessage.value = ''
   try {
     const response = await axios.get(API_URL + 'assignments')
     assignments.value = response.data
   } catch (error) {
-    if (!quiet) errorMessage.value = error.response?.data?.message || 'Could not load assignments.'
+    if (!quiet)
+      showPopup('error', 'Could not load', error.response?.data?.message || 'Could not load assignments.')
   }
 }
 
@@ -381,23 +375,42 @@ async function loadData(quiet = false) {
 //   reset = false: accepted volunteers keep their school, everyone else is matched to the open places.
 //   reset = true : erases EVERYTHING (including accepted) and starts again.
 async function runAllocation(reset = false) {
-  const question = reset
-    ? 'RESET: this erases ALL assignments, including volunteers who already accepted. Continue?'
-    : 'Run allocation? Volunteers who already accepted keep their school; everyone else is matched again.'
-  if (!confirm(question)) return // the run replaces data, so always ask first
+  // the run replaces data, so always ask first
+  const ok = await askConfirm(
+    reset
+      ? {
+          title: 'Reset all assignments?',
+          text: 'This erases ALL assignments, including volunteers who already accepted, and starts again.',
+          confirmText: 'Reset',
+          danger: true,
+        }
+      : {
+          title: 'Run allocation?',
+          text: 'Volunteers who already accepted keep their school; everyone else is matched again.',
+          confirmText: 'Allocate',
+          icon: 'bi-diagram-3-fill',
+        },
+  )
+  if (!ok) return
   runningAlloc.value = true
-  errorMessage.value = ''
-  notice.value = ''
+  dismissPopup()
   try {
     const response = await axios.post(API_URL + 'assignments/run', { reset })
     // The run answers { assignments, skippedShows }: published shows are locked and not re-run
     assignments.value = response.data.assignments
     const skipped = response.data.skippedShows || []
     if (skipped.length > 0) {
-      notice.value = `${skipped.join(', ')} ${skipped.length === 1 ? 'is' : 'are'} published, so ${skipped.length === 1 ? 'it was' : 'they were'} not re-run (open places there are filled automatically). Use Reset to start over.`
+      showPopup(
+        'info',
+        'Allocation done',
+        `${skipped.join(', ')} ${skipped.length === 1 ? 'is' : 'are'} published, so ${skipped.length === 1 ? 'it was' : 'they were'} not re-run (open places there are filled automatically). Use Reset to start over.`,
+        9000,
+      )
+    } else {
+      showPopup('info', reset ? 'Reset done' : 'Allocation done', reset ? 'All assignments were erased.' : 'The allocation is a draft until you publish it.')
     }
   } catch (error) {
-    errorMessage.value = error.response?.data?.message || 'Could not run the allocation.'
+    showPopup('error', 'Allocation failed', error.response?.data?.message || 'Could not run the allocation.')
   } finally {
     runningAlloc.value = false // finally: the button is re-enabled even when the request fails
   }
@@ -416,21 +429,21 @@ const draftCount = computed(() => {
 // "Publish": volunteers only see an allocation after this. It lets the admin review the result first.
 // Afterwards the data is re-loaded so every row shows as published.
 async function publishShow() {
-  if (
-    !confirm(
-      `Publish ${selectedShow.value}? Volunteers will see their school and can accept or decline.`,
-    )
-  )
-    return
+  const ok = await askConfirm({
+    title: `Publish ${selectedShow.value}?`,
+    text: 'Volunteers will see their school and can accept or decline.',
+    confirmText: 'Publish',
+    icon: 'bi-send-fill',
+  })
+  if (!ok) return
   publishing.value = true
-  errorMessage.value = ''
-  notice.value = ''
+  dismissPopup()
   try {
     await axios.post(API_URL + 'assignments/publish', { show: selectedShow.value })
     await loadData() // reload so every row now shows as published
-    notice.value = `${selectedShow.value} is now visible to volunteers.`
+    showPopup('info', 'Published', `${selectedShow.value} is now visible to volunteers.`)
   } catch (error) {
-    errorMessage.value = error.response?.data?.message || 'Could not publish.'
+    showPopup('error', 'Publish failed', error.response?.data?.message || 'Could not publish.')
   } finally {
     publishing.value = false
   }
@@ -454,6 +467,7 @@ let markersGroup = null
 let linesGroup = null
 let volGroup = null
 let homeView = null
+let schoolMarkers = {} // schoolId -> its Leaflet marker, so a focus change can restyle pins without redrawing them all
 
 // Zoom the map so EVERY school of the selected show is visible and centred,
 // then remember that view as the "overview" that resetMapView() returns to.
@@ -471,15 +485,32 @@ function fitOverview() {
 function onMapReady(m, leaflet) {
   map = m
   L = leaflet
+  map.zoomControl?.setPosition('bottomright') // move +/- buttons to the bottom right (as in TrackingView)
   homeView = { center: m.getCenter(), zoom: m.getZoom() } // temporary starting view, replaced by fitOverview() below
 
   markersGroup = L.layerGroup().addTo(map)
   linesGroup = L.layerGroup().addTo(map)
   volGroup = L.layerGroup().addTo(map)
+  // Click / tap on empty map: unselect the focused school (pins and volunteer markers don't bubble up to this).
+  map.on('click', clearFocus)
   // The map was empty on first load because it was only drawn when the dropdown changed.
   // Draw once here too, in case the assignments arrived before the map was ready.
   renderMapElements()
   fitOverview() // fits all the schools in view and saves that as the overview
+}
+
+// Pin style for a school: with a school focused, only that one keeps the full indigo; the rest turn light.
+// With nothing focused (overview) every pin is full indigo.
+function schoolIconFor(id) {
+  const dimmed = focusedSchoolId.value !== null && focusedSchoolId.value !== id
+  return createSchoolIcon({ dimmed })
+}
+// Restyle the existing pins after the focus changes (cheap: no pin is recreated).
+function updateSchoolIcons() {
+  for (const [id, marker] of Object.entries(schoolMarkers)) {
+    marker.setIcon(schoolIconFor(id))
+    marker.setZIndexOffset(id === focusedSchoolId.value ? 500 : 0) // focused pin on top
+  }
 }
 
 // Draws the school pins. Runs only when the data or the show changes, NOT on every click.
@@ -489,9 +520,11 @@ function renderSchools() {
   const data = groupedAssignments.value[selectedShow.value]
   if (!data) return
   markersGroup.clearLayers() // remove the old pins first so they don't pile up
+  schoolMarkers = {}
   data.schools.forEach((school) => {
     if (!school.lat || !school.lng) return // a school without coordinates cannot be placed
-    const marker = L.marker([school.lat, school.lng], { icon: createSchoolIcon() })
+    const marker = L.marker([school.lat, school.lng], { icon: schoolIconFor(school._id) })
+    schoolMarkers[school._id] = marker
     bindTip(marker, schoolTip(school)) // hover tooltip (shared helper in utils/map-icons.js)
     marker.on('click', () => selectSchool(school)) // clicking the icon opens + zooms to this school
     markersGroup.addLayer(marker)
@@ -517,7 +550,7 @@ function renderVolunteers() {
           [vol.lat, vol.lng], // Start: volunteer
           [school.lat, school.lng], // End: school
         ],
-        { color: '#0066ff', weight: 2, opacity: 0.3 },
+        { color: '#0066ff', weight: 2, opacity: 0.3, interactive: false }, // not clickable, so a tap on a line counts as a map tap
       ),
     )
   })
@@ -538,14 +571,15 @@ function renderMapElements() {
 watch([selectedShow, groupedAssignments], renderMapElements)
 
 // A different school got focus: redraw only its volunteers (about 8 pins, not 45 + 8)
-watch(focusedSchoolId, renderVolunteers)
+watch(focusedSchoolId, () => {
+  renderVolunteers()
+  updateSchoolIcons()
+})
 
-// When the panel is hidden or shown, the map's free area changes: refit the overview (unless a school is zoomed in).
-// nextTick = wait for the panel to finish appearing/disappearing before measuring.
-watch(panelOpen, () => {
-  nextTick(() => {
-    if (focusedSchoolId.value === null) fitOverview()
-  })
+// A different show was picked: the focused school belongs to the old show, so unfocus it.
+// (Declared before the refit watcher below so the refit sees focusedSchoolId = null.)
+watch(selectedShow, () => {
+  focusedSchoolId.value = null
 })
 // Refit the overview ONLY the first time, or when the admin picks a different show (and never while a school
 // is zoomed in). A background refresh replaces `assignments` too, but must not make the map jump,
@@ -569,36 +603,42 @@ watch([selectedShow, assignments], ([newShow], [oldShow]) => {
 // It calls loadData(true) = the quiet mode: it never touches the red error box, so an error from Allocate / Publish
 // stays on screen instead of vanishing at the next refresh, and a failed refresh does not nag the admin.
 let timer = null
+
 onMounted(() => {
+  document.addEventListener('pointerdown', onDocPointerDown, true)
   timer = setInterval(() => {
     if (!runningAlloc.value && !publishing.value) loadData(true)
   }, 5000)
 })
-onUnmounted(() => clearInterval(timer))
+onUnmounted(() => {
+  document.removeEventListener('pointerdown', onDocPointerDown, true)
+  clearInterval(timer)
+  clearTimeout(popupTimer)
+})
 // First load, as soon as the page opens.
 loadData()
 </script>
 
 <template>
-  <!-- LAYOUT: one full-screen map with a floating panel on top.
+  <!-- LAYOUT: one full-screen map with the school list (the "menu") on top of it.
        .map-page and .map-stage come from assets/map-ui.css: they make the map fill the page under the navbar.
-       Inside the stage there are three things stacked on each other: the map, a small "Allocation" button
-       (only when the panel is hidden) and the panel itself. The panel holds, from top to bottom: header + show
-       selector + action buttons, messages, stat chips, search + filters, then the scrolling list (the Unassigned
-       card followed by one card per school).
-       :class="{ sheet-open: panelOpen }" adds the class sheet-open while the panel is showing: on phones the CSS
-       uses it to lift the map credit above the bottom sheet. -->
+       Inside the stage, stacked on each other: the map, the full-screen menu (header + show selector + action buttons,
+       stat chips, search + filters, then the scrolling list: the Unassigned card and one card per school), a small
+       "Allocation" button (only when the menu is hidden and no school is focused), the focus card (the chosen school's
+       details, shown when the menu is hidden) and the popups.
+       :class="{ focus-open }" is added while the focus card is showing: on phones the CSS uses it to lift the map's
+       zoom buttons and credit above the bottom sheet. -->
   <div class="map-page">
-    <div class="map-stage alloc-stage" :class="{ 'sheet-open': panelOpen }">
+    <div class="map-stage alloc-stage" :class="{ 'focus-open': focusedSchool && !panelOpen }">
       <!-- The map. BaseMap builds the Leaflet map and calls onMapReady(map, L) in the script when it is ready;
            every pin is drawn from the script, not from this template. -->
       <BaseMap :zoom="12" @ready="onMapReady" />
 
       <!-- Button to bring the panel back after it was hidden (only exists while the panel is hidden) -->
       <button
-        v-if="!panelOpen"
+        v-if="!panelOpen && !focusedSchool"
         type="button"
-        class="btn btn-light shadow alloc-reopen"
+        class="btn btn-primary shadow alloc-reopen"
         @click="panelOpen = true"
       >
         <i class="bi bi-layout-sidebar-inset me-1"></i>Allocation
@@ -606,37 +646,56 @@ loadData()
 
       <!-- The floating panel. v-show (not v-if) only hides it with CSS, so the open cards, the scroll position and the
            search text are all kept while it is hidden. -->
+      <Transition name="alloc-panel-fade">
       <aside v-show="panelOpen" class="alloc-panel">
-        <!-- Hide button in the panel's top-right corner: hides the panel so the whole map can be seen -->
-        <button
-          type="button"
-          class="btn btn-sm btn-outline-secondary alloc-hide"
-          aria-label="Hide panel"
-          title="Hide panel"
-          @click="panelOpen = false"
-        >
-          <i class="bi bi-chevron-bar-left"></i>
-        </button>
         <!-- TOP PART of the panel. It never scrolls (flex: 0 0 auto in the CSS); only .alloc-panel-scroll below scrolls. -->
         <div class="alloc-panel-head">
           <!-- Header row: title + show selector on the left, action buttons on the right.
                v-model="selectedShow" links the dropdown to the script: choosing a show changes selectedShow, and every
                chip, card and pin then switches to that show. The data-testid attributes are used by the e2e tests. -->
-          <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
-            <div class="d-flex flex-wrap align-items-center gap-3">
-              <h1 class="h4 mb-0">Allocation</h1>
-              <label for="show" class="visually-hidden">Select show</label>
-              <select
-                name="show"
-                id="show"
-                class="form-select w-auto"
-                v-model="selectedShow"
-                data-testid="alloc-event-select"
-              >
-                <option v-for="show in shows" :key="show" :value="show">{{ show }}</option>
-              </select>
+          <!-- On phones (CSS at the bottom) the row is: [title + show selector ... Map] then [Allocate | Publish | Reset]
+               sharing one line equally, so nothing wraps onto a third line. -->
+          <div class="alloc-head-row mb-2">
+            <div class="alloc-title-group d-flex flex-wrap align-items-center gap-3">
+              
+              <!-- Custom show dropdown (same look and animation as the HQ Live Board) -->
+              <div ref="showEl" class="show-select" @keydown.esc="showMenuOpen = false">
+                <button
+                  type="button"
+                  class="show-btn"
+                  aria-haspopup="listbox"
+                  :aria-expanded="showMenuOpen"
+                  aria-label="Show"
+                  data-testid="alloc-event-select"
+                  @click="showMenuOpen = !showMenuOpen"
+                >
+                  <i class="bi bi-calendar-event" aria-hidden="true"></i>
+                  <span class="show-name">{{ selectedShow }}</span>
+                  <i class="bi bi-chevron-down show-chevron" :class="{ open: showMenuOpen }" aria-hidden="true"></i>
+                </button>
+
+                <Transition name="menu">
+                  <div v-if="showMenuOpen" class="show-menu" role="listbox">
+                    <button
+                      v-for="(show, i) in shows"
+                      :key="show"
+                      type="button"
+                      class="show-option"
+                      :class="{ active: show === selectedShow }"
+                      :style="{ '--i': i }"
+                      role="option"
+                      :aria-selected="show === selectedShow"
+                      :data-testid="'alloc-show-option-' + (i + 1)"
+                      @click="chooseShow(show)"
+                    >
+                      <span>{{ show }}</span>
+                      <i v-if="show === selectedShow" class="bi bi-check-lg" aria-hidden="true"></i>
+                    </button>
+                  </div>
+                </Transition>
+              </div>
             </div>
-            <div class="d-flex flex-wrap align-items-center gap-2">
+            <div class="alloc-actions d-flex flex-wrap align-items-center gap-2">
               <!-- Allocate: matches unassigned volunteers to schools (draft only, nothing is visible to volunteers yet).
                    Disabled while a run is in progress. title = the tooltip shown on hover. -->
               <button
@@ -660,46 +719,34 @@ loadData()
                   draftCount
                 }}</span>
               </button>
-              <!-- Reset is tucked into a ... menu so it cannot be clicked by accident (Bootstrap's JS handles the dropdown) -->
-              <div class="dropdown">
-                <button
-                  class="btn btn-outline-secondary"
-                  type="button"
-                  data-bs-toggle="dropdown"
-                  aria-label="More actions"
-                >
-                  <i class="bi bi-three-dots"></i>
-                </button>
-                <ul class="dropdown-menu dropdown-menu-end">
-                  <li>
-                    <button
-                      class="dropdown-item text-danger"
-                      :disabled="runningAlloc"
-                      data-testid="alloc-reset"
-                      @click="runAllocation(true)"
-                    >
-                      <!-- runAllocation(true) = Reset: erases EVERYTHING; it still asks for confirmation first -->
-                      Reset
-                    </button>
-                  </li>
-                </ul>
-              </div>
+              <!-- Reset: erases EVERYTHING (it still asks for confirmation first). Replaces the old ... menu. -->
+              <button
+                class="btn btn-outline-danger"
+                type="button"
+                :disabled="runningAlloc || publishing"
+                data-testid="alloc-reset"
+                @click="runAllocation(true)"
+              >
+                <i class="bi bi-arrow-counterclockwise me-1"></i>Reset
+              </button>
             </div>
+            <!-- Collapse the menu to see the map (sits beside the show selector on phones) -->
+            <button
+              type="button"
+              class="btn btn-outline-primary alloc-map-btn"
+              title="Hide the list and show the map"
+              data-testid="alloc-show-map"
+              @click="panelOpen = false"
+            >
+              <i class="bi bi-map me-1"></i>Map
+            </button>
           </div>
-
-          <!-- Three message boxes: red = the last error, green = a confirmation (e.g. "is now visible to volunteers"),
-               blue = Allocate is running. Each shows only while its value in the script is set. -->
-          <div v-if="errorMessage" class="alert alert-danger py-2" role="alert">
-            {{ errorMessage }}
-          </div>
-          <div v-if="notice" class="alert alert-success py-2" role="status">{{ notice }}</div>
-          <div v-if="runningAlloc" class="alert alert-info py-2" role="alert">Allocating...</div>
 
           <!-- Stat chips: Schools, Accepted, Pending, Declined, Withdrawn, Unassigned (counts for the selected show).
                Drawn with one v-for over statChips. Bootstrap columns: col-4 = 3 per row on phones, col-md-2 = all 6 on
                one row from tablet up (a row is 12 columns wide). -->
           <div v-if="groupedAssignments[selectedShow]" class="row g-1 mb-2 alloc-chips">
-            <div v-for="chip in statChips" :key="chip.label" class="col-4 col-md-2">
+            <div v-for="chip in statChips" :key="chip.label" class="col-4">
               <div class="card-hw py-1 px-0 text-center">
                 <div class="fs-6 fw-semibold">{{ chip.value }}</div>
                 <div class="chip-label text-muted-hw">{{ chip.label }}</div>
@@ -707,10 +754,10 @@ loadData()
             </div>
           </div>
 
-          <!-- Search box + "Needs Volunteers" switch + Expand/Collapse all.
+          <!-- Search box + "Needs Volunteers" switch.
                v-model keeps each control in sync with searchbar / needsOnly in the script, and the card list filters
-               itself (see visibleSchools). The last button flips between "Expand all" and "Collapse all" using allOpen. -->
-          <div class="d-flex flex-wrap align-items-center gap-2 mb-0">
+               itself (see visibleSchools). -->
+          <div class="alloc-search-row d-flex flex-wrap align-items-center gap-2 mb-0">
             <input
               type="search"
               class="form-control search-box"
@@ -727,17 +774,6 @@ loadData()
               />
               <label class="form-check-label" for="needsOnly">Needs Volunteers</label>
             </div>
-            <button
-              type="button"
-              class="btn btn-link btn-sm text-decoration-none ms-auto px-0"
-              @click="setAllSchools(!allOpen)"
-            >
-              <i
-                class="bi"
-                :class="allOpen ? 'bi-chevron-double-up' : 'bi-chevron-double-down'"
-              ></i>
-              {{ allOpen ? 'Collapse all' : 'Expand all' }}
-            </button>
           </div>
         </div>
 
@@ -783,8 +819,18 @@ loadData()
                     <span class="avatar">{{
                       (volunteer.name || '?').charAt(0).toUpperCase()
                     }}</span>
-                    <span class="flex-grow-1 text-truncate">{{ volunteer.name }}</span>
-                    <a class="small" :href="`tel:${volunteer.phone}`">{{ volunteer.phone }}</a>
+                    <span class="flex-grow-1 text-truncate">
+                      <button
+                        v-if="volunteer._id"
+                        type="button"
+                        class="btn btn-link btn-sm p-0 align-baseline text-truncate mw-100"
+                        @click.stop="openChat(volunteer)"
+                      >
+                        {{ volunteer.name }}
+                        <i class="bi bi-chat-dots-fill ms-1" aria-hidden="true"></i>
+                      </button>
+                      <span v-else>{{ volunteer.name }}</span>
+                    </span>
                   </div>
                 </div>
               </div>
@@ -804,105 +850,165 @@ loadData()
                   : 'No schools or volunteers match.'
               }}
             </p>
-            <!-- SCHOOL CARDS: one per school in visibleSchools (so the search and the "Needs Volunteers" filter apply).
-                 The id lets selectSchool() (a map-pin click) scroll to the card. is-open marks an open card (the phone CSS
-                 uses it); alloc-flash is the brief highlight after a pin click. -->
-            <div
-              v-for="school in visibleSchools"
-              :key="school._id"
-              :id="`school-${school._id}`"
-              class="school-card card-hw px-2 px-md-3 py-2 mb-2"
-              :class="{
-                'alloc-flash': highlightedId === school._id,
-                'is-open': openSchools[school._id],
-              }"
-            >
-              <!-- Heading + button together (same pattern as Bootstrap's accordion): clicking the title row calls
-                   toggleSchool(), which opens or closes the card and zooms the map. Right side: places filled / needed. -->
-              <h2 class="h5 mb-0">
-                <button
-                  type="button"
-                  class="school-head"
-                  :aria-expanded="!!openSchools[school._id]"
-                  @click="toggleSchool(school)"
-                >
-                  <span class="text-truncate">
-                    {{ school.name }}
-                    <small class="d-block fw-normal text-muted-hw card-time"
-                      ><i class="bi bi-clock me-1"></i>{{ school.reportingTime }}</small
-                    >
-                  </span>
-                  <span class="d-flex align-items-center gap-2 text-nowrap">
-                    {{ filledCount(school) }}/{{ school.p5Classes }}
-                    <i class="bi bi-chevron-down chevron" aria-hidden="true"></i>
-                  </span>
-                </button>
-              </h2>
-
-              <!-- Capacity bar (green = full, amber = partly filled, red = empty) and one badge per status, e.g. "3 Accepted".
-                   Always visible, so the admin can scan the list without opening any card. -->
+            <!-- SCHOOL CARDS: one per school in visibleSchools (so the search and the "Needs Volunteers" filter apply),
+                 laid out in a responsive grid. Clicking a card (or pressing Enter on its title button) calls selectSchool():
+                 the menu collapses, the map zooms to that school and the focus card shows its volunteers. -->
+            <div class="alloc-grid">
               <div
-                class="progress my-2"
-                role="progressbar"
-                aria-label="Places filled"
-                style="height: 6px"
+                v-for="school in visibleSchools"
+                :key="school._id"
+                :id="`school-${school._id}`"
+                class="school-card card-hw px-2 px-md-3 py-2"
+                @click="selectSchool(school)"
               >
-                <div
-                  class="progress-bar"
-                  :class="capacityClass(school)"
-                  :style="{ width: capacityPercent(school) + '%' }"
-                ></div>
-              </div>
-              <div class="d-flex flex-wrap gap-1 card-meta">
-                <span
-                  v-for="s in statusSummary(school)"
-                  :key="s.status"
-                  class="badge rounded-pill"
-                  :class="s.cls"
-                  >{{ s.n }} {{ s.status }}</span
-                >
-                <span v-if="!school.volunteers.length" class="small text-muted-hw"
-                  >No volunteers yet</span
-                >
-              </div>
-
-              <!-- The volunteer list: closed until the title is clicked (class "open" comes from openSchools). -->
-              <div class="vol-collapse" :class="{ open: openSchools[school._id] }">
-                <div class="vol-collapse-inner">
-                  <div
-                    v-for="volunteer in school.volunteers"
-                    :key="volunteer._id || volunteer.phone"
-                    class="d-flex flex-wrap justify-content-between align-items-center gap-2 py-2 border-top"
+                <h2 class="h5 mb-0">
+                  <button
+                    type="button"
+                    class="school-head"
+                    :aria-label="`Show ${school.name} on the map`"
                   >
-                    <span>
-                      <!-- One row per volunteer. "Draft" = not published yet (volunteers cannot see it); the coloured badge is their
-                           status; the distance is from the volunteer's home to the school (empty when unknown). -->
-                      <span v-if="!volunteer.published" class="badge text-bg-light border me-1"
-                        >Draft</span
+                    <span class="text-truncate">
+                      {{ school.name }}
+                      <small class="d-block fw-normal text-muted-hw card-time"
+                        ><i class="bi bi-clock me-1"></i>{{ school.reportingTime }}</small
                       >
-                      <span
-                        class="badge rounded-pill"
-                        :class="{
-                          'text-bg-warning': volunteer.status == 'Pending',
-                          'text-bg-success': volunteer.status == 'Accepted',
-                          'text-bg-danger': volunteer.status == 'Declined',
-                          'text-bg-dark': volunteer.status == 'Withdrawn',
-                        }"
-                      >
-                        {{ volunteer.status }}
-                      </span>
-                      {{ volunteer.name }} ({{ volunteer.phone }})
                     </span>
-                    <span class="small text-muted-hw text-nowrap">{{
-                      volunteer.distance != null ? volunteer.distance + ' km' : ''
-                    }}</span>
-                  </div>
+                    <span class="d-flex align-items-center gap-2 text-nowrap">
+                      {{ filledCount(school) }}/{{ school.p5Classes }}
+                      <i class="bi bi-chevron-right" aria-hidden="true"></i>
+                    </span>
+                  </button>
+                </h2>
+
+                <!-- Capacity bar (green = full, amber = partly filled, red = empty) and one badge per status, e.g. "3 Accepted". -->
+                <div
+                  class="progress my-2"
+                  role="progressbar"
+                  aria-label="Places filled"
+                  style="height: 6px"
+                >
+                  <div
+                    class="progress-bar"
+                    :class="capacityClass(school)"
+                    :style="{ width: capacityPercent(school) + '%' }"
+                  ></div>
+                </div>
+                <div class="d-flex flex-wrap gap-1 card-meta">
+                  <span
+                    v-for="s in statusSummary(school)"
+                    :key="s.status"
+                    class="badge rounded-pill"
+                    :class="s.cls"
+                    >{{ s.n }} {{ s.status }}</span
+                  >
+                  <span v-if="!school.volunteers.length" class="small text-muted-hw"
+                    >No volunteers yet</span
+                  >
+                </div>
+                <!-- Only while searching: which volunteers of this school matched -->
+                <div v-if="matchedVolunteers(school).length" class="small text-muted-hw mt-1">
+                  <i class="bi bi-search me-1"></i
+                  >{{ matchedVolunteers(school).map((v) => v.name).join(', ') }}
                 </div>
               </div>
             </div>
           </template>
         </div>
       </aside>
+      </Transition>
+
+      <!-- FOCUS CARD: shown while the menu is collapsed and a school is focused. Left card on tablet/desktop, bottom sheet
+           on phones. "Schools" brings the menu back; X unselects the school and zooms out (same as tapping the map). -->
+      <Transition name="alloc-focus">
+        <section
+          v-if="focusedSchool && !panelOpen"
+          class="alloc-focus"
+          aria-label="Selected school"
+          data-testid="alloc-focus-card"
+        >
+          <div class="d-flex justify-content-between align-items-center gap-2 mb-2">
+            <button type="button" class="btn btn-sm btn-outline-primary" @click="panelOpen = true">
+              <i class="bi bi-chevron-left me-1"></i>Schools
+            </button>
+            <button
+              type="button"
+              class="btn btn-sm btn-outline-secondary"
+              aria-label="Unselect school"
+              title="Unselect school"
+              @click="clearFocus"
+            >
+              <i class="bi bi-x-lg"></i>
+            </button>
+          </div>
+          <h2 class="h5 mb-0">{{ focusedSchool.name }}</h2>
+          <small class="text-muted-hw"
+            ><i class="bi bi-clock me-1"></i>{{ focusedSchool.reportingTime }}</small
+          >
+          <div class="d-flex justify-content-between small mt-2">
+            <span>Places filled</span>
+            <span>{{ filledCount(focusedSchool) }}/{{ focusedSchool.p5Classes }}</span>
+          </div>
+          <div class="progress my-1" role="progressbar" aria-label="Places filled" style="height: 6px">
+            <div
+              class="progress-bar"
+              :class="capacityClass(focusedSchool)"
+              :style="{ width: capacityPercent(focusedSchool) + '%' }"
+            ></div>
+          </div>
+          <div class="d-flex flex-wrap gap-1 mt-1">
+            <span
+              v-for="s in statusSummary(focusedSchool)"
+              :key="s.status"
+              class="badge rounded-pill"
+              :class="s.cls"
+              >{{ s.n }} {{ s.status }}</span
+            >
+          </div>
+          <p v-if="!focusedSchool.volunteers.length" class="small text-muted-hw mt-2 mb-0">
+            No volunteers yet
+          </p>
+          <div v-else class="alloc-focus-list">
+            <div
+              v-for="volunteer in focusedSchool.volunteers"
+              :key="volunteer._id || volunteer.phone"
+              class="d-flex flex-wrap justify-content-between align-items-center gap-2 py-2 border-top"
+            >
+              <span>
+                <span v-if="!volunteer.published" class="badge text-bg-light border me-1">Draft</span>
+                <span
+                  class="badge rounded-pill"
+                  :class="{
+                    'text-bg-warning': volunteer.status == 'Pending',
+                    'text-bg-success': volunteer.status == 'Accepted',
+                    'text-bg-danger': volunteer.status == 'Declined',
+                    'text-bg-dark': volunteer.status == 'Withdrawn',
+                  }"
+                >
+                  {{ volunteer.status }}
+                </span>
+                <button
+                  v-if="volunteer._id"
+                  type="button"
+                  class="btn btn-link btn-sm ms-1 p-0 align-baseline"
+                  @click.stop="openChat(volunteer)"
+                >
+                  {{ volunteer.name }}
+                  <i class="bi bi-chat-dots-fill ms-1" aria-hidden="true"></i>
+                </button>
+                <span v-else>{{ volunteer.name }}</span>
+              </span>
+              <span class="small text-muted-hw text-nowrap">{{
+                volunteer.distance != null ? volunteer.distance + ' km' : ''
+              }}</span>
+            </div>
+          </div>
+        </section>
+      </Transition>
+
+      <!-- Modal confirmation card (Allocate / Publish / Reset): darkens the page until Cancel or OK is clicked -->
+      <ConfirmDialog :dialog="confirmDialog" @answer="answerConfirm" />
+      <!-- Temporary status popup (errors, confirmations, "Allocating..."), same component as TrackingView -->
+      <MapNotice :notice="popupNotice" :closable="!runningAlloc && !publishing" @close="dismissPopup" />
     </div>
   </div>
 </template>
@@ -937,48 +1043,43 @@ loadData()
   content-visibility: auto;
   contain-intrinsic-size: auto 70px; /* rough height so the scrollbar doesn't jump */
 }
-/* Brief highlight (a blue outline) on the card a map click just opened; removed after about 1.2 seconds by the script */
-.alloc-flash {
+/* School cards in the menu: a responsive grid, each card is clickable */
+.alloc-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: 8px;
+}
+.school-card {
+  cursor: pointer;
+  transition: box-shadow 0.15s;
+}
+.school-card:hover {
   box-shadow: 0 0 0 2px var(--bs-primary);
 }
-/* Phones only (under 768px): a collapsed card shows just name + count + capacity bar, so more schools fit on
-   the screen. The reporting time and the status badges appear once the card is opened (class is-open). */
-@media (max-width: 767.98px) {
-  .school-card:not(.is-open) .card-time,
-  .school-card:not(.is-open) .card-meta {
-    display: none;
-  }
-}
-/* THE FLOATING PANEL. Over the full-screen map: a card on the left for tablet/desktop, a bottom sheet on phones.
+
+/* THE MENU (school list): covers the whole map area under the navbar, like the chat window on phones.
    It is a flex column: the header stays put and only the list inside (.alloc-panel-scroll) scrolls.
-   Widths: 340px on tablet (this rule), 420px on desktop and wider (the 992px rule below), full width on
-   phones. If you change a width here, change the same number in fitPadding() in the script. */
+   The side padding keeps the content in a readable column (max 1100px) on wide screens. */
 .alloc-panel {
   position: absolute;
-  z-index: 1100; /* above Leaflet's own layers (they go up to 1000) */
-  top: 12px;
-  left: 12px;
-  bottom: 12px;
-  width: min(340px, calc(100% - 24px)); /* tablet default; desktop widens it below */
+  inset: 0;
+  z-index: 1100; /* above Leaflet's own layers (they go up to 1000) and the focus card */
   display: flex;
   flex-direction: column;
   background: var(--hw-surface);
   color: var(--hw-text);
-  border-radius: var(--hw-radius);
-  box-shadow: var(--hw-shadow);
-  overflow: hidden;
 }
-/* Top part of the panel (header, messages, chips, filters) */
+/* Top part of the menu (header, chips, filters) */
 .alloc-panel-head {
   flex: 0 0 auto; /* header and filters never shrink or scroll away */
-  padding: 12px 12px 8px;
+  padding: 12px max(12px, calc((100% - 1100px) / 2)) 8px;
 }
-/* Bottom part of the panel: the list of cards */
+/* Bottom part of the menu: the list of cards */
 .alloc-panel-scroll {
   flex: 1 1 auto;
   min-height: 0; /* lets the flex child scroll instead of growing */
   overflow-y: auto;
-  padding: 0 12px 12px;
+  padding: 0 max(12px, calc((100% - 1100px) / 2)) 12px;
 }
 /* Chip captions are tiny on phones so all the chips fit */
 .alloc-chips .chip-label {
@@ -986,57 +1087,149 @@ loadData()
   line-height: 1.1;
   white-space: nowrap;
 }
-
 @media (min-width: 768px) {
   .alloc-chips .chip-label {
     font-size: 0.75rem; /* tablet and desktop */
   }
 }
-/* Hide-panel button in the panel's top-right corner, and the button that brings the panel back */
-.alloc-hide {
-  position: absolute;
-  top: 10px;
-  right: 10px;
-  z-index: 1;
-}
+/* Button that brings the menu back (only shown when the menu is hidden and no school is focused) */
 .alloc-reopen {
   position: absolute;
   z-index: 1100;
   top: 12px;
   left: 12px;
 }
-/* Let the search box shrink and grow to share its row with the switch and the Expand all button */
+/* HEADER ROW. Wide screens: [title + selector] [Allocate Publish Reset] [Map pushed to the right], wrapping if needed. */
+.alloc-head-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+.alloc-map-btn {
+  margin-left: auto;
+}
+/* PHONES (under 576px): save vertical space. Row 1 = title + show selector with Map on the right; row 2 = the three
+   action buttons sharing the full width equally. Search + switch stay on ONE line with smaller text, so the search
+   box is no longer squeezed and cut off. */
+@media (max-width: 575.98px) {
+  .alloc-title-group {
+    order: 1;
+    flex: 1 1 auto;
+    min-width: 0;
+    gap: 0.5rem !important;
+  }
+  .alloc-map-btn {
+    order: 2;
+  }
+  .alloc-actions {
+    order: 3;
+    flex: 1 1 100%;
+    flex-wrap: nowrap !important;
+  }
+  .alloc-actions .btn {
+    flex: 1 1 0;
+    min-width: 0;
+    padding-inline: 0.4rem;
+    white-space: nowrap;
+  }
+  .alloc-search-row {
+    flex-wrap: nowrap !important;
+  }
+  .alloc-search-row .search-box {
+    flex: 1 1 0;
+    min-width: 0;
+    font-size: 0.875rem;
+  }
+  .alloc-search-row .form-check {
+    flex: 0 0 auto;
+    font-size: 0.875rem;
+    white-space: nowrap;
+  }
+}
+/* Let the search box shrink and grow to share its row with the switch */
 .alloc-panel-head .search-box {
   flex: 1 1 140px;
   max-width: none;
 }
-/* The default zoom buttons sit top-left, which is under the panel: move them to the top-right */
-.alloc-stage :deep(.leaflet-top.leaflet-left) {
-  left: auto;
-  right: 0;
-}
 
-/* Desktop (992px and wider): a wider panel (keep in step with fitPadding() in the script) */
+/* THE FOCUS CARD: details of the focused school. Left card on tablet/desktop (340px / 420px: keep in step with
+   fitPadding() in the script), bottom sheet on phones (45vh, also used in fitPadding()). */
+.alloc-focus {
+  position: absolute;
+  z-index: 1050; /* above the map controls, below the menu */
+  top: 12px;
+  left: 12px;
+  width: min(340px, calc(100% - 24px));
+  max-height: calc(100% - 24px);
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  background: var(--hw-surface);
+  color: var(--hw-text);
+  border-radius: var(--hw-radius);
+  box-shadow: var(--hw-shadow);
+  overflow: hidden;
+}
+.alloc-focus-list {
+  min-height: 0;
+  margin-top: 0.5rem;
+  overflow-y: auto; /* a long volunteer list scrolls inside the card */
+}
 @media (min-width: 992px) {
-  .alloc-panel {
-    width: min(420px, calc(100% - 24px)); /* desktop */
+  .alloc-focus {
+    width: min(420px, calc(100% - 24px));
   }
 }
-
 @media (max-width: 767.98px) {
-  /* PHONES (under 768px): the panel becomes a bottom sheet taking 55% of the screen height, and the map's
-     bottom controls (the OneMap credit) ride above it. 55vh must match fitPadding() in the script. */
-  .alloc-stage.sheet-open {
-    --map-inset-bottom: 55vh; /* lift the credit above the sheet only while the sheet is open */
-  }
-  .alloc-panel {
+  .alloc-focus {
     top: auto;
     left: 0;
     right: 0;
     bottom: 0;
     width: auto;
-    height: 55vh;
+    height: 45vh;
+    max-height: none;
     border-radius: var(--hw-radius) var(--hw-radius) 0 0;
+  }
+  /* lift the map's bottom controls (zoom buttons, OneMap credit) above the sheet while it is showing */
+  .alloc-stage.focus-open {
+    --map-inset-bottom: 45vh;
+  }
+}
+
+/* OPEN / CLOSE ANIMATIONS: the menu fades and slides up a little; the focus card slides in from its edge.
+   Short (0.2s) and switched off for people who turned animations off in their system settings. */
+.alloc-panel-fade-enter-active,
+.alloc-panel-fade-leave-active,
+.alloc-focus-enter-active,
+.alloc-focus-leave-active {
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
+}
+.alloc-panel-fade-enter-from,
+.alloc-panel-fade-leave-to {
+  opacity: 0;
+  transform: translateY(12px);
+}
+.alloc-focus-enter-from,
+.alloc-focus-leave-to {
+  opacity: 0;
+  transform: translateX(-16px);
+}
+@media (max-width: 767.98px) {
+  .alloc-focus-enter-from,
+  .alloc-focus-leave-to {
+    transform: translateY(100%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .alloc-panel-fade-enter-active,
+  .alloc-panel-fade-leave-active,
+  .alloc-focus-enter-active,
+  .alloc-focus-leave-active {
+    transition: none;
   }
 }
 
@@ -1086,6 +1279,106 @@ loadData()
 @media (prefers-reduced-motion: reduce) {
   .vol-collapse,
   .chevron {
+    transition: none;
+  }
+}
+/* ===== Show dropdown (same look and animation as the HQ Live Board) ===== */
+.show-select {
+  position: relative;
+  flex: 0 0 auto;
+  z-index: 20; /* keeps the open menu above the chips and cards underneath */
+}
+.show-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--hw-bg);
+  color: var(--bs-secondary-color);
+  font-weight: 600;
+  transition: background-color 0.15s;
+}
+.show-btn:hover {
+  background: var(--bs-secondary-bg);
+}
+.show-name {
+  color: var(--hw-text);
+}
+.show-chevron {
+  font-size: 0.7rem;
+  transition: transform 0.25s ease;
+}
+.show-chevron.open {
+  transform: rotate(180deg);
+}
+.show-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  min-width: 170px;
+  padding: 6px;
+  background: var(--hw-surface);
+  color: var(--hw-text);
+  border: 1px solid var(--bs-border-color);
+  border-radius: 14px;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.22);
+}
+.show-option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.9rem;
+  text-align: left;
+  animation: option-in 0.2s ease both;
+  animation-delay: calc(var(--i) * 30ms);
+}
+.show-option:hover {
+  background: var(--hw-bg);
+}
+.show-option.active {
+  background: var(--bs-primary-bg-subtle);
+  color: var(--bs-primary-text-emphasis);
+  font-weight: 600;
+}
+/* The menu grows out of the button */
+.menu-enter-active,
+.menu-leave-active {
+  transition: opacity 0.18s ease, transform 0.18s ease;
+  transform-origin: top left;
+}
+.menu-enter-from,
+.menu-leave-to {
+  opacity: 0;
+  transform: translateY(-6px) scale(0.95);
+}
+/* Options fade in one after another */
+@keyframes option-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .show-option {
+    animation: none;
+  }
+  .menu-enter-active,
+  .menu-leave-active,
+  .show-chevron {
     transition: none;
   }
 }
