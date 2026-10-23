@@ -70,17 +70,20 @@ function toggleStatus(key) {
   statusFilter.value = statusFilter.value === key ? '' : key // same button again -> '' (show all)
 }
 
-// The incidents whose cards are listed: the search AND the pressed stat button both apply.
-// The search looks at the school name, the incident type name and the reporter's note.
+// The incidents whose cards are listed.
+// - Search box EMPTY: the pressed stat button (if any) keeps only that status.
+// - Search box HAS TEXT: the stat button is ignored, so the search looks through ALL statuses
+//   (typing a name should find the incident even if the "New" button is pressed).
+// The search looks at the school name, the incident type name, the reporter's note and the volunteer's name.
 const visibleIncidents = computed(() => {
   const q = searchbar.value.trim().toUpperCase() // upper-case both sides so capitals are ignored
   return incidents.value.filter((incident) => {
-    if (statusFilter.value && incident.status !== statusFilter.value) return false // a button is pressed: keep only that status
-    if (!q) return true // empty search matches everything
+    if (!q) return !statusFilter.value || incident.status === statusFilter.value // no search: only the pressed button's status (or all)
     return (
       (incident.school || '').toUpperCase().includes(q) ||
       labelOf(incident).toUpperCase().includes(q) ||
-      (incident.note || '').toUpperCase().includes(q)
+      (incident.note || '').toUpperCase().includes(q) ||
+      (incident.volunteer?.name || '').toUpperCase().includes(q) // NEW: volunteer name; ?. = safe if the volunteer is missing
     )
   })
 })
@@ -379,12 +382,13 @@ onUnmounted(() => {
           <div class="row g-1 mb-2 inc-chips">
             <div v-for="chip in statChips" :key="chip.key" class="col-4">
               <!-- A real <button> so it works with keyboard and screen readers.
-                   aria-pressed tells them whether the filter is on; the is-active class draws the ring. -->
+                   aria-pressed tells them whether the filter is on; the is-active class draws the ring.
+                   Both are off while the search box has text, because a search looks through ALL statuses and ignores this button. -->
               <button
                 type="button"
                 class="stat-btn card-hw py-1 px-0 text-center w-100"
-                :class="{ 'is-active': statusFilter === chip.key }"
-                :aria-pressed="statusFilter === chip.key"
+                :class="{ 'is-active': statusFilter === chip.key && !searchbar.trim() }"
+                :aria-pressed="statusFilter === chip.key && !searchbar.trim()"
                 :data-testid="`stat-${chip.key}`"
                 @click="toggleStatus(chip.key)"
               >
@@ -398,9 +402,9 @@ onUnmounted(() => {
                itself (see visibleIncidents). -->
           <div class="d-flex flex-wrap align-items-center gap-2 mb-0">
             <input
-              type="text"
+              type="search"
               class="form-control search-box"
-              placeholder="Search school, type or note"
+              placeholder="Search school, name, type or note"
               v-model="searchbar"
             />
           </div>

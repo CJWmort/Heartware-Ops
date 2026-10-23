@@ -1,6 +1,8 @@
 <script setup>
 import { computed } from 'vue'
 import { formatDateTime } from '@/utils/time'
+import { useChatStore } from '@/services/chat'
+import { useAuthStore } from '@/services/auth'
 
 // 1. PROPS – what the page gives the card (one incident)
 const props = defineProps({
@@ -24,6 +26,20 @@ const school = computed(() => props.incident.school || 'Unknown school')
 
 // 5. vounterr name
 const volunteerName = computed(() => props.incident.volunteer?.name || 'Unknown volunteer') // ?. = safe if the volunteer is missing
+
+// 5b. Chat with the volunteer who reported this incident (HQ / admin only).
+//     toggle() opens the chat panel; selectThread() then jumps straight into
+//     this volunteer's one-to-one chat. Nothing happens if the incident has no volunteer account.
+const chat = useChatStore()
+const auth = useAuthStore()
+
+const canChat = computed(() => auth.role === 'admin' && !!props.incident.volunteer?._id)
+async function openChat() {
+  // The chat store has no open(): toggle() opens the panel when it is closed. Only call it while closed,
+  // otherwise it would close the panel that is already open.
+  if (!chat.isOpen) chat.toggle()
+  await chat.selectThread(props.incident.volunteer._id) // jump straight into this volunteer's one-to-one chat
+}
 
 // 6. OPEN / CLOSED. Like the school card on the Allocation board, the card is a collapsed summary that opens to show
 //    the details. We do not keep a separate "open" box here: a card is open exactly while it is the SELECTED one, so
@@ -119,8 +135,19 @@ const steps = computed(() => props.incident.history || [])
         <div v-if="incident.address" class="py-2 border-top small text-muted-hw">
           <i class="bi bi-geo-alt me-1" aria-hidden="true"></i>{{ incident.address }}
         </div>
-        <!-- Reported by which volunterr -->
-        <div class="py-2 border-top small text-muted-hw">Reported by: {{ volunteerName }}</div>
+        <!-- Reported by which volunteer -->
+        <div class="py-2 border-top small text-muted-hw">
+          Reported by:
+          <button
+            v-if="canChat"
+            type="button"
+            class="btn btn-link btn-sm p-0 align-baseline"
+            @click.stop="openChat"
+          >
+            {{ volunteerName }} <i class="bi bi-chat-dots-fill ms-1" aria-hidden="true"></i>
+          </button>
+          <span v-else>{{ volunteerName }}</span>
+        </div>
         <!-- What has happened so far: the pill is the status, then the note HQ typed (if any), then the time -->
         <div
           v-for="step in steps"
