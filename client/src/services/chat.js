@@ -156,6 +156,14 @@ export const useChatStore = defineStore('chat', () => {
     if (!isAdmin.value || activeId.value !== null) await loadConversation()
     else await loadThreads()
   }
+  // Admin only: open the panel straight on one volunteer's chat (used by the "Chat" button on the HQ map card)
+  async function openThread(volunteerId) {
+    if (!isAdmin.value) return
+    isOpen.value = true
+    error.value = ''
+    // the thread list supplies the name shown in the chat header, so make sure it is loaded
+    await Promise.all([selectThread(volunteerId), threads.value.length ? null : loadThreads()])
+  }
   function close() {
     isOpen.value = false
   }
@@ -359,6 +367,7 @@ export const useChatStore = defineStore('chat', () => {
     isOnline,
     toggle,
     close,
+    openThread,
     selectThread,
     backToList,
     send,

@@ -16,14 +16,14 @@ const title = computed(() => (chat.isAdmin ? chat.activeThread?.name || 'Volunte
 
 const emptyText = computed(() =>
   chat.isAdmin
-    ? `No messages with ${title.value} yet. Send the first one.`
-    : 'No messages yet. Write to HQ and an admin will reply here.',
+    ? `this is the beginning of your conversation with ${title.value}.`
+    : 'this is the beginning of your conversation with HQ.',
 )
 
 const typingLabel = computed(() => {
   if (!chat.typing) return ''
-  if (!chat.isAdmin) return 'HQ is typing…'
-  return chat.typing.role === 'volunteer' ? `${title.value} is typing…` : 'Another admin is typing…'
+  if (!chat.isAdmin) return 'HQ is typing...'
+  return chat.typing.role === 'volunteer' ? `${title.value} is typing...` : 'Another admin is typing...'
 })
 
 // My own messages sit on the right. For admins "mine" means sent by ME, not by any admin.
@@ -163,7 +163,7 @@ onMounted(() => {
 
     <p v-if="chat.error" class="text-danger small px-3 mb-1" role="alert">{{ chat.error }}</p>
 
-    <form class="d-flex align-items-end gap-2 p-2 border-top" @submit.prevent="submit">
+    <form class="d-flex align-items-end gap-2 p-2 border-top align-items-center" @submit.prevent="submit">
       <textarea
         ref="input"
         v-model="text"

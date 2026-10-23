@@ -15,12 +15,14 @@
 import { ref, computed, watch } from 'vue'
 import axios from 'axios'
 import BaseMap from '@/components/BaseMap.vue'
+import { getSavedShow, saveShow } from '@/services/selected-show'
 import { createSchoolIcon, createVolIcon, volTip, schoolTip, bindTip } from '@/utils/map-icons'
 
 // The raw list from the server: one row per volunteer assignment. Only loadData() / runAllocation() change it.
 const assignments = ref([])
 const shows = ['NE Show 1', 'NE Show 2', 'NE Show 3', 'NE Show 4']
-const selectedShow = ref('NE Show 1')
+const selectedShow = ref(shows.includes(getSavedShow()) ? getSavedShow() : 'NE Show 1') // remembered for this session
+watch(selectedShow, saveShow)
 const searchbar = ref('')
 const runningAlloc = ref(false)
 const errorMessage = ref('') // NEW: shown in a red box, so a failed load/run no longer looks like "There are no assignments."

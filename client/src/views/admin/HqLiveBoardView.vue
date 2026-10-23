@@ -6,6 +6,8 @@ import MapLoading from '@/components/MapLoading.vue'
 import MapNotice from '@/components/MapNotice.vue'
 import { createVolIcon, createSchoolIcon, volTip, schoolTip, bindTip } from '@/utils/map-icons'
 import { useZoneEventsStore, MAX_EVENTS } from '@/services/zone-events'
+import { useChatStore } from '@/services/chat'
+import { getSavedShow, saveShow } from '@/services/selected-show'
 import { SINGAPORE_CENTER, INNER_RING, OUTER_RING } from '@/utils/constants'
 
 /* ------------------------------------------------------------------ */
@@ -49,6 +51,7 @@ const ZONE_RANK = { outside: 0, outer: 1, inner: 2 } // higher = closer to the v
 /* ------------------------------------------------------------------ */
 const shows = ref([]) // e.g. ['NE Show 1', ...] for the dropdown
 const selectedShow = ref('')
+watch(selectedShow, (s) => s && saveShow(s)) // remember the pick for this session
 const volunteers = ref([]) // raw board data from the server
 const loading = ref(true)
 
@@ -222,7 +225,7 @@ function onMapReady(m, leaflet) {
   map.zoomControl?.setPosition('bottomright') // move +/- buttons to the bottom right
   map.on('click', () => {
     bellOpen.value = false // tapping the map closes the panel
-    if (selectedId.value) clearSelection(false) // and deselects
+    if (selectedId.value) clearSelection() // and deselects, zooming back out to show everyone (same as the card's X button)
   })
 
   drawZones()
@@ -432,6 +435,16 @@ function clearSchool() {
   pinnedId = null
 }
 
+// Unread chat messages from the selected volunteer (shown on the Chat button)
+const selectedUnread = computed(
+  () => chat.threads.find((t) => t.volunteerId === String(selectedId.value))?.unreadAdmin ?? 0,
+)
+
+// Opens the chat panel on the selected volunteer's conversation
+function openChatWithSelected() {
+  if (selectedId.value) chat.openThread(selectedId.value)
+}
+
 // Selects a volunteer (from the list or by tapping their marker)
 async function selectVolunteer(id) {
   const v = rows.value.find((r) => r.volunteerId === id)
@@ -531,6 +544,7 @@ const toastTimers = new Map() // toast id -> its auto-dismiss timer
 let toastSeq = 0
 
 // Bell list: events live in a Pinia store (survives refreshes, cleared on logout)
+const chat = useChatStore()
 const zoneEvents = useZoneEventsStore()
 const bellOpen = ref(false)
 const eventFilter = ref('all') // 'all' | 'enter' | 'leave'
@@ -713,7 +727,8 @@ onMounted(async () => {
   try {
     const res = await axios.get('/api/locations/shows') // Fetch all existing shows
     shows.value = res.data
-    selectedShow.value = shows.value[0] ?? ''
+    // reopen on the show picked earlier this session, if it still exists
+    selectedShow.value = shows.value.includes(getSavedShow()) ? getSavedShow() : (shows.value[0] ?? '')
   } catch (err) {
     error.value = err.response?.data?.message || 'Could not load shows.'
     loading.value = false
@@ -929,6 +944,18 @@ onUnmounted(() => {
               <div class="info-value info-number">{{ selected.school?.p5Classes ?? '—' }}</div>
             </div>
           </div>
+
+          <!-- data-chat-toggle: the chat panel's click-outside-to-close ignores this button, so switching volunteers doesn't flicker -->
+          <button
+            type="button"
+            class="btn btn-primary btn-sm w-100 mt-2 position-relative chat-btn"
+            data-chat-toggle
+            data-testid="vol-card-chat"
+            @click="openChatWithSelected"
+          >
+            <i class="bi bi-chat-dots-fill me-1" aria-hidden="true"></i>Chat with {{ selected.name }}
+            <span v-if="selectedUnread" class="badge rounded-pill bg-danger ms-1">{{ selectedUnread > 99 ? '99+' : selectedUnread }}</span>
+          </button>
         </div>
       </Transition>
 
@@ -1183,6 +1210,12 @@ onUnmounted(() => {
   grid-template-columns: 1.5fr 1fr;
   gap: 10px;
   margin-top: 12px;
+}
+
+.chat-btn {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .card-enter-active,
