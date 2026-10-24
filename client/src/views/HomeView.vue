@@ -47,7 +47,7 @@ const flipped = ref(false)
             NE Show<br />
             <span class="accent">Success and Safety Always</span>
           </h1>
-          <p class="hero-sub">NDP Exco - MOE - Heartware National Education Show Management App</p>
+          <p class="hero-sub">NDP Exco - MOE - Heartware National Education Show Management</p>
 
           <div
             class="d-flex flex-wrap gap-3 align-items-center justify-content-center justify-content-lg-start"

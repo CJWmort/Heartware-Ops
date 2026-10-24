@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/services/auth'
+import FireworksBackground from '@/components/landing/FireworksBackground.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -39,7 +40,7 @@ const showPassword = ref(false)
 
 // UI only: muted background video on the sign-up side.
 // The file lives in client/public/videos/ (anything in /public is served from the site root).
-const VIDEO_SRC = '/videos/login-bg.mp4'
+const VIDEO_SRC = '/videos/Heartware.mp4'
 </script>
 
 <template>
@@ -47,35 +48,75 @@ const VIDEO_SRC = '/videos/login-bg.mp4'
     <div class="auth-card card-hw" :class="{ 'is-join': mode === 'join' }">
       <!-- ===== Base layer (Bootstrap grid): left = login form, right = show-night scene ===== -->
       <div class="row g-0 auth-base">
-        <div class="col-12 col-md-7 auth-form-pane" :inert="mode === 'join'">
+        <!-- col-md-6 = half the card; must match --split: 50% in the CSS so the red panel and the columns line up -->
+        <div class="col-12 col-md-6 auth-form-pane" :inert="mode === 'join'">
           <div class="auth-form-inner">
             <h1 class="auth-title">Welcome back</h1>
             <p class="auth-sub">Log in to see your assignment and show-day updates.</p>
 
-            <div v-if="error" class="alert alert-danger py-2" role="alert" data-testid="login-error">
+            <div
+              v-if="error"
+              class="alert alert-danger py-2"
+              role="alert"
+              data-testid="login-error"
+            >
               {{ error }}
             </div>
 
             <form novalidate @submit.prevent="submit">
               <div class="form-floating auth-field mb-3">
-                <input id="email" v-model.trim="email" type="email" class="form-control"
-                  placeholder="name@example.com" autocomplete="email" required data-testid="login-email" />
+                <input
+                  id="email"
+                  v-model.trim="email"
+                  type="email"
+                  class="form-control"
+                  placeholder="name@example.com"
+                  autocomplete="email"
+                  required
+                  data-testid="login-email"
+                />
                 <label for="email">Email</label>
                 <i class="bi bi-envelope auth-field-icon" aria-hidden="true"></i>
               </div>
               <div class="form-floating auth-field auth-field-pw mb-4">
-                <input id="password" v-model="password" :type="showPassword ? 'text' : 'password'" class="form-control"
-                  placeholder="Password" autocomplete="current-password" required data-testid="login-password" />
+                <input
+                  id="password"
+                  v-model="password"
+                  :type="showPassword ? 'text' : 'password'"
+                  class="form-control"
+                  placeholder="Password"
+                  autocomplete="current-password"
+                  required
+                  data-testid="login-password"
+                />
                 <label for="password">Password</label>
                 <i class="bi bi-lock auth-field-icon" aria-hidden="true"></i>
                 <!-- eye button: shows or hides the password -->
-                <button type="button" class="auth-eye" :aria-label="showPassword ? 'Hide password' : 'Show password'"
-                  :aria-pressed="showPassword" @click="showPassword = !showPassword">
-                  <i class="bi" :class="showPassword ? 'bi-eye' : 'bi-eye-slash'" aria-hidden="true"></i>
+                <button
+                  type="button"
+                  class="auth-eye"
+                  :aria-label="showPassword ? 'Hide password' : 'Show password'"
+                  :aria-pressed="showPassword"
+                  @click="showPassword = !showPassword"
+                >
+                  <i
+                    class="bi"
+                    :class="showPassword ? 'bi-eye' : 'bi-eye-slash'"
+                    aria-hidden="true"
+                  ></i>
                 </button>
               </div>
-              <button type="submit" class="btn btn-brand w-100 auth-submit" :disabled="loading" data-testid="login-submit">
-                <span v-if="loading" class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>
+              <button
+                type="submit"
+                class="btn btn-brand w-100 auth-submit"
+                :disabled="loading"
+                data-testid="login-submit"
+              >
+                <span
+                  v-if="loading"
+                  class="spinner-border spinner-border-sm me-2"
+                  aria-hidden="true"
+                ></span>
                 Log in
               </button>
             </form>
@@ -87,10 +128,22 @@ const VIDEO_SRC = '/videos/login-bg.mp4'
         </div>
 
         <!-- Decorative: muted looping video. It only loads while this side is showing -->
-        <div class="col-12 col-md-5 order-first order-md-last auth-scene" aria-hidden="true">
+        <!-- col-md-6 (was col-md-5): a wider video column means less of the video is cropped -->
+        <div class="col-12 col-md-6 order-first order-md-last auth-scene" aria-hidden="true">
+          <FireworksBackground v-if="mode === 'join'" :skyline="false" />
           <Transition name="scene-fade">
-            <video v-if="mode === 'join'" class="scene-video" :src="VIDEO_SRC" autoplay muted loop playsinline
-              disablepictureinpicture disableremoteplayback tabindex="-1"></video>
+            <video
+              v-if="mode === 'join'"
+              class="scene-video"
+              :src="VIDEO_SRC"
+              autoplay
+              muted
+              loop
+              playsinline
+              disablepictureinpicture
+              disableremoteplayback
+              tabindex="-1"
+            ></video>
           </Transition>
           <div class="scene-shade"></div>
         </div>
@@ -104,56 +157,92 @@ const VIDEO_SRC = '/videos/login-bg.mp4'
              Each SVG holds two copies of the wave and slides by half its length, so the loop is seamless. -->
         <div class="wave wave-x wave-start">
           <svg class="wave-back" viewBox="0 0 60 800" preserveAspectRatio="none">
-            <path d="M0,0 L34,0 C34,40.5 58,49.5 58,90 C58,139.5 22,150.5 22,200 C22,245 52,255 52,300 C52,345 34,355 34,400 C34,440.5 58,449.5 58,490 C58,539.5 22,550.5 22,600 C22,645 52,655 52,700 C52,745 34,755 34,800 L0,800 Z" />
+            <path
+              d="M0,0 L34,0 C34,40.5 58,49.5 58,90 C58,139.5 22,150.5 22,200 C22,245 52,255 52,300 C52,345 34,355 34,400 C34,440.5 58,449.5 58,490 C58,539.5 22,550.5 22,600 C22,645 52,655 52,700 C52,745 34,755 34,800 L0,800 Z"
+            />
           </svg>
           <svg class="wave-front" viewBox="0 0 60 800" preserveAspectRatio="none">
-            <path d="M0,0 L18,0 C18,49.5 50,60.5 50,110 C50,159.5 8,170.5 8,220 C8,260.5 36,269.5 36,310 C36,350.5 18,359.5 18,400 C18,449.5 50,460.5 50,510 C50,559.5 8,570.5 8,620 C8,660.5 36,669.5 36,710 C36,750.5 18,759.5 18,800 L0,800 Z" />
+            <path
+              d="M0,0 L18,0 C18,49.5 50,60.5 50,110 C50,159.5 8,170.5 8,220 C8,260.5 36,269.5 36,310 C36,350.5 18,359.5 18,400 C18,449.5 50,460.5 50,510 C50,559.5 8,570.5 8,620 C8,660.5 36,669.5 36,710 C36,750.5 18,759.5 18,800 L0,800 Z"
+            />
           </svg>
         </div>
         <div class="wave wave-x wave-end">
           <svg class="wave-back" viewBox="0 0 60 800" preserveAspectRatio="none">
-            <path d="M0,0 L34,0 C34,40.5 58,49.5 58,90 C58,139.5 22,150.5 22,200 C22,245 52,255 52,300 C52,345 34,355 34,400 C34,440.5 58,449.5 58,490 C58,539.5 22,550.5 22,600 C22,645 52,655 52,700 C52,745 34,755 34,800 L0,800 Z" />
+            <path
+              d="M0,0 L34,0 C34,40.5 58,49.5 58,90 C58,139.5 22,150.5 22,200 C22,245 52,255 52,300 C52,345 34,355 34,400 C34,440.5 58,449.5 58,490 C58,539.5 22,550.5 22,600 C22,645 52,655 52,700 C52,745 34,755 34,800 L0,800 Z"
+            />
           </svg>
           <svg class="wave-front" viewBox="0 0 60 800" preserveAspectRatio="none">
-            <path d="M0,0 L18,0 C18,49.5 50,60.5 50,110 C50,159.5 8,170.5 8,220 C8,260.5 36,269.5 36,310 C36,350.5 18,359.5 18,400 C18,449.5 50,460.5 50,510 C50,559.5 8,570.5 8,620 C8,660.5 36,669.5 36,710 C36,750.5 18,759.5 18,800 L0,800 Z" />
+            <path
+              d="M0,0 L18,0 C18,49.5 50,60.5 50,110 C50,159.5 8,170.5 8,220 C8,260.5 36,269.5 36,310 C36,350.5 18,359.5 18,400 C18,449.5 50,460.5 50,510 C50,559.5 8,570.5 8,620 C8,660.5 36,669.5 36,710 C36,750.5 18,759.5 18,800 L0,800 Z"
+            />
           </svg>
         </div>
         <div class="wave wave-y wave-start">
           <svg class="wave-back" viewBox="0 0 800 60" preserveAspectRatio="none">
-            <path d="M0,0 L0,34 C40.5,34 49.5,58 90,58 C139.5,58 150.5,22 200,22 C245,22 255,52 300,52 C345,52 355,34 400,34 C440.5,34 449.5,58 490,58 C539.5,58 550.5,22 600,22 C645,22 655,52 700,52 C745,52 755,34 800,34 L800,0 Z" />
+            <path
+              d="M0,0 L0,34 C40.5,34 49.5,58 90,58 C139.5,58 150.5,22 200,22 C245,22 255,52 300,52 C345,52 355,34 400,34 C440.5,34 449.5,58 490,58 C539.5,58 550.5,22 600,22 C645,22 655,52 700,52 C745,52 755,34 800,34 L800,0 Z"
+            />
           </svg>
           <svg class="wave-front" viewBox="0 0 800 60" preserveAspectRatio="none">
-            <path d="M0,0 L0,18 C49.5,18 60.5,50 110,50 C159.5,50 170.5,8 220,8 C260.5,8 269.5,36 310,36 C350.5,36 359.5,18 400,18 C449.5,18 460.5,50 510,50 C559.5,50 570.5,8 620,8 C660.5,8 669.5,36 710,36 C750.5,36 759.5,18 800,18 L800,0 Z" />
+            <path
+              d="M0,0 L0,18 C49.5,18 60.5,50 110,50 C159.5,50 170.5,8 220,8 C260.5,8 269.5,36 310,36 C350.5,36 359.5,18 400,18 C449.5,18 460.5,50 510,50 C559.5,50 570.5,8 620,8 C660.5,8 669.5,36 710,36 C750.5,36 759.5,18 800,18 L800,0 Z"
+            />
           </svg>
         </div>
         <div class="wave wave-y wave-end">
           <svg class="wave-back" viewBox="0 0 800 60" preserveAspectRatio="none">
-            <path d="M0,0 L0,34 C40.5,34 49.5,58 90,58 C139.5,58 150.5,22 200,22 C245,22 255,52 300,52 C345,52 355,34 400,34 C440.5,34 449.5,58 490,58 C539.5,58 550.5,22 600,22 C645,22 655,52 700,52 C745,52 755,34 800,34 L800,0 Z" />
+            <path
+              d="M0,0 L0,34 C40.5,34 49.5,58 90,58 C139.5,58 150.5,22 200,22 C245,22 255,52 300,52 C345,52 355,34 400,34 C440.5,34 449.5,58 490,58 C539.5,58 550.5,22 600,22 C645,22 655,52 700,52 C745,52 755,34 800,34 L800,0 Z"
+            />
           </svg>
           <svg class="wave-front" viewBox="0 0 800 60" preserveAspectRatio="none">
-            <path d="M0,0 L0,18 C49.5,18 60.5,50 110,50 C159.5,50 170.5,8 220,8 C260.5,8 269.5,36 310,36 C350.5,36 359.5,18 400,18 C449.5,18 460.5,50 510,50 C559.5,50 570.5,8 620,8 C660.5,8 669.5,36 710,36 C750.5,36 759.5,18 800,18 L800,0 Z" />
+            <path
+              d="M0,0 L0,18 C49.5,18 60.5,50 110,50 C159.5,50 170.5,8 220,8 C260.5,8 269.5,36 310,36 C350.5,36 359.5,18 400,18 C449.5,18 460.5,50 510,50 C559.5,50 570.5,8 620,8 C660.5,8 669.5,36 710,36 C750.5,36 759.5,18 800,18 L800,0 Z"
+            />
           </svg>
         </div>
       </div>
 
       <!-- ===== Words on the panel. They stay in place while the panel slides under them, then cross-fade ===== -->
-      <section class="ov-block ov-hello" :class="{ 'is-active': mode === 'login' }" :inert="mode !== 'login'">
+      <section
+        class="ov-block ov-hello"
+        :class="{ 'is-active': mode === 'login' }"
+        :inert="mode !== 'login'"
+      >
         <h2 class="ov-title">New to the crew?</h2>
         <p class="ov-text">Find out what volunteers do on show day, then create your account.</p>
-        <button type="button" class="btn btn-outline-light rounded-pill px-4 ov-btn" @click="mode = 'join'">
+        <button
+          type="button"
+          class="btn btn-outline-light rounded-pill px-4 ov-btn"
+          @click="mode = 'join'"
+        >
           See how it works
         </button>
       </section>
 
-      <section class="ov-block ov-join" :class="{ 'is-active': mode === 'join' }" :inert="mode !== 'join'">
+      <section
+        class="ov-block ov-join"
+        :class="{ 'is-active': mode === 'join' }"
+        :inert="mode !== 'join'"
+      >
         <h2 class="ov-title">Show day, sorted</h2>
         <p class="ov-text">One account gets you:</p>
         <ul class="list-unstyled text-start ov-list">
-          <li><i class="bi bi-geo-alt-fill" aria-hidden="true"></i>A school near home, matched for you</li>
-          <li><i class="bi bi-signpost-split-fill" aria-hidden="true"></i>Live directions on show day</li>
-          <li><i class="bi bi-award-fill" aria-hidden="true"></i>Badges you earn as you help out</li>
+          <li>
+            <i class="bi bi-geo-alt-fill" aria-hidden="true"></i>A school near home, matched for you
+          </li>
+          <li>
+            <i class="bi bi-signpost-split-fill" aria-hidden="true"></i>Live directions on show day
+          </li>
+          <li>
+            <i class="bi bi-award-fill" aria-hidden="true"></i>Badges you earn as you help out
+          </li>
         </ul>
-        <RouterLink to="/register" class="btn btn-light rounded-pill px-4 ov-btn ov-cta">Create my account</RouterLink>
+        <RouterLink to="/register" class="btn btn-light rounded-pill px-4 ov-btn ov-cta"
+          >Create my account</RouterLink
+        >
         <button type="button" class="btn btn-link link-light ov-back" @click="mode = 'login'">
           <i class="bi bi-arrow-left me-1" aria-hidden="true"></i>Back to log in
         </button>
@@ -177,8 +266,8 @@ const VIDEO_SRC = '/videos/login-bg.mp4'
 }
 
 .auth-card {
-  --split: 58.3333%; /* where the form column ends (= Bootstrap col-md-7) */
-  --scene-h: 200px; /* phones: height of the top banner / video strip */
+  --split: 50%; /* where the form column ends (= Bootstrap col-md-6, half the card) */
+  --scene-h: 400px; /* phones: height of the top banner / video strip */
   --wave: 34px; /* how far the wavy edge sticks out of the panel */
   --panel: var(--hw-red); /* panel colour; the waves use the same value so the edge is seamless */
   --panel-soft: rgb(255 45 65 / 0.5); /* lighter second wave behind the main one */
@@ -352,7 +441,9 @@ const VIDEO_SRC = '/videos/login-bg.mp4'
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: cover;
+  /* contain = the WHOLE video frame is shown, never cropped, so the burned-in subtitles can't be cut off.
+     The column is taller than a 16:9 video, so there are empty bands above and below it */
+  object-fit: contain;
   pointer-events: none;
 }
 /* soft dark edge so the red wave stands out against bright footage */
@@ -591,7 +682,9 @@ const VIDEO_SRC = '/videos/login-bg.mp4'
     --wave: 44px;
   }
   .auth-base {
-    min-height: 560px;
+    /* was 560px. A shorter card makes the video column less tall and narrow, so less of the video is cropped.
+     Check that the "Show day, sorted" text still fits; raise this number if it looks cramped */
+    min-height: 460px;
   }
   .auth-form-pane {
     min-height: 0;
@@ -688,9 +781,6 @@ const VIDEO_SRC = '/videos/login-bg.mp4'
 }
 
 @media (min-width: 992px) {
-  .auth-card {
-    --wave: 56px;
-  }
   .auth-form-pane {
     padding-left: 3rem;
   }
