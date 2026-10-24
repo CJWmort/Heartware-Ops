@@ -243,18 +243,21 @@ function onMapReady(m, leaflet) {
 function drawZones() {
   zoneLayer.clearLayers()
 
+  // Outer zone: strong blue, dashed border, so it reads as the "wider" area
   L.polygon(OUTER_RING, {
-    color: '#6C757D',
-    weight: 1.5,
-    fillColor: '#3b82f6',
-    fillOpacity: 0.1,
+    color: '#2563eb', // CHANGED: vivid blue border (was grey, which blended into the map)
+    weight: 3, // CHANGED: thicker border (was 1.5) so the edge is easy to see
+    dashArray: '8 6', // ADDED: dashed line, so outer and inner differ by shape and not only colour
+    fillColor: '#2563eb',
+    fillOpacity: 0.14, // CHANGED: slightly stronger tint (was 0.1)
   }).addTo(zoneLayer)
 
+  // Inner zone: purple, solid border. Drawn after the outer one, so it sits on top
   L.polygon(INNER_RING, {
-    color: '#0d6efd',
-    weight: 1.5,
-    fillColor: '#0d6efd',
-    fillOpacity: 0.1,
+    color: '#7c3aed', // CHANGED: purple (was the same blue as the outer zone); avoids red, which the offline marker uses
+    weight: 3,
+    fillColor: '#7c3aed',
+    fillOpacity: 0.22, // CHANGED: stronger tint so the inner zone is clearly the focus
   }).addTo(zoneLayer)
 }
 
@@ -405,6 +408,19 @@ function focusOn(v) {
 
   map.flyTo(target, zoom, { duration: 0.5 })
 }
+
+// Quick view: fly the map so one whole ring fits on screen.
+// A ring is already a list of [lat, lng] points, so Leaflet can use it directly as the area to fit.
+function viewRing(ring) {
+  if (!map) return // map not ready yet
+  map.flyToBounds(ring, {
+    // same side/top padding idea as focusOn(): keep the ring clear of the top-left cards on desktop and the bottom card on phones
+    paddingTopLeft: [isDesktop() ? 300 : 20, 70],
+    paddingBottomRight: [20, cardH.value + 20],
+    duration: 0.6, // seconds for the fly animation
+  })
+}
+
 /* ------------------------------------------------------------------ */
 /* Selecting a volunteer                                               */
 /* ------------------------------------------------------------------ */
@@ -828,6 +844,16 @@ onUnmounted(() => {
   <div class="map-page">
     <div class="map-stage" :style="{ '--map-inset-bottom': cardH + 'px', '--notice-top': '96px' }">
       <BaseMap :center="SINGAPORE_CENTER" :zoom="11" testid="hq-map" @ready="onMapReady" />
+
+      <!-- Quick views: jump the camera to the inner or outer ring -->
+      <div class="ring-views" role="group" aria-label="Quick map views">
+        <button type="button" class="ring-btn" @click="viewRing(INNER_RING)">
+          <i class="bi bi-bullseye" aria-hidden="true"></i> Inner
+        </button>
+        <button type="button" class="ring-btn" @click="viewRing(OUTER_RING)">
+          <i class="bi bi-record-circle" aria-hidden="true"></i> Outer
+        </button>
+      </div>
 
       <!-- Top bar: show dropdown + name search -->
       <div class="board-bar">
@@ -1947,5 +1973,30 @@ onUnmounted(() => {
   .zone-dot {
     display: none;
   }
+}
+
+/* Floating button pair, bottom-right above the zoom +/- buttons */
+.ring-views {
+  position: absolute;
+  right: 10px;
+  bottom: calc(
+    var(--map-inset-bottom) + 120px
+  ); /* sits above the zoom buttons, moves up with the bottom card */
+  z-index: 1000; /* above the map tiles, same layer as Leaflet's own controls */
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ring-btn {
+  padding: 6px 12px;
+  border: 0;
+  border-radius: 10px;
+  background: #fff;
+  color: var(--hw-navy);
+  font-size: 0.85rem;
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.3);
+}
+.ring-btn:hover {
+  background: #f1f3f5;
 }
 </style>
