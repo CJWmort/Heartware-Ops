@@ -7,7 +7,7 @@ import MapNotice from '@/components/MapNotice.vue'
 import axios from 'axios'
 import polyline from '@mapbox/polyline'
 import { createDestIcon, createSchoolIcon, createDotIcon, createRouteLabelIcon, tipCard, bindTip } from '@/utils/map-icons'
-import { VENUES } from '@/utils/constants'
+import { VENUES, JOURNEY_STAGES } from '@/utils/constants'
 import { startTracking, stopTracking, geolocationMessage, getUserLocation } from '@/utils/geolocation'
 
 /* ------------------------------------------------------------------ */
@@ -63,17 +63,111 @@ const currentAssignment = computed(
 
 watch(currentAssignment, drawSchool) // tapping a pill (or the list loading) redraws the school
 
+/* Journey: which of the 8 checkpoints the volunteer has clocked today for the selected show */
+const stageBusy = ref(false) // true while a checkpoint request is running (buttons are disabled)
+const stageError = ref('') // set when a checkpoint could not be saved
+const currentStage = computed(() => currentAssignment.value?.stage ?? 0) // 0 = not started, 8 = dismissed
+const nextStage = computed(() => JOURNEY_STAGES[currentStage.value] ?? null) // the checkpoint the big button clocks (null after Dismissal)
+const lastStage = computed(() => JOURNEY_STAGES[currentStage.value - 1] ?? null) // the checkpoint "Undo" would remove
+const journeyLeg = computed(() => {
+  if (currentStage.value >= JOURNEY_STAGES.length) return { text: 'Day complete', icon: 'bi-check-circle-fill' }
+  // The leg follows the NEXT checkpoint: 1-4 are on the way to Padang, 5-8 on the way back
+  return nextStage.value.leg === 'out'
+    ? { text: 'Going to Padang', icon: 'bi-arrow-right-circle-fill' }
+    : { text: 'Returning to school', icon: 'bi-arrow-left-circle-fill' }
+})
+
+// Where the route goes: Padang on the way there, the volunteer's allocated school from "Reached Padang" onwards
+// (the same moment the journey switches to "Returning to school"). Falls back to Padang if the school has no coordinates.
+const routeTarget = computed(() => {
+  const school = currentAssignment.value?.school
+  if (currentStage.value >= 4 && school?.lat != null && school?.lng != null) {
+    return { lat: school.lat, lng: school.lng, name: school.name || 'school' }
+  }
+  return { lat: DEST.lat, lng: DEST.lng, name: 'Padang' }
+})
+
+// The destination changed (stage 4 reached or undone, another show picked, undo back to the outbound leg): fetch the new route
+watch(routeTarget, (now, before) => {
+  if (now.lat !== before.lat || now.lng !== before.lng) drawRoute()
+})
+
+// The journey row has 4 dots that play twice: left to right on the way to Padang (stages 1-4), then in reverse on the
+// way back (stages 5-8, where dot 4 = Leaving Padang ... dot 1 = Dismissal). This works out each dot's look for the
+// current stage. A dot's left-hand line is the line between it and the previous dot.
+const journeyReturning = computed(() => currentStage.value >= 4 && currentStage.value < JOURNEY_STAGES.length)
+const journeyDots = computed(() => {
+  const st = currentStage.value
+  const back = st >= 4 // from "Reached Padang" on, the next checkpoints belong to the return leg
+  const nextPos = st >= 8 ? 0 : back ? 8 - st : st + 1 // the dot the next checkpoint lights up (pulses)
+  // The line that is animating: it belongs to the dot on its right
+  const flowDot = st >= 8 ? 0 : back ? Math.min(3, 8 - st) + 1 : st + 1
+  return [1, 2, 3, 4].map((d) => {
+    const stageForDot = back ? JOURNEY_STAGES[8 - d] : JOURNEY_STAGES[d - 1] // what this dot stands for in the current leg
+    const reachedNow = back ? st >= 9 - d && st >= 5 : st >= d
+    return {
+      pos: d,
+      label: stageForDot.label + (reachedNow ? ' (done)' : ''),
+      title: stageForDot.label,
+      classes: {
+        out: st >= d, // reached on the way to Padang
+        back: st >= 5 && st >= 9 - d, // reached on the way back
+        'link-out': d >= 2 && st >= d,
+        'link-back': d >= 2 && st >= 10 - d,
+        next: d === nextPos,
+        'flow-fwd': d >= 2 && d === flowDot && !back,
+        'flow-back': d >= 2 && d === flowDot && back,
+      },
+    }
+  })
+})
+
+// Sends one stage change and applies the server's answer to the selected assignment.
+// 409 = the server's stage differs from ours (double tap, second phone, new day): we just take the server's stage.
+async function sendStage(assignment, request) {
+  if (stageBusy.value) return
+  stageBusy.value = true
+  stageError.value = ''
+  try {
+    const res = await request()
+    assignment.stage = res.data.stage
+    assignment.stageHistory = res.data.stageHistory
+  } catch (err) {
+    if (err.response?.status === 409 && typeof err.response.data?.stage === 'number') {
+      assignment.stage = err.response.data.stage
+    } else {
+      stageError.value = err.response?.data?.message || 'Could not save your checkpoint. Please try again.'
+    }
+  } finally {
+    stageBusy.value = false
+  }
+}
+
+// Big button: clock the next checkpoint
+function advanceStage() {
+  const a = currentAssignment.value
+  if (!a || a.stage >= JOURNEY_STAGES.length) return
+  sendStage(a, () => axios.put('/api/assignments/me/stage', { show: a.show, stage: a.stage + 1 }))
+}
+
+// Undo link: go back one checkpoint (as many times as needed)
+function undoStage() {
+  const a = currentAssignment.value
+  if (!a || a.stage < 1) return
+  sendStage(a, () => axios.delete('/api/assignments/me/stage', { params: { show: a.show, stage: a.stage } }))
+}
+
 /* Tracking and sharing status */
 const trackingOn = ref(false) // true once location tracking has started (needs an accepted show)
 const lastSentAt = ref(0) // time of the last successful send to the server
 const clock = ref(Date.now()) // ticks every 5 s so the pill notices when sends stop
-const SHARE_FRESH_MS = 45000 // counts as "sharing" while the last send is newer than this
+const SHARE_FRESH_MS = 90000 // counts as "sharing" while the last send is newer than this
 
 const SHARE_LABELS = {
   sharing: 'Sharing location',
   blocked: 'Location blocked',
   off: 'Not sharing',
-  waiting: 'Connecting...',
+  waiting: 'Connecting…',
 }
 
 // Which pill to show (null = none)
@@ -147,6 +241,14 @@ const notice = computed(() => {
       icon: 'bi-exclamation-triangle-fill',
       title: 'Route problem',
       text: routeError.value,
+    }
+  }
+  if (stageError.value) {
+    return {
+      type: 'error',
+      icon: 'bi-exclamation-triangle-fill',
+      title: 'Checkpoint problem',
+      text: stageError.value,
     }
   }
   if (showTrackingInfo.value) {
@@ -424,7 +526,7 @@ function updateHeadingUI() {
 /* Routing                                                             */
 /* ------------------------------------------------------------------ */
 
-// Fetches the route from the user's location to Padang and draws it.
+// Fetches the route from the user's location to the current destination (Padang, or the school when returning) and draws it.
 // background = true refreshes quietly (no overlay, old line stays until the
 // new one is ready); false is used for first load and travel-mode changes.
 async function drawRoute(background = false) {
@@ -450,8 +552,8 @@ async function drawRoute(background = false) {
       params: {
         startLat: lat,
         startLng: lng,
-        endLat: DEST.lat,
-        endLng: DEST.lng,
+        endLat: routeTarget.value.lat,
+        endLng: routeTarget.value.lng,
         routeType: travelMode.value, // 'walk' or 'drive'
       },
     })
@@ -472,7 +574,7 @@ async function drawRoute(background = false) {
 
     const s = res.data.route_summary
     routeBase = {
-      straight: distanceMeters({ lat, lng }, DEST),
+      straight: distanceMeters({ lat, lng }, routeTarget.value),
       km: s.total_distance / 1000,
       minutes: s.total_time / 60,
     }
@@ -492,13 +594,13 @@ async function drawRoute(background = false) {
 }
 
 // Time and distance shown in the card. Between route fetches it shrinks as the
-// user gets closer to Padang (scaled by straight-line distance), and each
+// user gets closer to the destination (scaled by straight-line distance), and each
 // re-route replaces it with exact numbers from the API.
 const liveInfo = computed(() => {
   if (!routeInfo.value || !routeBase || !location.value) return routeInfo.value
   if (routeBase.straight < 1) return routeInfo.value
 
-  const straightNow = distanceMeters(location.value, DEST)
+  const straightNow = distanceMeters(location.value, routeTarget.value)
   const ratio = Math.max(0, Math.min(1, straightNow / routeBase.straight))
 
   return {
@@ -644,6 +746,7 @@ function showTrackingNotice() {
 function dismissNotice() {
   if (geoError.value) geoError.value = ''
   else if (routeError.value) routeError.value = ''
+  else if (stageError.value) stageError.value = ''
   else showTrackingInfo.value = false
 }
 
@@ -853,7 +956,7 @@ onUnmounted(() => {
               <i class="bi" :class="activeMode.icon"></i>
             </div>
             <div>
-              <div class="sheet-title">{{ activeMode.verb }} to Padang</div>
+              <div class="sheet-title">{{ activeMode.verb }} to {{ routeTarget.name }}</div>
               <div v-if="liveInfo" class="route-stats">
                 <span class="route-min">{{ liveInfo.minutes }} min</span>
                 <span class="route-km">{{ liveInfo.km }} km</span>
@@ -894,6 +997,44 @@ onUnmounted(() => {
                     {{ currentAssignment?.school?.p5Classes ?? '—' }}
                   </div>
                 </div>
+              </div>
+
+              <!-- Journey: where the volunteer is in today's 8 checkpoints (the admin sees the same on the Live Board) -->
+              <div class="journey" :class="{ done: !nextStage, returning: journeyReturning }">
+                <div class="journey-head">
+                  <span class="journey-leg"><i class="bi" :class="journeyLeg.icon" aria-hidden="true"></i>{{ journeyLeg.text }}</span>
+                  <span class="journey-count">{{ currentStage }}/{{ JOURNEY_STAGES.length }}</span>
+                </div>
+
+                <ol class="journey-dots" aria-label="Journey progress">
+                  <li v-for="d in journeyDots" :key="d.pos" class="jdot" :class="d.classes" :title="d.title">
+                    <span class="dot"></span>
+                    <span class="visually-hidden">{{ d.label }}</span>
+                  </li>
+                </ol>
+
+                <button
+                  v-if="nextStage"
+                  type="button"
+                  class="journey-btn"
+                  :disabled="stageBusy"
+                  data-testid="journey-next"
+                  @click="advanceStage"
+                >
+                  <i class="bi bi-check2-circle" aria-hidden="true"></i> {{ nextStage.label }}
+                </button>
+                <div v-else class="journey-complete"><i class="bi bi-check-circle-fill" aria-hidden="true"></i> Day complete</div>
+
+                <button
+                  v-if="lastStage"
+                  type="button"
+                  class="journey-undo"
+                  :disabled="stageBusy"
+                  data-testid="journey-undo"
+                  @click="undoStage"
+                >
+                  <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i> Undo: {{ lastStage.label }}
+                </button>
               </div>
             </template>
 
@@ -1021,6 +1162,7 @@ onUnmounted(() => {
 
 .sheet-title {
   font-size: 1.1rem;
+  overflow-wrap: anywhere; /* long school names wrap instead of overflowing */
 }
 
 /* Icon on the left, text on the right */
@@ -1131,8 +1273,214 @@ onUnmounted(() => {
 .info-grid {
   display: grid;
   grid-template-columns: 1.5fr 1fr;
-  gap: 10px;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+/* Smaller school / P5 cards in the sheet, to leave room for the journey section */
+.assign .info-card {
+  padding: 6px 10px;
+  border-radius: 10px;
+}
+.assign .info-label {
+  font-size: 0.68rem;
+}
+.assign .info-value {
+  margin-top: 2px;
+  font-size: 0.85rem;
+}
+.assign .info-number {
+  font-size: 1.15rem;
+}
+
+/* Journey: label, row of dots, next-checkpoint button, undo */
+.journey {
   margin-top: 12px;
+}
+.journey-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.journey-leg {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #2563eb;
+}
+.journey-count {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #777;
+}
+
+.journey-dots {
+  display: flex;
+  margin: 0 0 12px;
+  padding: 0;
+  list-style: none;
+}
+.jdot {
+  position: relative;
+  flex: 1 1 0; /* each segment (line + the dot at its right end) takes an equal share */
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  height: 20px;
+}
+/* The first dot has no line: it sits flush with the button's left edge, and the last dot with its right edge */
+.jdot:first-child {
+  flex: 0 0 12px;
+}
+/* Line from the previous dot to this one */
+.jdot::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 0;
+  width: 100%;
+  height: 3px;
+  transform: translateY(-50%);
+  border-radius: 2px;
+  background: #e1e5ea;
+}
+.jdot:first-child::before {
+  display: none;
+}
+/* Blue = on the way to Padang, teal = on the way back */
+.jdot.link-out::before {
+  background: #2563eb;
+}
+.jdot.link-back::before {
+  background: #0d9488;
+}
+/* The line the trip is travelling along: dashes keep moving forwards (to Padang) or backwards (to school) */
+.jdot.flow-fwd::before {
+  background: repeating-linear-gradient(90deg, #2563eb 0 6px, #bcd0fb 6px 12px);
+  background-size: 12px 100%;
+  animation: journey-flow-fwd 0.8s linear infinite;
+}
+.jdot.flow-back::before {
+  background: repeating-linear-gradient(90deg, #0d9488 0 6px, #b5e6e1 6px 12px);
+  background-size: 12px 100%;
+  animation: journey-flow-back 0.8s linear infinite;
+}
+.jdot .dot {
+  position: relative;
+  z-index: 1;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid #cfd5dd;
+}
+.jdot.out .dot {
+  background: #2563eb;
+  border-color: #2563eb;
+}
+.jdot.back .dot {
+  background: #0d9488;
+  border-color: #0d9488;
+}
+.jdot.next .dot {
+  background: #fff;
+  border-color: #2563eb;
+  animation: journey-pulse 1.6s ease-out infinite;
+}
+.journey.returning .jdot.next .dot {
+  border-color: #0d9488;
+  animation-name: journey-pulse-back;
+}
+.journey.returning .journey-leg {
+  color: #0d9488;
+}
+.journey.done .jdot::before {
+  background: #16a34a;
+}
+.journey.done .jdot .dot {
+  background: #16a34a;
+  border-color: #16a34a;
+}
+
+.journey-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 11px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: #2563eb;
+  color: #fff;
+  font-weight: 600;
+}
+.journey-btn:hover:not(:disabled) {
+  background: #1d4fd8;
+}
+.journey-btn:disabled {
+  opacity: 0.7;
+}
+.journey-complete {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 11px 12px;
+  border-radius: 12px;
+  background: #e7f6ec;
+  color: #166534;
+  font-weight: 600;
+}
+.journey-undo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 6px;
+  padding: 6px;
+  border: 0;
+  background: transparent;
+  color: #666;
+  font-size: 0.8rem;
+}
+.journey-undo:hover:not(:disabled) {
+  color: #1f2430;
+  text-decoration: underline;
+}
+.journey-undo:disabled {
+  opacity: 0.5;
+}
+
+@keyframes journey-flow-fwd {
+  to {
+    background-position: 12px 0;
+  }
+}
+@keyframes journey-flow-back {
+  to {
+    background-position: -12px 0;
+  }
+}
+@keyframes journey-pulse-back {
+  0% {
+    box-shadow: 0 0 0 0 rgb(13 148 136 / 0.5);
+  }
+  100% {
+    box-shadow: 0 0 0 8px rgb(13 148 136 / 0);
+  }
+}
+@keyframes journey-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgb(37 99 235 / 0.5);
+  }
+  100% {
+    box-shadow: 0 0 0 8px rgb(37 99 235 / 0);
+  }
 }
 
 
@@ -1269,7 +1617,10 @@ onUnmounted(() => {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .share-pill.sharing .share-dot {
+  .share-pill.sharing .share-dot,
+  .jdot.flow-fwd::before,
+  .jdot.flow-back::before,
+  .jdot.next .dot {
     animation: none;
   }
 }

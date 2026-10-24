@@ -6,6 +6,17 @@ const CONFIRMED_STATUS = "Accepted"; // The status that counts as volunteer acce
 // password hash. We now list only the fields the admin board needs (lat/lng are for the map).
 const VOLUNTEER_FIELDS = "name phone email postalCode address lat lng";
 
+// ===== JOURNEY STAGES (what the volunteer is up to on the day) =====
+// 0 = nothing clocked yet, 1..8 = the checkpoints (the names live in client/src/utils/constants.js, JOURNEY_STAGES).
+// Each assignment (= one volunteer in one NE Show) has its own run, because the shows are on different dates.
+const MAX_STAGE = 8;
+
+// Today's date in Singapore as "YYYY-MM-DD". Stages reset at midnight Singapore time: a stage saved on an earlier
+// day is simply read as 0 (see effectiveStage), so no scheduled job is needed.
+function todaySG() {
+  return new Date().toLocaleDateString("en-CA", { timeZone: "Asia/Singapore" });
+}
+
 // Create a new 'assignment' schema
 // One document = one volunteer tagged to one school for one show
 const AssignmentsSchema = new mongoose.Schema({
@@ -61,6 +72,21 @@ const AssignmentsSchema = new mongoose.Schema({
     type: String,
     trim: true,
     maxlength: [300, "Reason must be 300 characters or fewer"],
+  },
+  // Journey stage for the day (0 = not started, 1-8 = last checkpoint clocked) and the day it belongs to.
+  // stageHistory has one entry per checkpoint reached today, so the admin can see when each was clocked.
+  stage: {
+    type: Number,
+    min: 0,
+    max: MAX_STAGE,
+    default: 0,
+  },
+  stageDate: {
+    type: String, // "YYYY-MM-DD" in Singapore time
+  },
+  stageHistory: {
+    type: [{ stage: { type: Number, min: 1, max: MAX_STAGE }, at: { type: Date, default: Date.now }, _id: false }],
+    default: [],
   },
   updatedAt: {
     type: Date,
@@ -232,6 +258,77 @@ exports.countDrafts = function (show) {
 };
 
 
+// ===== JOURNEY STAGES =====
+
+// The stage that counts today: a stage saved on an earlier day is read as 0
+function effectiveStage(doc) {
+  return doc.stageDate === todaySG() ? doc.stage || 0 : 0;
+}
+
+// An assignment as a plain object whose stage / stageHistory only reflect TODAY (what the volunteer page needs)
+exports.withToday = function (doc) {
+  const o = doc.toObject();
+  const fresh = o.stageDate === todaySG();
+  o.stage = fresh ? o.stage || 0 : 0;
+  o.stageHistory = fresh ? o.stageHistory || [] : [];
+  return o;
+};
+
+// Volunteer clocks the next checkpoint. `expected` is the stage they believe they are moving TO.
+// Returns { assignment } on success, { problem: "none" } if they have no accepted assignment for that show, or
+// { problem: "conflict", stage } if their stage is not what the page thought (double tap, second phone, new day).
+exports.advanceStage = async function (volunteerId, show, expected) {
+  const filter = { volunteer: volunteerId, show, status: CONFIRMED_STATUS };
+  const row = await Assignments.findOne(filter);
+  if (!row) return { problem: "none" };
+
+  const current = effectiveStage(row);
+  if (expected !== current + 1 || expected > MAX_STAGE) return { problem: "conflict", stage: current };
+
+  const today = todaySG();
+  const entry = { stage: expected, at: new Date() };
+  let updated;
+  if (current === 0) {
+    // First checkpoint of the day: start a fresh history. The filter re-checks that it is still 0 today.
+    updated = await Assignments.findOneAndUpdate(
+      { _id: row._id, $or: [{ stageDate: { $ne: today } }, { stage: 0 }] },
+      { $set: { stage: 1, stageDate: today, stageHistory: [entry] } },
+      { new: true }
+    );
+  } else {
+    // The filter pins the stage we just read, so two taps at the same moment cannot both succeed
+    updated = await Assignments.findOneAndUpdate(
+      { _id: row._id, stageDate: today, stage: current },
+      { $set: { stage: expected }, $push: { stageHistory: entry } },
+      { new: true }
+    );
+  }
+  if (!updated) return { problem: "conflict", stage: effectiveStage((await Assignments.findById(row._id)) || row) };
+  return { assignment: updated };
+};
+
+// Volunteer undoes the last checkpoint (as many times as they like, down to 0). `from` is the stage they are
+// leaving, so a double tap cannot undo two. Same return values as advanceStage.
+exports.undoStage = async function (volunteerId, show, from) {
+  const filter = { volunteer: volunteerId, show, status: CONFIRMED_STATUS };
+  const row = await Assignments.findOne(filter);
+  if (!row) return { problem: "none" };
+
+  const current = effectiveStage(row);
+  if (current === 0 || from !== current) return { problem: "conflict", stage: current };
+
+  const updated = await Assignments.findOneAndUpdate(
+    { _id: row._id, stageDate: todaySG(), stage: current },
+    { $set: { stage: current - 1 }, $pop: { stageHistory: 1 } },
+    { new: true }
+  );
+  if (!updated) return { problem: "conflict", stage: effectiveStage((await Assignments.findById(row._id)) || row) };
+  return { assignment: updated };
+};
+
+exports.MAX_STAGE = MAX_STAGE;
+
+
 // ===== LIVE BOARD ===== - Jun Wen
 
 // The list of valid shows, taken from the schema's enum (fills the admin's dropdown)
@@ -241,6 +338,7 @@ exports.SHOWS = AssignmentsSchema.path("show").enumValues;
 // latest location (if any). Volunteers who haven't reported yet are included,
 // with no lat/lng/updatedAt.
 exports.findBoard = function (show) {
+  const today = todaySG(); // stage / history only count if they were saved today
   return Assignments.aggregate([
     { $match: { show: show.trim(), status: CONFIRMED_STATUS } },
     { $lookup: { from: "accounts", localField: "volunteer", foreignField: "_id", as: "account" } },
@@ -264,6 +362,8 @@ exports.findBoard = function (show) {
         lng: "$loc.lng",
         accuracy: "$loc.accuracy",
         updatedAt: "$loc.updatedAt",
+        stage: { $cond: [{ $eq: ["$stageDate", today] }, { $ifNull: ["$stage", 0] }, 0] },
+        stageHistory: { $cond: [{ $eq: ["$stageDate", today] }, { $ifNull: ["$stageHistory", []] }, []] },
       },
     },
     { $sort: { name: 1 } },

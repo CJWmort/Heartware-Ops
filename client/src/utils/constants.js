@@ -1,28 +1,18 @@
 // Shared values. Keep in sync with server/utils/constants.js
 
-export const ROLES = Object.freeze({
-  VOLUNTEER: 'volunteer',
-  COORDINATOR: 'coordinator',
-  HQ: 'hq',
-})
 
-export const CHECKPOINTS = Object.freeze([
-  'BOARDED_OUTBOUND',
-  'DEPARTED_SCHOOL',
-  'ARRIVED_VENUE',
-  'SEATED',
-  'BOARDED_RETURN',
-  'BACK_AT_PUDO',
+// The 8 checkpoints a volunteer clocks during an NE Show day, in order (stage 1-8; 0 = not started).
+// Leg 'out' = going to Padang, leg 'back' = returning to school. Used by the volunteer sheet and the HQ Live Board.
+export const JOURNEY_STAGES = Object.freeze([
+  { stage: 1, label: 'Reached allocated school', short: 'At school', leg: 'out' },
+  { stage: 2, label: 'Departed from school', short: 'Left school', leg: 'out' },
+  { stage: 3, label: 'Reached pick-up-drop-off', short: 'At pick-up-drop-off', leg: 'out' },
+  { stage: 4, label: 'Reached Padang', short: 'At Padang', leg: 'out' },
+  { stage: 5, label: 'Leaving Padang', short: 'Leaving Padang', leg: 'back' },
+  { stage: 6, label: 'Reached pick-up-drop-off', short: 'At pick-up-drop-off', leg: 'back' },
+  { stage: 7, label: 'Reached school', short: 'Back at school', leg: 'back' },
+  { stage: 8, label: 'Dismissal', short: 'Dismissed', leg: 'back' },
 ])
-
-export const CHECKPOINT_LABELS = Object.freeze({
-  BOARDED_OUTBOUND: 'Boarded bus',
-  DEPARTED_SCHOOL: 'Departed school',
-  ARRIVED_VENUE: 'Arrived at venue',
-  SEATED: 'Seated',
-  BOARDED_RETURN: 'Boarded for return',
-  BACK_AT_PUDO: 'Back at PUDO',
-})
 
 export const VENUES = Object.freeze({
   'National Stadium': { lat: 1.304, lng: 103.8746 },

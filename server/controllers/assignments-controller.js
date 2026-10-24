@@ -25,9 +25,57 @@ exports.getAssignments = async (req, res) => {
 exports.getMyAssignments = async (req, res) => {
   try {
     const assignments = await Assignments.findMine(req.session.userId);
-    res.json(assignments);
+    res.json(assignments.map((a) => Assignments.withToday(a))); // stage / stageHistory only reflect today
   } catch (error) {
     res.status(500).json({ message: error.message });
+  }
+};
+
+// Reads { show, stage } from the body (advance) or the query string (undo) and checks them.
+// Returns { show, stage } or null when they are not valid.
+function readStageRequest(source) {
+  const show = String(source.show || "").trim();
+  const stage = Number(source.stage);
+  if (!Assignments.SHOWS.includes(show)) return null;
+  if (!Number.isInteger(stage) || stage < 1 || stage > Assignments.MAX_STAGE) return null;
+  return { show, stage };
+}
+
+// The answer for both stage endpoints: where the volunteer is now
+function stageReply(a) {
+  const o = Assignments.withToday(a);
+  return { show: o.show, stage: o.stage, stageHistory: o.stageHistory };
+}
+
+// PUT /api/assignments/me/stage -- the volunteer clocks the next checkpoint. Body { show, stage } = the stage they move TO.
+exports.advanceMyStage = async (req, res) => {
+  try {
+    const input = readStageRequest(req.body || {});
+    if (!input) return res.status(400).json({ message: "A valid show and stage (1-8) are required." });
+
+    const result = await Assignments.advanceStage(req.session.userId, input.show, input.stage);
+    if (result.problem === "none") return res.status(403).json({ message: "No accepted assignment for this show." });
+    if (result.problem === "conflict") return res.status(409).json({ message: "Your stage has changed. Refreshed.", stage: result.stage });
+    res.json(stageReply(result.assignment));
+  } catch (error) {
+    console.error("advanceMyStage failed:", error);
+    res.status(500).json({ message: "Could not save your checkpoint." });
+  }
+};
+
+// DELETE /api/assignments/me/stage?show=NE Show 1&stage=3 -- undo the last checkpoint. stage = the stage they are leaving.
+exports.undoMyStage = async (req, res) => {
+  try {
+    const input = readStageRequest(req.query || {});
+    if (!input) return res.status(400).json({ message: "A valid show and stage (1-8) are required." });
+
+    const result = await Assignments.undoStage(req.session.userId, input.show, input.stage);
+    if (result.problem === "none") return res.status(403).json({ message: "No accepted assignment for this show." });
+    if (result.problem === "conflict") return res.status(409).json({ message: "Your stage has changed. Refreshed.", stage: result.stage });
+    res.json(stageReply(result.assignment));
+  } catch (error) {
+    console.error("undoMyStage failed:", error);
+    res.status(500).json({ message: "Could not undo your checkpoint." });
   }
 };
 

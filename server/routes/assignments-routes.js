@@ -18,6 +18,9 @@ router.post("/run", requireRole("admin"), assignmentsController.runAssignments);
 router.post("/publish", requireRole("admin"), assignmentsController.publishAssignments); // endpoint - publish draft assignments (admin only)
 
 // ===== UPDATE =====
+// NEW (journey stages): the volunteer clocks the next checkpoint of the day, or undoes the last one
+router.put("/me/stage", requireRole("volunteer"), assignmentsController.advanceMyStage); // endpoint - volunteer clocks the next checkpoint (body: { show, stage })
+router.delete("/me/stage", requireRole("volunteer"), assignmentsController.undoMyStage); // endpoint - volunteer undoes the last checkpoint (query: show, stage)
 router.patch("/:id/accept", requireLogin, assignmentsController.acceptMyAssignment); // endpoint - logged in volunteer accepts their assignment
 // NEW: the spec says volunteers "accept or decline"; only accept and withdraw existed before.
 router.patch("/:id/decline", requireLogin, assignmentsController.declineMyAssignment); // endpoint - logged in volunteer declines a pending assignment

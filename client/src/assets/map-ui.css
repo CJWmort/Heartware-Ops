@@ -33,7 +33,7 @@
   max-height: none !important;
 }
 .map-stage .leaflet-control-zoom {
-  margin-bottom: var(--map-zoom-offset, 14px);
+  margin-bottom: var(--map-zoom-offset, 24px);
   margin-right: 14px;
 }
 .map-stage .leaflet-bottom {
@@ -326,3 +326,11 @@
 .incident-pin.is-dimmed.is-new::after {
   display: none;
 }
+
+/* Lighter shade for volunteers that are not the selected one (HQ Live Board), like .school-badge.dimmed.
+   Fixed light colours instead of opacity, so overlapping badges don't show through each other. No pulse while dimmed. */
+.vol-dot.dimmed { background: #d0d3d7; }
+.vol-dot.dimmed.live { background: #8fd6a8; }
+.vol-dot.dimmed.stale { background: #f9d38a; }
+.vol-dot.dimmed.offline { background: #f0a0a0; }
+.vol-dot.dimmed::after { display: none; }
