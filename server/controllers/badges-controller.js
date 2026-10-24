@@ -115,3 +115,40 @@ exports.listMyOrders = async (req, res) => {
     res.status(500).json({ message: error.message })
   }
 }
+
+exports.listAllOrders = async (req, res) => {
+  try {
+    const orders = await BadgeOrder.findAll()
+    res.status(200).json(orders)
+  } catch (error) {
+    res.status(500).json({ message: error.message })
+  }
+}
+
+exports.updateOrderStatus = async (req, res) => {
+  try {
+    const newStatus = req.body.status
+    const order = await BadgeOrder.findById(req.params.id)
+    if (!order) {
+      return res.status(404).json({ message: 'Cannot find order.' })
+    }
+    const current = BadgeOrder.STATUS_LIST.indexOf(order.status)
+    if (order.status === 'delivered') {
+      return res.status(409).json({ message: 'Order is already delivered'})
+    }
+    if (BadgeOrder.STATUS_LIST.indexOf(newStatus) !== current + 1) {
+      return res.status(409).json({ message: 'Current status ' + order.status + ' can only be changed to ' + BadgeOrder.STATUS_LIST[current + 1]})
+    }
+
+    order.status = newStatus
+    await order.save()
+    res.status(200).json(order)
+  } catch (error) {
+    if (error.name === 'CastError'){
+      res.status(400).json({ message: 'That order ID is invalid.'})
+    } else {
+    res.status(500).json({ message: error.message })
+    }
+  }
+}
+

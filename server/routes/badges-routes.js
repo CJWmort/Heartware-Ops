@@ -10,5 +10,7 @@ router.put("/design/me", requireRole('volunteer'), badgesController.saveMyDesign
 router.post("/orders", requireRole('volunteer'), badgesController.placeOrder);
 router.get("/design/me", requireRole('volunteer'), badgesController.getMyDesign);
 router.get("/orders/me", requireRole('volunteer'), badgesController.listMyOrders);
+router.get('/orders', requireRole('admin'), badgesController.listAllOrders)
+router.patch('/orders/:id/status', requireRole('admin'), badgesController.updateOrderStatus)
 
 module.exports = router;

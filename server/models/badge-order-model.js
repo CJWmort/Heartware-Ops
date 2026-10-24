@@ -28,3 +28,7 @@ const BadgeOrder = mongoose.model('BadgeOrder', badgeOrderSchema, 'badgeorders')
 exports.create = (order) => BadgeOrder.create(order)
 exports.findByVolunteer = (volunteerId) => BadgeOrder.find({ volunteer: volunteerId }).sort({ createdAt: -1 })
 
+exports.STATUS_LIST = statusList
+exports.findAll = () => BadgeOrder.find().sort({ createdAt: -1 }).populate('volunteer', 'name email')
+exports.findById = (orderId) => BadgeOrder.findById(orderId)
+
