@@ -87,6 +87,12 @@ async function logout() {
               <i :class="['bi', link.icon, 'me-1']" aria-hidden="true"></i>{{ link.label }}
             </RouterLink>
           </li>
+          <!-- desktop: the chat button sits right after the last link. v-if so it only shows when logged in. -->
+          <li v-if="auth.isLoggedIn" class="nav-item d-none d-lg-flex align-items-center ms-2">
+            <ChatButton data-testid="nav-chat" />
+            <label>Chat</label>
+            <!-- need more work to style it-->
+          </li>
         </ul>
 
         <div class="d-flex align-items-center gap-2">

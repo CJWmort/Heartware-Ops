@@ -44,12 +44,7 @@ const routes = [
         component: () => import('@/views/volunteer/TrackingView.vue'),
         meta: { title: 'Event day' },
       },
-      {
-        path: 'report', // F4 – Wei Ming
-        name: 'volunteer-report',
-        component: () => import('@/views/volunteer/ReportIncidentView.vue'),
-        meta: { title: 'Report incident' },
-      },
+      { path: 'report', redirect: '/volunteer/tracking' }, // F4 – Wei Ming: the report form now lives inside the Tracking page, old links still work
       {
         path: 'badges', // F5 – Hanafi
         name: 'volunteer-badges',

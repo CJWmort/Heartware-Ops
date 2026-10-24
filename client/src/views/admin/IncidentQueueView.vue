@@ -221,7 +221,8 @@ function plotIncidents() {
 
   incidents.value.forEach((incident) => {
     // Resolved incidents have no pin, unless that incident is the selected one: clicking its card shows where it happened
-    if (incident.status === 'resolved' && !showResolved.value && incident._id !== selectedId.value) return
+    if (incident.status === 'resolved' && !showResolved.value && incident._id !== selectedId.value)
+      return
     const { lat, lng } = incident.location || {}
     if (typeof lat !== 'number' || typeof lng !== 'number') return // no usable location: no pin
 
@@ -314,7 +315,11 @@ async function onResolve(incident) {
     text: 'Please include details on how it was resolved.',
     icon: 'bi-check-circle-fill',
     confirmText: 'Resolve',
-    input: { label: 'Resolution details', placeholder: 'e.g. Student was taken to the first-aid room and recovered.', required: true },
+    input: {
+      label: 'Resolution details',
+      placeholder: 'e.g. Student was taken to the first-aid room and recovered.',
+      required: true,
+    },
   })
   if (!note) return // cancelled or empty = it cannot be resolved
   try {

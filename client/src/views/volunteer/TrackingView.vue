@@ -4,6 +4,7 @@ import BaseMap from '@/components/map/BaseMap.vue'
 import { getSavedShow, saveShow } from '@/services/selected-show'
 import MapLoading from '@/components/map/MapLoading.vue'
 import MapNotice from '@/components/map/MapNotice.vue'
+import IncidentReportForm from '@/components/incident/IncidentReportForm.vue' //incident report form is added to the tracking page
 import axios from 'axios'
 import polyline from '@mapbox/polyline'
 import {
@@ -60,6 +61,7 @@ const following = ref(true) // true = map camera follows the user's marker
 const travelMode = ref('drive') // 'drive' or 'walk'
 const loadingRoute = ref(false) // shows the "Fetching Routes..." overlay
 const reporting = ref(true) // turns false if the server says this volunteer isn't tracked
+const showIncidentReport = ref(false) // F4: true = the incident report card is open over the map
 
 const activeMode = computed(() => MODES.find((m) => m.key === travelMode.value))
 
@@ -949,8 +951,15 @@ onUnmounted(() => {
 
       <MapNotice :notice="notice" @close="dismissNotice" />
 
-      <!-- Bottom sheet: Drive/Walk always visible, route details when expanded -->
-      <div ref="sheetEl" class="sheet" :style="sheetStyle">
+      <!-- F4: the report card floats over the map; it reuses this page's GPS through the location prop -->
+      <IncidentReportForm
+        v-if="showIncidentReport"
+        :location="location"
+        @close="showIncidentReport = false"
+      />
+
+      <!-- Bottom sheet: Drive/Walk always visible, route details when expanded. Hidden while the report card is open (F4). -->
+      <div v-show="!showIncidentReport" ref="sheetEl" class="sheet" :style="sheetStyle">
         <div ref="peekEl" class="sheet-peek">
           <div
             class="sheet-handle"
@@ -1081,6 +1090,16 @@ onUnmounted(() => {
                   {{ lastStage.label }}
                 </button>
               </div>
+
+              <!-- Incident Reporting Button to trigger a report -->
+              <button
+                type="button"
+                class="report-open-btn"
+                data-testid="incident-open"
+                @click="showIncidentReport = true"
+              >
+                <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i> Report incident
+              </button>
             </template>
 
             <div v-else-if="assignStatus === 'loading'" class="assign-msg">Loading your shows…</div>
@@ -1508,6 +1527,30 @@ onUnmounted(() => {
 }
 .journey-undo:disabled {
   opacity: 0.5;
+}
+
+/* F4: "Report incident" button: soft red, secondary to the blue journey button, same shape and spacing */
+.report-open-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 10px;
+  padding: 11px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: #fef2f2; /* light red tint */
+  color: #dc2626;
+  font-weight: 600;
+}
+
+.report-open-btn:hover {
+  background: #fee2e2;
+}
+.report-open-btn:focus-visible {
+  outline: 2px solid #1a73e8;
+  outline-offset: 2px;
 }
 
 @keyframes journey-flow-fwd {
