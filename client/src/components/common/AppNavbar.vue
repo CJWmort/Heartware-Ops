@@ -87,22 +87,31 @@ async function logout() {
               <i :class="['bi', link.icon, 'me-1']" aria-hidden="true"></i>{{ link.label }}
             </RouterLink>
           </li>
-          <!-- desktop: the chat button sits right after the last link. v-if so it only shows when logged in. -->
-          <li v-if="auth.isLoggedIn" class="nav-item d-none d-lg-flex align-items-center ms-2">
-            <ChatButton data-testid="nav-chat" />
-            <label>Chat</label>
-            <!-- need more work to style it-->
-          </li>
         </ul>
 
-        <div class="d-flex align-items-center gap-2">
+        <!-- Right-hand group: chat | user | log out.
+             gap-3 = even spacing between the items.
+             On phones (below lg) it gets a divider line + spacing above it (mt-3 pt-3, border in the CSS below);
+             on desktop those are switched off again (mt-lg-0 pt-lg-0). -->
+        <div class="nav-actions d-flex align-items-center gap-3 mt-3 pt-3 mt-lg-0 pt-lg-0">
           <template v-if="auth.isLoggedIn">
             <!-- desktop layout. Left of the logged-in user's name. -->
             <ChatButton class="d-none d-lg-inline-flex" data-testid="nav-chat" />
-            <span class="navbar-text small" data-testid="nav-user-name">
-              {{ auth.user.name }} <span class="badge text-bg-light ms-1">{{ auth.role }}</span>
+            <!-- py-0 removes navbar-text's built-in vertical padding so the name lines up with the buttons;
+                 gap-2 spaces the name and the role badge evenly -->
+            <span
+              class="navbar-text small py-0 d-flex align-items-center gap-2"
+              data-testid="nav-user-name"
+            >
+              {{ auth.user.name }} <span class="badge text-bg-light">{{ auth.role }}</span>
             </span>
-            <button class="btn btn-outline-light btn-sm" data-testid="nav-logout" @click="logout">
+            <!-- border-0 removes the frame, text-white keeps it readable on the navy bar,
+                 logout-btn adds the same hover fade as the chat icon (style below) -->
+            <button
+              class="btn border-0 text-white btn-sm logout-btn"
+              data-testid="nav-logout"
+              @click="logout"
+            >
               Log Out
             </button>
           </template>
@@ -128,6 +137,11 @@ async function logout() {
   background: var(--hw-navy);
   z-index: 1200;
 }
+/* Without the frame there is no hover cue, so fade the text slightly on hover/keyboard focus (matches the chat icon) */
+.logout-btn:hover,
+.logout-btn:focus-visible {
+  opacity: 0.75;
+}
 .nav-link.router-link-active {
   color: #fff;
   font-weight: 600;
@@ -143,6 +157,11 @@ async function logout() {
     padding: 0.75rem 1rem 1rem;
     background: var(--hw-navy);
     box-shadow: 0 6px 12px rgb(0 0 0 / 0.25);
+  }
+
+  /* Phone menu: thin divider line above the user/actions group (light line on the navy background) */
+  .nav-actions {
+    border-top: 1px solid rgb(255 255 255 / 0.2);
   }
 }
 </style>
