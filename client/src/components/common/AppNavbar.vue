@@ -106,9 +106,9 @@ async function logout() {
               {{ auth.user.name }} <span class="badge text-bg-light">{{ auth.role }}</span>
             </span>
             <!-- border-0 removes the frame, text-white keeps it readable on the navy bar,
-                 logout-btn adds the same hover fade as the chat icon (style below) -->
+                 nav-plain-btn adds the same hover fade as the chat icon (style below) -->
             <button
-              class="btn border-0 text-white btn-sm logout-btn"
+              class="btn border-0 text-white btn-sm nav-plain-btn"
               data-testid="nav-logout"
               @click="logout"
             >
@@ -116,7 +116,12 @@ async function logout() {
             </button>
           </template>
           <template v-else>
-            <RouterLink class="btn btn-outline-light btn-sm" to="/login" data-testid="nav-login">
+            <!-- same plain look as Log Out: no frame, white text, hover fade (nav-plain-btn, style below) -->
+            <RouterLink
+              class="btn border-0 text-white btn-sm nav-plain-btn"
+              to="/login"
+              data-testid="nav-login"
+            >
               Log In
             </RouterLink>
             <RouterLink class="btn btn-brand btn-sm" to="/register" data-testid="nav-register">
@@ -137,9 +142,9 @@ async function logout() {
   background: var(--hw-navy);
   z-index: 1200;
 }
-/* Without the frame there is no hover cue, so fade the text slightly on hover/keyboard focus (matches the chat icon) */
-.logout-btn:hover,
-.logout-btn:focus-visible {
+/* Plain navbar buttons (Log In / Log Out): no frame, so fade slightly on hover/keyboard focus (matches the chat icon) */
+.nav-plain-btn:hover,
+.nav-plain-btn:focus-visible {
   opacity: 0.75;
 }
 .nav-link.router-link-active {
