@@ -1,9 +1,9 @@
 <script setup>
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import axios from 'axios'
-import BaseMap from '@/components/BaseMap.vue'
-import MapLoading from '@/components/MapLoading.vue'
-import MapNotice from '@/components/MapNotice.vue'
+import BaseMap from '@/components/map/BaseMap.vue'
+import MapLoading from '@/components/map/MapLoading.vue'
+import MapNotice from '@/components/map/MapNotice.vue'
 import { createVolIcon, createSchoolIcon, volTip, schoolTip, bindTip } from '@/utils/map-icons'
 import { useZoneEventsStore, MAX_EVENTS } from '@/services/zone-events'
 import { useChatStore } from '@/services/chat'
@@ -64,7 +64,7 @@ const errorNotice = computed(() =>
         title: 'Something went wrong',
         text: error.value,
       }
-    : null
+    : null,
 )
 
 const query = ref('') // search text (name only)
@@ -109,7 +109,7 @@ function inRing(lat, lng, ring) {
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
     const [yi, xi] = ring[i]
     const [yj, xj] = ring[j]
-    if ((yi > lat) !== (yj > lat) && lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) {
+    if (yi > lat !== yj > lat && lng < ((xj - xi) * (lat - yi)) / (yj - yi) + xi) {
       inside = !inside
     }
   }
@@ -163,7 +163,7 @@ const rows = computed(() =>
     ago: agoText(v),
     zone: zoneOf(v),
     stageLabel: v.stage > 0 ? JOURNEY_STAGES[v.stage - 1].short : 'Not started', // journey chip text
-  }))
+  })),
 )
 
 // Search results: filtered by name only. Shows everyone when the box is empty
@@ -215,7 +215,6 @@ let pollTimer = null
 let tickTimer = null
 
 const isDesktop = () => window.matchMedia('(min-width: 992px)').matches
-
 
 /* ------------------------------------------------------------------ */
 /* Map setup                                                           */
@@ -432,8 +431,18 @@ function showSchool(v) {
 
   if (v.lat != null) {
     linkLine = L.polyline(
-      [[v.lat, v.lng], [s.lat, s.lng]],
-      { color: '#4f46e5', weight: 3, dashArray: '6 8', opacity: 0.85, interactive: false, renderer: lineRenderer },
+      [
+        [v.lat, v.lng],
+        [s.lat, s.lng],
+      ],
+      {
+        color: '#4f46e5',
+        weight: 3,
+        dashArray: '6 8',
+        opacity: 0.85,
+        interactive: false,
+        renderer: lineRenderer,
+      },
     ).addTo(volunteerLayer)
   }
 }
@@ -485,7 +494,11 @@ function journeyTimes(v) {
 }
 
 function formatStageTime(at) {
-  return new Date(at).toLocaleTimeString('en-SG', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Singapore' })
+  return new Date(at).toLocaleTimeString('en-SG', {
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZone: 'Asia/Singapore',
+  })
 }
 
 // The mobile card sits at the bottom and moves the map controls up, so re-measure it whenever its height changes
@@ -656,7 +669,7 @@ function detectZoneChanges() {
       pendingZone.delete(v.volunteerId) // back where they were, so it was just a wobble
       return
     }
-     // Far enough past the edge that GPS wobble can't explain it: alert on the first sighting
+    // Far enough past the edge that GPS wobble can't explain it: alert on the first sighting
     const clearCut = zoneDepth(v) > Math.max(IMMEDIATE_M, v.accuracy ?? 0)
 
     if (!clearCut && pendingZone.get(v.volunteerId) !== v.zone) {
@@ -702,7 +715,10 @@ function showToast(t) {
     toastTimers.delete(old.id)
   })
   toasts.value = next.slice(0, MAX_TOASTS)
-  toastTimers.set(toast.id, setTimeout(() => dismissToast(toast.id), TOAST_MS))
+  toastTimers.set(
+    toast.id,
+    setTimeout(() => dismissToast(toast.id), TOAST_MS),
+  )
 }
 
 function dismissToast(id) {
@@ -778,7 +794,9 @@ onMounted(async () => {
     const res = await axios.get('/api/locations/shows') // Fetch all existing shows
     shows.value = res.data
     // reopen on the show picked earlier this session, if it still exists
-    selectedShow.value = shows.value.includes(getSavedShow()) ? getSavedShow() : (shows.value[0] ?? '')
+    selectedShow.value = shows.value.includes(getSavedShow())
+      ? getSavedShow()
+      : (shows.value[0] ?? '')
   } catch (err) {
     error.value = err.response?.data?.message || 'Could not load shows.'
     loading.value = false
@@ -808,13 +826,13 @@ onUnmounted(() => {
 
 <template>
   <div class="map-page">
-      <div class="map-stage" :style="{ '--map-inset-bottom': cardH + 'px', '--notice-top': '96px' }">
+    <div class="map-stage" :style="{ '--map-inset-bottom': cardH + 'px', '--notice-top': '96px' }">
       <BaseMap :center="SINGAPORE_CENTER" :zoom="11" testid="hq-map" @ready="onMapReady" />
 
       <!-- Top bar: show dropdown + name search -->
       <div class="board-bar">
         <div class="bar-row">
-            <div ref="showEl" class="show-select" @keydown.esc="showMenuOpen = false">
+          <div ref="showEl" class="show-select" @keydown.esc="showMenuOpen = false">
             <button
               type="button"
               class="show-btn"
@@ -825,7 +843,11 @@ onUnmounted(() => {
             >
               <i class="bi bi-calendar-event" aria-hidden="true"></i>
               <span class="show-name">{{ selectedShow || 'Show' }}</span>
-              <i class="bi bi-chevron-down show-chevron" :class="{ open: showMenuOpen }" aria-hidden="true"></i>
+              <i
+                class="bi bi-chevron-down show-chevron"
+                :class="{ open: showMenuOpen }"
+                aria-hidden="true"
+              ></i>
             </button>
 
             <Transition name="menu">
@@ -870,7 +892,7 @@ onUnmounted(() => {
               @mousedown.prevent
               @click="clearQuery"
             >
-            <i class="bi bi-x-lg"></i>
+              <i class="bi bi-x-lg"></i>
             </button>
           </div>
 
@@ -908,7 +930,9 @@ onUnmounted(() => {
             <span class="status-dot" :class="v.status"></span>
             <span class="result-main">
               <span class="result-name">{{ v.name }}</span>
-              <span class="result-sub">{{ v.school?.name || 'No school' }} · {{ v.stageLabel }}</span>
+              <span class="result-sub"
+                >{{ v.school?.name || 'No school' }} · {{ v.stageLabel }}</span
+              >
             </span>
             <span class="result-ago">{{ v.ago || STATUS[v.status].label }}</span>
           </button>
@@ -957,7 +981,9 @@ onUnmounted(() => {
             <div v-if="!eventRows.length" class="results-empty">{{ emptyEventsMsg }}</div>
           </div>
 
-          <div class="activity-foot">Last {{ MAX_EVENTS }} events per show · cleared when you log out</div>
+          <div class="activity-foot">
+            Last {{ MAX_EVENTS }} events per show · cleared when you log out
+          </div>
         </div>
       </div>
 
@@ -972,7 +998,8 @@ onUnmounted(() => {
               <div class="vol-name">{{ selected.name }}</div>
               <div class="vol-status">
                 <span class="status-dot" :class="selected.status"></span>
-                {{ STATUS[selected.status].label }}<template v-if="selected.ago"> · {{ selected.ago }}</template>
+                {{ STATUS[selected.status].label
+                }}<template v-if="selected.ago"> · {{ selected.ago }}</template>
               </div>
             </div>
             <button type="button" class="icon-btn" aria-label="Close" @click="clearSelection()">
@@ -1008,10 +1035,22 @@ onUnmounted(() => {
               <i class="bi bi-signpost-split-fill" aria-hidden="true"></i>
               <span class="stage-chip-text">{{ selected.stageLabel }}</span>
               <span class="stage-chip-count">{{ selected.stage }}/{{ JOURNEY_STAGES.length }}</span>
-              <i class="bi" :class="timesOpen ? 'bi-chevron-up' : 'bi-chevron-down'" aria-hidden="true"></i>
+              <i
+                class="bi"
+                :class="timesOpen ? 'bi-chevron-up' : 'bi-chevron-down'"
+                aria-hidden="true"
+              ></i>
             </button>
-            <ol v-if="timesOpen" class="stage-times" :class="{ complete: selected.stage === JOURNEY_STAGES.length }">
-              <li v-for="t in journeyTimes(selected)" :key="t.stage" :class="{ reached: t.at, link: t.link, flow: t.flow }">
+            <ol
+              v-if="timesOpen"
+              class="stage-times"
+              :class="{ complete: selected.stage === JOURNEY_STAGES.length }"
+            >
+              <li
+                v-for="t in journeyTimes(selected)"
+                :key="t.stage"
+                :class="{ reached: t.at, link: t.link, flow: t.flow }"
+              >
                 <span class="stage-times-dot" aria-hidden="true"></span>
                 <span class="stage-times-name">{{ t.label }}</span>
                 <span class="stage-times-at">{{ t.at ? formatStageTime(t.at) : '—' }}</span>
@@ -1027,8 +1066,11 @@ onUnmounted(() => {
             data-testid="vol-card-chat"
             @click="openChatWithSelected"
           >
-            <i class="bi bi-chat-dots-fill me-1" aria-hidden="true"></i>Chat with {{ selected.name }}
-            <span v-if="selectedUnread" class="badge rounded-pill bg-danger ms-1">{{ selectedUnread > 99 ? '99+' : selectedUnread }}</span>
+            <i class="bi bi-chat-dots-fill me-1" aria-hidden="true"></i>Chat with
+            {{ selected.name }}
+            <span v-if="selectedUnread" class="badge rounded-pill bg-danger ms-1">{{
+              selectedUnread > 99 ? '99+' : selectedUnread
+            }}</span>
           </button>
         </div>
       </Transition>
@@ -1213,10 +1255,18 @@ onUnmounted(() => {
   border-radius: 50%;
   background: #9aa0a6;
 }
-.status-dot.live { background: #16a34a; }
-.status-dot.stale { background: #f59e0b; }
-.status-dot.offline { background: #dc2626; }
-.status-dot.none { background: #d3d6da; }
+.status-dot.live {
+  background: #16a34a;
+}
+.status-dot.stale {
+  background: #f59e0b;
+}
+.status-dot.offline {
+  background: #dc2626;
+}
+.status-dot.none {
+  background: #d3d6da;
+}
 
 /* Selected volunteer card (bottom on mobile) */
 .vol-card {
@@ -1249,9 +1299,15 @@ onUnmounted(() => {
   color: #fff;
   font-size: 1.4rem;
 }
-.vol-avatar.live { background: #16a34a; }
-.vol-avatar.stale { background: #f59e0b; }
-.vol-avatar.offline { background: #dc2626; }
+.vol-avatar.live {
+  background: #16a34a;
+}
+.vol-avatar.stale {
+  background: #f59e0b;
+}
+.vol-avatar.offline {
+  background: #dc2626;
+}
 
 .vol-card-title {
   flex: 1 1 auto;
@@ -1259,7 +1315,7 @@ onUnmounted(() => {
 }
 
 .info-value {
-  color: #1f2430
+  color: #1f2430;
 }
 
 .vol-name {
@@ -1409,7 +1465,9 @@ onUnmounted(() => {
 
 .card-enter-active,
 .card-leave-active {
-  transition: transform 0.25s ease, opacity 0.25s ease;
+  transition:
+    transform 0.25s ease,
+    opacity 0.25s ease;
 }
 .card-enter-from,
 .card-leave-to {
@@ -1476,9 +1534,17 @@ onUnmounted(() => {
   border-radius: 50%;
   background: #d3d6da;
 }
-.zone-dot.inner { background: #0d6efd; }
-.zone-dot.outer { background: #cfe0fb; border: 2px solid #6c757d; }
-.zone-dot.outside { background: #fff; border: 2px solid #9aa0a6; }
+.zone-dot.inner {
+  background: #0d6efd;
+}
+.zone-dot.outer {
+  background: #cfe0fb;
+  border: 2px solid #6c757d;
+}
+.zone-dot.outside {
+  background: #fff;
+  border: 2px solid #9aa0a6;
+}
 
 /* Zone alert cards */
 .toast-stack {
@@ -1520,8 +1586,12 @@ onUnmounted(() => {
   color: #fff;
   font-size: 1.05rem;
 }
-.toast-icon.enter { background: #16a34a; }
-.toast-icon.leave { background: #f59e0b; }
+.toast-icon.enter {
+  background: #16a34a;
+}
+.toast-icon.leave {
+  background: #f59e0b;
+}
 
 .toast-body {
   flex: 1 1 auto;
@@ -1545,7 +1615,9 @@ onUnmounted(() => {
 
 .toast-enter-active,
 .toast-leave-active {
-  transition: transform 0.25s ease, opacity 0.25s ease;
+  transition:
+    transform 0.25s ease,
+    opacity 0.25s ease;
 }
 .toast-enter-from,
 .toast-leave-to {
@@ -1671,8 +1743,12 @@ onUnmounted(() => {
   color: #fff;
   font-size: 0.95rem;
 }
-.event-icon.enter { background: #16a34a; }
-.event-icon.leave { background: #f59e0b; }
+.event-icon.enter {
+  background: #16a34a;
+}
+.event-icon.leave {
+  background: #f59e0b;
+}
 
 .event-main {
   flex: 1 1 auto;
@@ -1687,7 +1763,7 @@ onUnmounted(() => {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  color: #1f2430
+  color: #1f2430;
 }
 
 .event-text {
@@ -1810,7 +1886,9 @@ onUnmounted(() => {
 /* The menu grows out of the button */
 .menu-enter-active,
 .menu-leave-active {
-  transition: opacity 0.18s ease, transform 0.18s ease;
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
   transform-origin: top left;
 }
 .menu-enter-from,
@@ -1870,5 +1948,4 @@ onUnmounted(() => {
     display: none;
   }
 }
-
 </style>
