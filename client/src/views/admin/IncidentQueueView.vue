@@ -23,12 +23,12 @@
 //  4. Live updates: the server tells admins about new / changed incidents over a socket, and the page re-loads
 //     the list. The map is only fitted to the pins the FIRST time, so a live update never makes the map jump.
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
-import BaseMap from '@/components/BaseMap.vue'
+import BaseMap from '@/components/map/BaseMap.vue'
 import { listIncidents, listTemplates, updateIncidentStatus } from '@/services/incidents'
-import IncidentCard from '@/components/IncidentCard.vue'
-import IncidentFocusCard from '@/components/IncidentFocusCard.vue'
-import MapNotice from '@/components/MapNotice.vue' // temporary status popup (same as the Allocation board)
-import ConfirmDialog from '@/components/ConfirmDialog.vue' // custom card instead of the browser's prompt()
+import IncidentCard from '@/components/incident/IncidentCard.vue'
+import IncidentFocusCard from '@/components/incident/IncidentFocusCard.vue'
+import MapNotice from '@/components/map/MapNotice.vue' // temporary status popup (same as the Allocation board)
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue' // custom card instead of the browser's prompt()
 import { connectSocket } from '@/services/socket' // live updates
 import { tipCard, bindTip, createIncidentIcon } from '@/utils/map-icons' // shared hover-card helpers (same as the Allocation and Live boards)
 
@@ -160,7 +160,7 @@ function onMapReady(map, L) {
 
 // While an incident is selected, the focus card covers part of the map (left card on tablet/desktop, 45% bottom sheet on
 // phones), so when fitting the map we leave that part empty (padding) and the pin lands in the visible area.
-// These numbers must match the focus card CSS in components/IncidentFocusCard.vue. With nothing selected the whole map is free.
+// These numbers must match the focus card CSS in components/incident/IncidentFocusCard.vue. With nothing selected the whole map is free.
 function fitPadding() {
   if (selectedId.value === null) return { padding: [30, 30] } // overview: the whole map is free
   if (window.matchMedia('(min-width: 992px)').matches) {
@@ -408,7 +408,7 @@ onUnmounted(() => {
           <!-- TOP PART of the menu. It never scrolls; only .inc-panel-scroll below scrolls. -->
           <div class="inc-panel-head">
             <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
-              <h1 class="h4 mb-0">Live Incidents</h1>
+              <h1 class="h4 mb-0">Incidents</h1>
               <!-- Collapse the menu to see the map -->
               <button
                 type="button"

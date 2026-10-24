@@ -30,9 +30,9 @@
 // card actions, map sizing, server calls, map drawing, watchers, auto-refresh.
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import axios from 'axios'
-import BaseMap from '@/components/BaseMap.vue'
-import MapNotice from '@/components/MapNotice.vue'
-import ConfirmDialog from '@/components/ConfirmDialog.vue'
+import BaseMap from '@/components/map/BaseMap.vue'
+import MapNotice from '@/components/map/MapNotice.vue'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import { getSavedShow, saveShow } from '@/services/selected-show'
 import { useChatStore } from '@/services/chat'
 import { createSchoolIcon, createVolIcon, volTip, schoolTip, bindTip } from '@/utils/map-icons'

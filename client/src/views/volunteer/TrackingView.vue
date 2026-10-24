@@ -1,14 +1,26 @@
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import BaseMap from '@/components/BaseMap.vue'
+import BaseMap from '@/components/map/BaseMap.vue'
 import { getSavedShow, saveShow } from '@/services/selected-show'
-import MapLoading from '@/components/MapLoading.vue'
-import MapNotice from '@/components/MapNotice.vue'
+import MapLoading from '@/components/map/MapLoading.vue'
+import MapNotice from '@/components/map/MapNotice.vue'
 import axios from 'axios'
 import polyline from '@mapbox/polyline'
-import { createDestIcon, createSchoolIcon, createDotIcon, createRouteLabelIcon, tipCard, bindTip } from '@/utils/map-icons'
+import {
+  createDestIcon,
+  createSchoolIcon,
+  createDotIcon,
+  createRouteLabelIcon,
+  tipCard,
+  bindTip,
+} from '@/utils/map-icons'
 import { VENUES, JOURNEY_STAGES } from '@/utils/constants'
-import { startTracking, stopTracking, geolocationMessage, getUserLocation } from '@/utils/geolocation'
+import {
+  startTracking,
+  stopTracking,
+  geolocationMessage,
+  getUserLocation,
+} from '@/utils/geolocation'
 
 /* ------------------------------------------------------------------ */
 /* Settings                                                            */
@@ -70,7 +82,8 @@ const currentStage = computed(() => currentAssignment.value?.stage ?? 0) // 0 = 
 const nextStage = computed(() => JOURNEY_STAGES[currentStage.value] ?? null) // the checkpoint the big button clocks (null after Dismissal)
 const lastStage = computed(() => JOURNEY_STAGES[currentStage.value - 1] ?? null) // the checkpoint "Undo" would remove
 const journeyLeg = computed(() => {
-  if (currentStage.value >= JOURNEY_STAGES.length) return { text: 'Day complete', icon: 'bi-check-circle-fill' }
+  if (currentStage.value >= JOURNEY_STAGES.length)
+    return { text: 'Day complete', icon: 'bi-check-circle-fill' }
   // The leg follows the NEXT checkpoint: 1-4 are on the way to Padang, 5-8 on the way back
   return nextStage.value.leg === 'out'
     ? { text: 'Going to Padang', icon: 'bi-arrow-right-circle-fill' }
@@ -95,7 +108,9 @@ watch(routeTarget, (now, before) => {
 // The journey row has 4 dots that play twice: left to right on the way to Padang (stages 1-4), then in reverse on the
 // way back (stages 5-8, where dot 4 = Leaving Padang ... dot 1 = Dismissal). This works out each dot's look for the
 // current stage. A dot's left-hand line is the line between it and the previous dot.
-const journeyReturning = computed(() => currentStage.value >= 4 && currentStage.value < JOURNEY_STAGES.length)
+const journeyReturning = computed(
+  () => currentStage.value >= 4 && currentStage.value < JOURNEY_STAGES.length,
+)
 const journeyDots = computed(() => {
   const st = currentStage.value
   const back = st >= 4 // from "Reached Padang" on, the next checkpoints belong to the return leg
@@ -136,7 +151,8 @@ async function sendStage(assignment, request) {
     if (err.response?.status === 409 && typeof err.response.data?.stage === 'number') {
       assignment.stage = err.response.data.stage
     } else {
-      stageError.value = err.response?.data?.message || 'Could not save your checkpoint. Please try again.'
+      stageError.value =
+        err.response?.data?.message || 'Could not save your checkpoint. Please try again.'
     }
   } finally {
     stageBusy.value = false
@@ -154,7 +170,9 @@ function advanceStage() {
 function undoStage() {
   const a = currentAssignment.value
   if (!a || a.stage < 1) return
-  sendStage(a, () => axios.delete('/api/assignments/me/stage', { params: { show: a.show, stage: a.stage } }))
+  sendStage(a, () =>
+    axios.delete('/api/assignments/me/stage', { params: { show: a.show, stage: a.stage } }),
+  )
 }
 
 /* Tracking and sharing status */
@@ -218,7 +236,9 @@ async function loadAssignments() {
       .sort((a, b) => a.show.localeCompare(b.show, undefined, { numeric: true }))
     // reopen on the show picked earlier this session if the volunteer has accepted it, else the first one
     const saved = getSavedShow()
-    selectedShow.value = assignments.value.some((a) => a.show === saved) ? saved : (assignments.value[0]?.show ?? '')
+    selectedShow.value = assignments.value.some((a) => a.show === saved)
+      ? saved
+      : (assignments.value[0]?.show ?? '')
     assignStatus.value = 'ready'
   } catch {
     assignStatus.value = 'error'
@@ -378,7 +398,9 @@ function drawSchool() {
   const s = currentAssignment.value?.school
   if (s?.lat == null || s?.lng == null) return
 
-  schoolMarker = L.marker([s.lat, s.lng], { icon: createSchoolIcon(), zIndexOffset: -50 }).addTo(volunteerLayer)
+  schoolMarker = L.marker([s.lat, s.lng], { icon: createSchoolIcon(), zIndexOffset: -50 }).addTo(
+    volunteerLayer,
+  )
   bindTip(
     schoolMarker,
     tipCard({ icon: 'bi-mortarboard-fill', tone: 'school', title: s.name || 'School' }),
@@ -413,7 +435,9 @@ function onMapReady(m, leaflet) {
   volunteerLayer = L.layerGroup().addTo(map)
   meIcon = createDotIcon()
 
-  const destMarker = L.marker([DEST.lat, DEST.lng], { icon: createDestIcon() }).addTo(volunteerLayer)
+  const destMarker = L.marker([DEST.lat, DEST.lng], { icon: createDestIcon() }).addTo(
+    volunteerLayer,
+  )
   bindTip(destMarker, tipCard({ icon: 'bi-flag-fill', tone: 'dest', title: 'Padang' }))
 
   map.zoomControl?.setPosition('bottomright') // move +/- buttons to the bottom right
@@ -438,7 +462,7 @@ function drawMyMarker(shouldCenter = false) {
     myMarker = L.marker([lat, lng], { icon: meIcon }).addTo(volunteerLayer)
     bindTip(myMarker, tipCard({ icon: 'bi-person-fill', tone: 'me', title: 'Me' }))
     shouldCenter = true
-    drawSchool() 
+    drawSchool()
   } else {
     moveMarkerSmooth(lat, lng)
   }
@@ -610,7 +634,8 @@ const liveInfo = computed(() => {
 })
 
 // Keep the pill's minutes in step with the sheet as the user moves
-watch(() => liveInfo.value?.minutes,
+watch(
+  () => liveInfo.value?.minutes,
   (min) => {
     if (routeLabel && min != null) routeLabel.setIcon(createRouteLabelIcon(min))
   },
@@ -806,10 +831,7 @@ function onSheetPointerMove(e) {
   if (!dragging.value) return
   const dy = dragStartY - e.clientY // dragging up is positive
   if (Math.abs(dy) > 4) dragMoved = true
-  sheetVisible.value = Math.min(
-    sheetFull.value,
-    Math.max(sheetPeek.value, dragStartVisible + dy),
-  )
+  sheetVisible.value = Math.min(sheetFull.value, Math.max(sheetPeek.value, dragStartVisible + dy))
 }
 
 // A tap toggles; a drag snaps to whichever end is closer
@@ -871,7 +893,11 @@ onUnmounted(() => {
     <div
       class="map-stage"
       :class="{ 'is-dragging': dragging, 'sheet-anim': sheetAnimated }"
-      :style="{ '--map-inset-bottom': '16px', '--sheet-visible': sheetVisible + 'px', '--map-zoom-offset': '60px' }"
+      :style="{
+        '--map-inset-bottom': '16px',
+        '--sheet-visible': sheetVisible + 'px',
+        '--map-zoom-offset': '60px',
+      }"
     >
       <BaseMap @ready="onMapReady" />
 
@@ -886,7 +912,10 @@ onUnmounted(() => {
         <i class="bi" :class="following ? 'bi-geo-alt-fill' : 'bi-crosshair2'"></i>
       </button>
 
-      <MapLoading v-if="loadingRoute || assignStatus === 'loading'" text="Fetching Location Data..." />
+      <MapLoading
+        v-if="loadingRoute || assignStatus === 'loading'"
+        text="Fetching Location Data..."
+      />
 
       <!-- Sharing status pill -->
       <Transition name="fade" mode="out-in">
@@ -906,10 +935,14 @@ onUnmounted(() => {
       <Transition name="fade">
         <div v-if="showNoShows" class="noshow" role="status">
           <div class="noshow-card">
-            <div class="noshow-icon" aria-hidden="true"><i class="bi" :class="noShows.icon"></i></div>
+            <div class="noshow-icon" aria-hidden="true">
+              <i class="bi" :class="noShows.icon"></i>
+            </div>
             <div class="noshow-title">{{ noShows.title }}</div>
             <div class="noshow-text">{{ noShows.text }}</div>
-            <button type="button" class="noshow-btn" @click="$router.push('/volunteer/assignment')">View Assignments</button>
+            <button type="button" class="noshow-btn" @click="$router.push('/volunteer/assignment')">
+              View Assignments
+            </button>
           </div>
         </div>
       </Transition>
@@ -964,7 +997,7 @@ onUnmounted(() => {
               <div v-else class="route-stats text-muted">Finding route…</div>
             </div>
           </div>
-          
+
           <!-- My accepted shows: pills pick the show, cards show its school -->
           <div class="assign">
             <template v-if="assignStatus === 'ready' && assignments.length">
@@ -1002,12 +1035,21 @@ onUnmounted(() => {
               <!-- Journey: where the volunteer is in today's 8 checkpoints (the admin sees the same on the Live Board) -->
               <div class="journey" :class="{ done: !nextStage, returning: journeyReturning }">
                 <div class="journey-head">
-                  <span class="journey-leg"><i class="bi" :class="journeyLeg.icon" aria-hidden="true"></i>{{ journeyLeg.text }}</span>
+                  <span class="journey-leg"
+                    ><i class="bi" :class="journeyLeg.icon" aria-hidden="true"></i
+                    >{{ journeyLeg.text }}</span
+                  >
                   <span class="journey-count">{{ currentStage }}/{{ JOURNEY_STAGES.length }}</span>
                 </div>
 
                 <ol class="journey-dots" aria-label="Journey progress">
-                  <li v-for="d in journeyDots" :key="d.pos" class="jdot" :class="d.classes" :title="d.title">
+                  <li
+                    v-for="d in journeyDots"
+                    :key="d.pos"
+                    class="jdot"
+                    :class="d.classes"
+                    :title="d.title"
+                  >
                     <span class="dot"></span>
                     <span class="visually-hidden">{{ d.label }}</span>
                   </li>
@@ -1023,7 +1065,9 @@ onUnmounted(() => {
                 >
                   <i class="bi bi-check2-circle" aria-hidden="true"></i> {{ nextStage.label }}
                 </button>
-                <div v-else class="journey-complete"><i class="bi bi-check-circle-fill" aria-hidden="true"></i> Day complete</div>
+                <div v-else class="journey-complete">
+                  <i class="bi bi-check-circle-fill" aria-hidden="true"></i> Day complete
+                </div>
 
                 <button
                   v-if="lastStage"
@@ -1033,16 +1077,18 @@ onUnmounted(() => {
                   data-testid="journey-undo"
                   @click="undoStage"
                 >
-                  <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i> Undo: {{ lastStage.label }}
+                  <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i> Undo:
+                  {{ lastStage.label }}
                 </button>
               </div>
             </template>
 
             <div v-else-if="assignStatus === 'loading'" class="assign-msg">Loading your shows…</div>
-            <div v-else-if="assignStatus === 'error'" class="assign-msg">Could not load your shows.</div>
+            <div v-else-if="assignStatus === 'error'" class="assign-msg">
+              Could not load your shows.
+            </div>
             <div v-else class="assign-msg">You have no allocated shows yet.</div>
           </div>
-
         </div>
       </div>
     </div>
@@ -1069,7 +1115,10 @@ onUnmounted(() => {
   box-shadow: 0 1px 4px rgb(0 0 0 / 0.3);
   font-size: 1.2rem;
   cursor: pointer;
-  transition: background-color 0.15s, box-shadow 0.15s, color 0.15s;
+  transition:
+    background-color 0.15s,
+    box-shadow 0.15s,
+    color 0.15s;
 }
 
 .recenter-btn:hover {
@@ -1222,9 +1271,12 @@ onUnmounted(() => {
 }
 
 .map-stage.sheet-anim:not(.is-dragging) .recenter-btn {
-  transition: bottom 0.25s ease, background-color 0.15s, box-shadow 0.15s, color 0.15s;
+  transition:
+    bottom 0.25s ease,
+    background-color 0.15s,
+    box-shadow 0.15s,
+    color 0.15s;
 }
-
 
 /* Hide hairline seams between map tiles */
 
@@ -1258,7 +1310,9 @@ onUnmounted(() => {
   font-size: 0.85rem;
   font-weight: 600;
   white-space: nowrap;
-  transition: background-color 0.15s, color 0.15s;
+  transition:
+    background-color 0.15s,
+    color 0.15s;
 }
 
 .show-pill:hover {
@@ -1483,12 +1537,10 @@ onUnmounted(() => {
   }
 }
 
-
 .assign-msg {
   font-size: 0.85rem;
   color: #888;
 }
-
 
 /* Sharing status pill (top right, above the alert cards) */
 .share-pill {
@@ -1527,7 +1579,9 @@ onUnmounted(() => {
 
 .share-pill.blocked {
   color: #b91c1c;
-  box-shadow: 0 1px 6px rgb(0 0 0 / 0.25), 0 0 0 1px #f5c2c0;
+  box-shadow:
+    0 1px 6px rgb(0 0 0 / 0.25),
+    0 0 0 1px #f5c2c0;
 }
 .share-pill.blocked .share-dot {
   background: #dc2626;
@@ -1643,6 +1697,4 @@ onUnmounted(() => {
     padding-top: 16px;
   }
 }
-
-
 </style>
