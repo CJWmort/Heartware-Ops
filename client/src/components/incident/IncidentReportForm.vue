@@ -3,6 +3,7 @@
 // Spec: docs/FEATURES.md   ·   API calls: src/services/   ·   Tests: e2e/
 import { computed, onMounted, ref, watch } from 'vue'
 import { listTemplates, reportIncident, getAddressAt } from '@/services/incidents'
+import ConfirmDialog from '../common/ConfirmDialog.vue'
 
 // PROP = data the parent (Tracking) hands DOWN to this component
 const props = defineProps({ location: { type: Object, default: null } }) // { lat, lng, accuracy } or null
@@ -16,8 +17,9 @@ const submitted = ref(false)
 const errorMessage = ref('')
 const locationStatus = computed(() => (props.location ? 'ready' : 'unavailable'))
 const address = ref('') // address line to be pre-filled from GPS, volunteer can edit
-
+const confirmDialog = ref(null) // the card's content, or null while closed`
 let addressRequested = false // Tracking's location changes every few seconds; ask for the address only once
+
 function fillAddress() {
   if (addressRequested || !props.location) return
   addressRequested = true
@@ -52,13 +54,21 @@ function selectTemplate(template) {
   selectedType.value = template.type // 1. remember which tile
 }
 
-function reportAnother() {
+// null = dialog closed. Setting it to an object opens the card (same pattern as IncidentQueueView).
+
+function resetForm() {
   selectedType.value = null
   note.value = ''
   address.value = ''
   addressRequested = false // allow the address to be pre-filled again for the next report
   fillAddress()
+}
+
+function answerConfirm(ok, text) {
+  confirmDialog.value = null
   submitted.value = false
+  resetForm() // only reset form as the form has been submitted to the server
+  emit('close') // "Done" -> tell Tracking to hide this card
 }
 
 async function submitReport() {
@@ -84,11 +94,19 @@ async function submitReport() {
     }
 
     await reportIncident(payload)
-    submitted.value = true // confirms that report has been submitted to db
+    submitted.value = true // blocks double-submits while the dialog is open
+    // confirmDialog sends a pop-up to notify volunteer that report has been sent successfully to HQ
+    confirmDialog.value = {
+      title: 'Report sent!',
+      text: 'HQ has been notified.',
+      icon: 'bi-check-circle-fill', // a green tick instead of the default question mark
+      confirmText: 'Ok',
+      hideCancel: true,
+    }
   } catch (error) {
     errorMessage.value = error.friendlyMessage
   } finally {
-    submitting.value = false
+    submitting.value = false // this will re-enable Submit button
   }
 }
 </script>
@@ -98,14 +116,15 @@ async function submitReport() {
        selectedType decides the step: null = step 1, a value = step 2. -->
   <section
     class="rep-card"
-    :class="{ 'rep-card--large': selectedType && !submitted }"
+    :class="{ 'rep-card--large': selectedType }"
     aria-label="Report an incident"
   >
+    <!-- No '&& !submitted' checks here: while the 'Report sent' popup is open the card keeps its step-2 look instead of shrinking behind it -->
     <!-- Header: step 1 shows the title; step 2 shows a back arrow + the chosen type -->
     <div class="d-flex justify-content-between align-items-center mb-2 gap-2">
       <div class="d-flex align-items-center gap-2 rep-title">
         <button
-          v-if="selectedType && !submitted"
+          v-if="selectedType"
           type="button"
           class="btn btn-sm btn-outline-secondary"
           aria-label="Back to incident types"
@@ -114,7 +133,7 @@ async function submitReport() {
           <i class="bi bi-chevron-left"></i>
         </button>
         <h2 class="h5 mb-0">
-          <template v-if="selectedType && !submitted && selectedTemplate">
+          <template v-if="selectedType && selectedTemplate">
             <i class="bi me-1" :class="selectedTemplate.icon" aria-hidden="true"></i
             >{{ selectedTemplate.label }}
           </template>
@@ -135,16 +154,8 @@ async function submitReport() {
     <div class="rep-scroll">
       <div v-if="errorMessage" class="alert alert-danger">{{ errorMessage }}</div>
 
-      <!-- DONE: only the success message ("Report another" sends the volunteer back to step 1) -->
-      <div v-if="submitted" class="alert alert-success" data-testid="incident-success">
-        Report sent, HQ has been notified.
-        <button type="button" class="btn btn-sm btn-outline-success ms-2" @click="reportAnother">
-          Report another
-        </button>
-      </div>
-
       <!-- STEP 1: the type tiles -->
-      <div v-else-if="!selectedType" class="rep-tiles" role="group" aria-label="Incident type">
+      <div v-if="!selectedType" class="rep-tiles" role="group" aria-label="Incident type">
         <button
           v-for="template in templates"
           :key="template.type"
@@ -173,7 +184,7 @@ async function submitReport() {
         ></textarea>
         <small class="text-muted-hw d-block mb-3">{{ note.length }} / 500</small>
 
-        <label for="address" class="form-label mb-1">Your location:</label>
+        <label for="address" class="form-label mb-1">Current Address:</label>
         <input
           id="address"
           v-model="address"
@@ -190,6 +201,7 @@ async function submitReport() {
         </button>
       </form>
     </div>
+    <ConfirmDialog :dialog="confirmDialog" @answer="answerConfirm" />
   </section>
 </template>
 

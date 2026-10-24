@@ -1065,6 +1065,18 @@ onUnmounted(() => {
                 </ol>
 
                 <button
+                  v-if="lastStage"
+                  type="button"
+                  class="journey-undo"
+                  :disabled="stageBusy"
+                  data-testid="journey-undo"
+                  @click="undoStage"
+                >
+                  <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i> Undo:
+                  {{ lastStage.label }}
+                </button>
+
+                <button
                   v-if="nextStage"
                   type="button"
                   class="journey-btn"
@@ -1077,18 +1089,6 @@ onUnmounted(() => {
                 <div v-else class="journey-complete">
                   <i class="bi bi-check-circle-fill" aria-hidden="true"></i> Day complete
                 </div>
-
-                <button
-                  v-if="lastStage"
-                  type="button"
-                  class="journey-undo"
-                  :disabled="stageBusy"
-                  data-testid="journey-undo"
-                  @click="undoStage"
-                >
-                  <i class="bi bi-arrow-counterclockwise" aria-hidden="true"></i> Undo:
-                  {{ lastStage.label }}
-                </button>
               </div>
 
               <!-- Incident Reporting Button to trigger a report -->

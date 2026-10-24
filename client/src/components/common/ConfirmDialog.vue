@@ -34,7 +34,7 @@ watch(
   () => props.dialog,
   (d) => {
     text.value = ''
-    if (d) nextTick(() => (d.input ? inputEl.value : cancelBtn.value)?.focus())
+    if (d) nextTick(() => (d.input ? inputEl.value : cancelBtn.value || okBtn.value)?.focus())
   },
 )
 
@@ -47,7 +47,9 @@ function onKeydown(e) {
   if (e.key === 'Tab') {
     e.preventDefault()
     // Focus order: text box (if any) -> Cancel -> OK (skipped while disabled) -> back to the start
-    const order = [inputEl.value, cancelBtn.value, canConfirm.value ? okBtn.value : null].filter(Boolean)
+    const order = [inputEl.value, cancelBtn.value, canConfirm.value ? okBtn.value : null].filter(
+      Boolean,
+    )
     const at = order.indexOf(document.activeElement)
     const step = e.shiftKey ? -1 : 1
     order[(at + step + order.length) % order.length]?.focus()
@@ -72,7 +74,10 @@ function onKeydown(e) {
             <div class="confirm-icon" aria-hidden="true">
               <i
                 class="bi"
-                :class="dialog.icon || (dialog.danger ? 'bi-exclamation-triangle-fill' : 'bi-question-circle-fill')"
+                :class="
+                  dialog.icon ||
+                  (dialog.danger ? 'bi-exclamation-triangle-fill' : 'bi-question-circle-fill')
+                "
               ></i>
             </div>
             <div class="confirm-body">
@@ -81,7 +86,9 @@ function onKeydown(e) {
             </div>
           </div>
           <div v-if="dialog.input" class="confirm-field">
-            <label v-if="dialog.input.label" for="confirm-input" class="confirm-label">{{ dialog.input.label }}</label>
+            <label v-if="dialog.input.label" for="confirm-input" class="confirm-label">{{
+              dialog.input.label
+            }}</label>
             <textarea
               id="confirm-input"
               ref="inputEl"
@@ -94,7 +101,9 @@ function onKeydown(e) {
             ></textarea>
           </div>
           <div class="confirm-actions">
+            <!-- v-if to check if hideCancel is true, then cancel button will not be displayed, used by incidentReportForm -->
             <button
+              v-if="!dialog.hideCancel"
               ref="cancelBtn"
               type="button"
               class="confirm-btn cancel"

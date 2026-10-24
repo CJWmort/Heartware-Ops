@@ -23,7 +23,9 @@ const emptyText = computed(() =>
 const typingLabel = computed(() => {
   if (!chat.typing) return ''
   if (!chat.isAdmin) return 'HQ is typing...'
-  return chat.typing.role === 'volunteer' ? `${title.value} is typing...` : 'Another admin is typing...'
+  return chat.typing.role === 'volunteer'
+    ? `${title.value} is typing...`
+    : 'Another admin is typing...'
 })
 
 // My own messages sit on the right. For admins "mine" means sent by ME, not by any admin.
@@ -102,7 +104,9 @@ onMounted(() => {
           class="presence me-2"
           :class="{ on: chat.isOnline(chat.activeId) }"
         >
-          <span class="visually-hidden">{{ chat.isOnline(chat.activeId) ? 'Online' : 'Offline' }}</span>
+          <span class="visually-hidden">{{
+            chat.isOnline(chat.activeId) ? 'Online' : 'Offline'
+          }}</span>
         </span>
         {{ title }}
       </h2>
@@ -116,10 +120,19 @@ onMounted(() => {
       >
         <i class="bi bi-trash3 me-1" aria-hidden="true"></i>Close chat
       </button>
-      <button type="button" class="btn-close" aria-label="Close chat panel" @click="chat.close()"></button>
+      <button
+        type="button"
+        class="btn-close"
+        aria-label="Close chat panel"
+        @click="chat.close()"
+      ></button>
     </header>
 
-    <div v-if="confirmClose" class="alert alert-warning rounded-0 mb-0 py-2 small" role="alertdialog">
+    <div
+      v-if="confirmClose"
+      class="alert alert-warning rounded-0 mb-0 py-2 small"
+      role="alertdialog"
+    >
       <p class="mb-2">Close this chat? Every message in it is permanently deleted for everyone.</p>
       <button type="button" class="btn btn-sm btn-danger me-2" @click="doClose">Close chat</button>
       <button type="button" class="btn btn-sm btn-outline-secondary" @click="confirmClose = false">
@@ -137,7 +150,10 @@ onMounted(() => {
       <p v-if="chat.loadingMessages" class="text-body-secondary small text-center my-3">
         Loading messages…
       </p>
-      <p v-else-if="!chat.messages.length && !chat.notice" class="text-body-secondary small text-center my-3">
+      <p
+        v-else-if="!chat.messages.length && !chat.notice"
+        class="text-body-secondary small text-center my-3"
+      >
         {{ emptyText }}
       </p>
 
@@ -163,7 +179,10 @@ onMounted(() => {
 
     <p v-if="chat.error" class="text-danger small px-3 mb-1" role="alert">{{ chat.error }}</p>
 
-    <form class="d-flex align-items-end gap-2 p-2 border-top align-items-center" @submit.prevent="submit">
+    <form
+      class="d-flex align-items-end gap-2 p-2 border-top align-items-center"
+      @submit.prevent="submit"
+    >
       <textarea
         ref="input"
         v-model="text"
