@@ -86,6 +86,15 @@ export async function getMyOrders() {
   }
 }
 
+export async function listAllOrders() {
+  try {
+    const { data } = await axios.get(`${BASE_URL}/orders`, { timeout: 15000 })
+    return data
+  } catch (error) {
+    throw addFriendlyMessage(error)
+  }
+}
+
 export async function updateOrderStatus(orderId, status) {
   try {
     const { data } = await axios.patch(
