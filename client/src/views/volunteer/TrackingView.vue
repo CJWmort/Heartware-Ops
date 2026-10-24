@@ -8,7 +8,7 @@ import axios from 'axios'
 import polyline from '@mapbox/polyline'
 import { createDestIcon, createSchoolIcon, createDotIcon, createRouteLabelIcon, tipCard, bindTip } from '@/utils/map-icons'
 import { VENUES } from '@/utils/constants'
-import { startTracking, stopTracking, geolocationMessage } from '@/utils/geolocation'
+import { startTracking, stopTracking, geolocationMessage, getUserLocation } from '@/utils/geolocation'
 
 /* ------------------------------------------------------------------ */
 /* Settings                                                            */
@@ -21,6 +21,8 @@ const REROUTE_M = 10 // re-fetch the route after moving this many metres
 const HEADING_MIN_MOVE_M = 3 // ignore GPS jitter smaller than this when computing heading
 const REPORT_MOVE_M = 25 // send to the server after moving this far...
 const REPORT_HEARTBEAT_MS = 30000 // ...or after this long without sending, 30s
+const STILL_REFRESH_MS = 25000 // standing still: ask for a fresh reading after this long without a GPS update
+const REPORT_MIN_GAP_MS = 6000 // never send twice within this time (the server rejects updates closer than 5 s with a 429)
 const REPORT_MAX_ACCURACY_M = 100 // skip fixes less accurate than this
 const REPORT_MAX_FIX_AGE_MS = 120000 // don't re-send a fix older than this
 
@@ -65,13 +67,13 @@ watch(currentAssignment, drawSchool) // tapping a pill (or the list loading) red
 const trackingOn = ref(false) // true once location tracking has started (needs an accepted show)
 const lastSentAt = ref(0) // time of the last successful send to the server
 const clock = ref(Date.now()) // ticks every 5 s so the pill notices when sends stop
-const SHARE_FRESH_MS = 90000 // counts as "sharing" while the last send is newer than this
+const SHARE_FRESH_MS = 45000 // counts as "sharing" while the last send is newer than this
 
 const SHARE_LABELS = {
   sharing: 'Sharing location',
   blocked: 'Location blocked',
   off: 'Not sharing',
-  waiting: 'Connecting…',
+  waiting: 'Connecting...',
 }
 
 // Which pill to show (null = none)
@@ -183,6 +185,8 @@ let routeRequestId = 0 // guards against slow responses overwriting newer ones
 let lastFixAt = 0 // time the latest GPS fix arrived
 let lastReported = null // { lat, lng, time } of the last position sent to the server
 let reportInFlight = false // true while a send is in progress
+let refreshing = false // true while a still-position refresh is running
+let lastAttemptAt = 0 // time the last send was started (successful or not)
 let reportTimer = null // interval that sends the heartbeat
 let catchUp = false // true = send the next fix straight away (set when the tab becomes visible again)
 
@@ -312,6 +316,7 @@ function onMapReady(m, leaflet) {
 
   map.zoomControl?.setPosition('bottomright') // move +/- buttons to the bottom right
   map.on('dragstart', () => (following.value = false)) // user took control of the map
+  map.on('click', collapseSheet) // tapping / clicking the map closes the bottom sheet
   drawMyMarker(true)
   drawRoute()
   drawSchool()
@@ -526,6 +531,7 @@ function setTravelMode(mode) {
 async function reportLocation(force = false) {
   if (!reporting.value || reportInFlight || !location.value) return
   if (Date.now() - lastFixAt > REPORT_MAX_FIX_AGE_MS) return // stale fix: don't present it as live
+  if (Date.now() - lastAttemptAt < REPORT_MIN_GAP_MS) return // too soon after the last send, even when forced: the next 5 s check retries
 
   const { lat, lng, accuracy } = location.value
   if (accuracy > REPORT_MAX_ACCURACY_M) return
@@ -537,6 +543,7 @@ async function reportLocation(force = false) {
   }
 
   reportInFlight = true
+  lastAttemptAt = Date.now()
   try {
     await axios.put('/api/locations/me', { lat, lng, accuracy })
     lastReported = { lat, lng, time: Date.now() }
@@ -549,6 +556,23 @@ async function reportLocation(force = false) {
     // Anything else (429, network, 500): ignore, the next check tries again
   } finally {
     reportInFlight = false
+  }
+}
+
+// The browser only reports a new position when you MOVE, so standing still makes the last fix grow old. It would
+// then be rejected as stale and the pill would drop to "Connecting…" even though you are still there.
+// So after a quiet spell, ask for one fresh reading. If it works the fix is current again; if GPS is really lost
+// it fails quietly, the fix goes stale, and the pill honestly changes.
+async function refreshIfStill() {
+  if (refreshing || !trackingOn.value || !location.value) return
+  if (Date.now() - lastFixAt < STILL_REFRESH_MS) return
+  refreshing = true
+  try {
+    onPosition(await getUserLocation())
+  } catch {
+    // ignore: the stale check in reportLocation handles a real loss of signal
+  } finally {
+    refreshing = false
   }
 }
 
@@ -653,6 +677,13 @@ function measureSheet() {
   if (!dragging.value) sheetVisible.value = expanded.value ? sheetFull.value : sheetPeek.value
 }
 
+// Closes the sheet (used when the map is tapped)
+function collapseSheet() {
+  if (!expanded.value) return
+  expanded.value = false
+  sheetVisible.value = sheetPeek.value
+}
+
 // Open if closed, close if open
 function toggleSheet() {
   expanded.value = !expanded.value
@@ -699,6 +730,7 @@ function beginTracking() {
   startTracking(onPosition, onGeoError)
   reportTimer = setInterval(() => {
     clock.value = Date.now() // lets the pill notice when sends stop
+    refreshIfStill() // standing still? get a fresh reading so the fix doesn't go stale
     reportLocation() // heartbeat check every 5 s (sends only if 30 s have passed)
   }, 5000)
 }
@@ -736,7 +768,7 @@ onUnmounted(() => {
     <div
       class="map-stage"
       :class="{ 'is-dragging': dragging, 'sheet-anim': sheetAnimated }"
-      :style="{ '--map-inset-bottom': sheetVisible + 'px', '--map-zoom-offset': '60px' }"
+      :style="{ '--map-inset-bottom': '16px', '--sheet-visible': sheetVisible + 'px', '--map-zoom-offset': '60px' }"
     >
       <BaseMap @ready="onMapReady" />
 
@@ -774,7 +806,7 @@ onUnmounted(() => {
             <div class="noshow-icon" aria-hidden="true"><i class="bi" :class="noShows.icon"></i></div>
             <div class="noshow-title">{{ noShows.title }}</div>
             <div class="noshow-text">{{ noShows.text }}</div>
-            <button type="button" class="noshow-btn" @click="this.$router.push('/volunteer/assignment')">View Assignments</button>
+            <button type="button" class="noshow-btn" @click="$router.push('/volunteer/assignment')">View Assignments</button>
           </div>
         </div>
       </Transition>
@@ -1025,9 +1057,26 @@ onUnmounted(() => {
 }
 /* Move Leaflet's bottom controls (zoom + attribution) up with the sheet */
 
+/* Phones / tablets: the map itself shrinks as the sheet opens, so it only ever reaches 16px (the sheet's rounded
+   corners) under the sheet. The zoom buttons and recenter button therefore use a fixed 16px inset (set inline). */
+@media (max-width: 991.98px) {
+  .map-stage :deep(.leaflet-container) {
+    height: calc(100% - max(var(--sheet-visible, 0px) - 16px, 0px));
+  }
+
+  /* The recenter button sits on the stage (not inside the map), so it rides up with the sheet to stay visible */
+  .recenter-btn {
+    bottom: calc(30px + var(--sheet-visible, 0px));
+  }
+}
+
 /* Animate everything together, but not while the finger is dragging */
 .map-stage.sheet-anim:not(.is-dragging) .sheet {
   transition: transform 0.25s ease;
+}
+
+.map-stage.sheet-anim:not(.is-dragging) :deep(.leaflet-container) {
+  transition: height 0.25s ease; /* same timing as the sheet, so the two stay in step */
 }
 
 .map-stage.sheet-anim:not(.is-dragging) .recenter-btn {

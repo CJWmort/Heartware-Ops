@@ -33,7 +33,7 @@
   max-height: none !important;
 }
 .map-stage .leaflet-control-zoom {
-  margin-bottom: var(--map-zoom-offset, 24px);
+  margin-bottom: var(--map-zoom-offset, 14px);
   margin-right: 14px;
 }
 .map-stage .leaflet-bottom {
