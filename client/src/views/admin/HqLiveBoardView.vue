@@ -8,7 +8,7 @@ import { createVolIcon, createSchoolIcon, volTip, schoolTip, bindTip } from '@/u
 import { useZoneEventsStore, MAX_EVENTS } from '@/services/zone-events'
 import { useChatStore } from '@/services/chat'
 import { getSavedShow, saveShow } from '@/services/selected-show'
-import { SINGAPORE_CENTER, INNER_RING, OUTER_RING } from '@/utils/constants'
+import { SINGAPORE_CENTER, INNER_RING, OUTER_RING, JOURNEY_STAGES } from '@/utils/constants'
 
 /* ------------------------------------------------------------------ */
 /* Settings                                                            */
@@ -157,7 +157,13 @@ function zoneDepth(v) {
 
 // Board data plus the computed status and "ago" text
 const rows = computed(() =>
-  volunteers.value.map((v) => ({ ...v, status: statusOf(v), ago: agoText(v), zone: zoneOf(v) }))
+  volunteers.value.map((v) => ({
+    ...v,
+    status: statusOf(v),
+    ago: agoText(v),
+    zone: zoneOf(v),
+    stageLabel: v.stage > 0 ? JOURNEY_STAGES[v.stage - 1].short : 'Not started', // journey chip text
+  }))
 )
 
 // Search results: filtered by name only. Shows everyone when the box is empty
@@ -299,6 +305,20 @@ function drawMarkers() {
   })
 
   updateLink()
+  applyFocus() // new or recoloured markers get the right shade
+}
+
+// With a volunteer selected, every other marker gets a lighter shade and the selected one sits above the rest,
+// so it is easy to find in a crowd. Done by toggling a class (not by redrawing), so pinned tooltips are untouched.
+function applyFocus() {
+  markers.forEach((entry, id) => {
+    const isSelected = id === selectedId.value
+    entry.marker.setZIndexOffset(isSelected ? 1500 : 500)
+    entry.marker
+      .getElement()
+      ?.querySelector('.vol-dot')
+      ?.classList.toggle('dimmed', selectedId.value !== null && !isSelected)
+  })
 }
 
 // Animates a marker to a new position so it glides instead of jumping
@@ -326,6 +346,7 @@ function glideTo(entry, lat, lng) {
 
 // Keep the map in step with the data (new positions, status colours changing with time)
 watch(rows, drawMarkers)
+watch(selectedId, applyFocus) // selecting / deselecting a volunteer re-shades the markers
 
 /* ------------------------------------------------------------------ */
 /* Camera                                                              */
@@ -449,11 +470,38 @@ function openChatWithSelected() {
 }
 
 // Selects a volunteer (from the list or by tapping their marker)
+// Journey: the card's chip opens a list of the checkpoints with the time each was clocked
+const timesOpen = ref(false)
+
+// One row per checkpoint. `link` = the line down to the next row is solid (both reached); `flow` = it is the line the
+// volunteer is currently travelling along (animated downwards).
+function journeyTimes(v) {
+  return JOURNEY_STAGES.map((s) => ({
+    ...s,
+    at: (v.stageHistory || []).find((h) => h.stage === s.stage)?.at ?? null,
+    link: s.stage < v.stage,
+    flow: s.stage === v.stage && v.stage < JOURNEY_STAGES.length,
+  }))
+}
+
+function formatStageTime(at) {
+  return new Date(at).toLocaleTimeString('en-SG', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Singapore' })
+}
+
+// The mobile card sits at the bottom and moves the map controls up, so re-measure it whenever its height changes
+async function measureCard() {
+  await nextTick()
+  if (selectedId.value && cardEl.value) cardH.value = cardEl.value.offsetHeight + 12
+}
+watch(timesOpen, measureCard)
+watch(() => selected.value?.stage, measureCard)
+
 async function selectVolunteer(id) {
   const v = rows.value.find((r) => r.volunteerId === id)
   if (!v) return
 
   const alreadySelected = selectedId.value === id
+  if (!alreadySelected) timesOpen.value = false // a different volunteer: start with the list closed
   selectedId.value = id
   query.value = v.name
   searchOpen.value = false
@@ -474,6 +522,7 @@ async function selectVolunteer(id) {
 // Deselects: hides the card and school marker. fit = true also zooms back out.
 function clearSelection(fit = true) {
   selectedId.value = null
+  timesOpen.value = false
   query.value = ''
   cardH.value = 0
   clearSchool()
@@ -495,9 +544,7 @@ function toggleShowMenu() {
   if (showMenuOpen.value) {
     searchOpen.value = false
     bellOpen.value = false
-    if (isDesktop()) { // Clear the selected volunteer if on desktop when toggle show
-      clearSelection(false);
-    }
+    clearSelection(false) // opening the show menu closes the selected volunteer's card (desktop and mobile)
   }
 }
 
@@ -861,7 +908,7 @@ onUnmounted(() => {
             <span class="status-dot" :class="v.status"></span>
             <span class="result-main">
               <span class="result-name">{{ v.name }}</span>
-              <span class="result-sub">{{ v.school?.name || 'No school' }}</span>
+              <span class="result-sub">{{ v.school?.name || 'No school' }} · {{ v.stageLabel }}</span>
             </span>
             <span class="result-ago">{{ v.ago || STATUS[v.status].label }}</span>
           </button>
@@ -946,6 +993,30 @@ onUnmounted(() => {
               </div>
               <div class="info-value info-number">{{ selected.school?.p5Classes ?? '—' }}</div>
             </div>
+          </div>
+
+          <!-- Journey: current checkpoint as a chip; tap it for the time each checkpoint was clocked today -->
+          <div class="vol-journey">
+            <button
+              type="button"
+              class="stage-chip"
+              :class="{ none: !selected.stage, complete: selected.stage === JOURNEY_STAGES.length }"
+              :aria-expanded="timesOpen"
+              data-testid="vol-card-stage"
+              @click="timesOpen = !timesOpen"
+            >
+              <i class="bi bi-signpost-split-fill" aria-hidden="true"></i>
+              <span class="stage-chip-text">{{ selected.stageLabel }}</span>
+              <span class="stage-chip-count">{{ selected.stage }}/{{ JOURNEY_STAGES.length }}</span>
+              <i class="bi" :class="timesOpen ? 'bi-chevron-up' : 'bi-chevron-down'" aria-hidden="true"></i>
+            </button>
+            <ol v-if="timesOpen" class="stage-times" :class="{ complete: selected.stage === JOURNEY_STAGES.length }">
+              <li v-for="t in journeyTimes(selected)" :key="t.stage" :class="{ reached: t.at, link: t.link, flow: t.flow }">
+                <span class="stage-times-dot" aria-hidden="true"></span>
+                <span class="stage-times-name">{{ t.label }}</span>
+                <span class="stage-times-at">{{ t.at ? formatStageTime(t.at) : '—' }}</span>
+              </li>
+            </ol>
           </div>
 
           <!-- data-chat-toggle: the chat panel's click-outside-to-close ignores this button, so switching volunteers doesn't flicker -->
@@ -1213,6 +1284,121 @@ onUnmounted(() => {
   grid-template-columns: 1.5fr 1fr;
   gap: 10px;
   margin-top: 12px;
+}
+
+/* Journey chip + checkpoint times */
+.vol-journey {
+  margin-top: 10px;
+}
+.stage-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 12px;
+  border: 1px solid #cfdcfb;
+  border-radius: 12px;
+  background: #eef3ff;
+  color: #1d4fd8;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-align: left;
+}
+.stage-chip.none {
+  border-color: #e6eaf0;
+  background: #f6f8fb;
+  color: #777;
+}
+.stage-chip.complete {
+  border-color: #bfe5cb;
+  background: #e7f6ec;
+  color: #166534;
+}
+.stage-chip-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.stage-chip-count {
+  flex: 0 0 auto;
+  font-size: 0.75rem;
+  font-weight: 600;
+  opacity: 0.75;
+}
+.stage-times {
+  margin: 8px 0 0;
+  padding: 0 4px;
+  max-height: 30vh;
+  overflow-y: auto;
+  list-style: none;
+}
+.stage-times li {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 0;
+  font-size: 0.8rem;
+  color: #aaa;
+}
+/* Line from this checkpoint's dot down to the next one */
+.stage-times li:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: calc(50% + 4px);
+  width: 2px;
+  height: 100%;
+  background: #e1e5ea;
+}
+.stage-times li.link::after {
+  background: #2563eb;
+}
+/* The line the volunteer is travelling along: dashes keep flowing top to bottom */
+.stage-times li.flow::after {
+  background: repeating-linear-gradient(180deg, #2563eb 0 5px, #bcd0fb 5px 10px);
+  background-size: 100% 10px;
+  animation: stage-flow 0.8s linear infinite;
+}
+/* Dismissal reached: every point and line turns green */
+.stage-times.complete li.reached .stage-times-dot,
+.stage-times.complete li.link::after {
+  background: #16a34a;
+}
+@keyframes stage-flow {
+  to {
+    background-position: 0 10px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stage-times li.flow::after {
+    animation: none;
+  }
+}
+.stage-times li.reached {
+  color: #1f2430;
+}
+.stage-times-dot {
+  position: relative;
+  z-index: 1; /* above the connecting line */
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #d3d6da;
+}
+.stage-times li.reached .stage-times-dot {
+  background: #2563eb;
+}
+.stage-times-name {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.stage-times-at {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
 }
 
 .chat-btn {
