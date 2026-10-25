@@ -5,6 +5,7 @@ import { ref, onMounted } from 'vue'
 import { listAllOrders, updateOrderStatus } from '@/services/badges.js'
 import { timeAgo } from '@/utils/time.js'
 import BadgeAwardForm from '@/components/badges/BadgeAwardForm.vue'
+import BadgeAutoAwards from '@/components/badges/BadgeAutoAwards.vue'
 
 const statusSteps = ['placed', 'in_production', 'shipped', 'delivered']
 const statusLabels = { placed: 'Placed', in_production: 'In production', shipped: 'Shipped', delivered: 'Delivered' }
@@ -57,7 +58,7 @@ onMounted(loadOrders)
 
 <template>
   <section class="awards-page">
-    <!-- Coming next: Part 1 "Auto-awards" and Part 2 "Give a badge" go above this card -->
+    <BadgeAutoAwards />
 
     <!-- Badge orders -->
     <BadgeAwardForm />
