@@ -4,6 +4,7 @@
 import { ref, watch, computed, nextTick, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import axios from 'axios'
+import MapNotice from '@/components/map/MapNotice.vue'
 
 const route = useRoute()
 
@@ -23,7 +24,21 @@ const showPassword = ref(false)
 const showConfirmPassword = ref(false)
 
 const errors = ref({})
-const serverError = ref('')
+const notice = ref(null) // the error popup's content, or null while hidden
+let noticeTimer = null
+
+// Shows a problem in the popup card (same MapNotice as the tracking page), then hides it after 5 seconds
+function showError(text, title = 'Unable to sign up') {
+  notice.value = { type: 'error', icon: 'bi-exclamation-triangle-fill', title, text }
+  clearTimeout(noticeTimer)
+  noticeTimer = setTimeout(() => (notice.value = null), 5000)
+}
+// The X button
+function dismissNotice() {
+  clearTimeout(noticeTimer)
+  notice.value = null
+}
+onBeforeUnmount(() => clearTimeout(noticeTimer))
 const loading = ref(false)
 
 const phoneRegex = /^[689]\d{7}$/
@@ -275,7 +290,6 @@ const canSubmit = computed(
 const step = ref('form') // 'form' = fill in details, 'otp' = type the emailed code
 const otpCode = ref('')
 const otpInput = ref(null) // the code <input>, so we can put the cursor in it
-const otpError = ref('')
 const otpNotice = ref('')
 const devCode = ref('') // only filled in test mode (OTP_MOCK=true): no real email sent
 const sending = ref(false) // true while the server is sending the email
@@ -304,10 +318,9 @@ async function sendCode() {
 
 // Step 1: "Sign up" pressed -> check the form, then email the code
 async function register() {
-  serverError.value = ''
   submitted.value = true
   if (postalStatus.value === 'loading') {
-    serverError.value = 'Still checking your postal code. Try again in a second.'
+    showError('Still checking your postal code. Try again in a second.')
     return
   }
   if (!validate()) return
@@ -316,13 +329,12 @@ async function register() {
   try {
     await sendCode()
     otpCode.value = ''
-    otpError.value = ''
     otpNotice.value = ''
     step.value = 'otp'
     await nextTick() // wait for the code box to appear...
     otpInput.value?.focus() // ...then put the cursor in it
   } catch (error) {
-    serverError.value = error.response?.data?.message || 'Could not send the code. Try again.'
+    showError(error.response?.data?.message || 'Could not send the code. Try again.')
   } finally {
     loading.value = false
   }
@@ -330,7 +342,6 @@ async function register() {
 
 // "Resend code"
 async function resend() {
-  otpError.value = ''
   otpNotice.value = ''
   sending.value = true
   try {
@@ -339,7 +350,7 @@ async function resend() {
     otpNotice.value = 'A new code is on its way.'
     otpInput.value?.focus()
   } catch (error) {
-    otpError.value = error.response?.data?.message || 'Could not send the code. Try again.'
+    showError(error.response?.data?.message || 'Could not send the code. Try again.', 'Verification failed')
   } finally {
     sending.value = false
   }
@@ -354,11 +365,10 @@ function backToForm() {
 
 // Step 2: "Verify & create account" pressed
 async function verifyAndCreate() {
-  otpError.value = ''
   otpNotice.value = ''
 
   if (!/^\d{6}$/.test(otpCode.value.trim())) {
-    otpError.value = 'Enter the 6-digit code from the email.'
+    showError('Enter the 6-digit code from the email.', 'Verification failed')
     return
   }
 
@@ -389,7 +399,7 @@ async function verifyAndCreate() {
     // Full page load so the navbar picks up the logged-in user
     window.location.assign(route.query.redirect || '/')
   } catch (error) {
-    otpError.value = error.response?.data?.message || 'Something went wrong. Try again.'
+    showError(error.response?.data?.message || 'Something went wrong. Try again.', 'Verification failed')
   } finally {
     loading.value = false
   }
@@ -619,15 +629,7 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
                 </div>
               </div>
 
-              <div
-                v-if="otpError"
-                class="alert alert-danger py-2"
-                role="alert"
-                data-testid="reg-otp-error"
-              >
-                {{ otpError }}
-              </div>
-              <div v-else-if="otpNotice" class="alert alert-success py-2" role="status">
+              <div v-if="otpNotice" class="alert alert-success py-2" role="status">
                 {{ otpNotice }}
               </div>
 
@@ -703,14 +705,6 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
 
             <!-- ================= STEP 1: the form ================= -->
             <div v-else>
-              <div
-                v-if="serverError"
-                class="alert alert-danger py-2"
-                role="alert"
-                data-testid="reg-error"
-              >
-                {{ serverError }}
-              </div>
 
               <form @submit.prevent="register" novalidate>
                 <!-- ---------- About you ---------- -->
@@ -1068,6 +1062,11 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
           </div>
         </div>
       </div>
+    </div>
+
+    <!-- error popup: appears at the top, closes itself after 5 seconds or with its X -->
+    <div class="notice-host">
+      <MapNotice :notice="notice" @close="dismissNotice" />
     </div>
   </div>
 </template>
@@ -2115,5 +2114,20 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
     animation: none !important;
     transition-duration: 0.01ms !important;
   }
+}
+
+/* Error popup (MapNotice, same card as the tracking page). Pinned under the navbar and centred on every screen size,
+   overriding MapNotice's map-page positioning (desktop shift to the right). */
+.notice-host {
+  --notice-top: 72px;
+  position: fixed;
+  inset: 0;
+  z-index: 1150;
+  pointer-events: none; /* only the card itself is clickable */
+}
+.notice-host :deep(.notice-wrap) {
+  left: 12px;
+  right: 12px;
+  justify-content: center;
 }
 </style>

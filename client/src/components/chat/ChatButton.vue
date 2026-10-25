@@ -20,18 +20,25 @@ const label = computed(() => (chat.unreadTotal > 0 ? `Chat, ${chat.unreadTotal} 
     @click="chat.toggle()"
   >
     <!-- fs-5 = slightly larger icon so it reads as clearly as the text links -->
-    <i class="bi bi-chat-dots-fill fs-5" aria-hidden="true"></i>
-    <span
-      v-if="chat.unreadTotal > 0"
-      class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger"
-    >
-      {{ badge }}
+    <!-- the badge is positioned against the icon itself (not the padded button), so it sits on the icon's top-right corner -->
+    <span class="position-relative d-inline-flex">
+      <i class="bi bi-chat-dots-fill fs-5" aria-hidden="true"></i>
+      <span
+        v-if="chat.unreadTotal > 0"
+        class="chat-badge position-absolute top-0 start-100 badge rounded-pill bg-danger"
+      >
+        {{ badge }}
+      </span>
     </span>
   </button>
 </template>
 
 <style scoped>
 /* Without the box there is no hover cue, so fade the icon slightly on hover/keyboard focus */
+/* Pull the badge in so its centre lands near the icon's top-right corner */
+.chat-badge {
+  transform: translate(-50%, -35%);
+}
 .chat-btn:hover,
 .chat-btn:focus-visible {
   opacity: 0.75;

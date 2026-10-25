@@ -413,12 +413,25 @@ function focusOn(v) {
 // A ring is already a list of [lat, lng] points, so Leaflet can use it directly as the area to fit.
 function viewRing(ring) {
   if (!map) return // map not ready yet
-  map.flyToBounds(ring, {
-    // same side/top padding idea as focusOn(): keep the ring clear of the top-left cards on desktop and the bottom card on phones
-    paddingTopLeft: [isDesktop() ? 300 : 20, 70],
-    paddingBottomRight: [20, cardH.value + 20],
-    duration: 0.6, // seconds for the fly animation
-  })
+  // same side/top padding idea as focusOn(): keep the ring clear of the top-left cards on desktop and the bottom card on phones
+  const padTL = L.point(isDesktop() ? 300 : 20, 70)
+  const padBR = L.point(20, cardH.value + 20)
+
+  // Work out where the camera should end up (same maths as focusOn / flyToBounds)
+  const bounds = L.latLngBounds(ring)
+  const zoom = map.getBoundsZoom(bounds, false, padTL.add(padBR))
+  const offset = padBR.subtract(padTL).divideBy(2)
+  const sw = map.project(bounds.getSouthWest(), zoom)
+  const ne = map.project(bounds.getNorthEast(), zoom)
+  const target = map.unproject(sw.add(ne).divideBy(2).add(offset), zoom)
+
+  // Already there? Do nothing, so pressing the button again doesn't make the map twitch.
+  const closeEnough =
+    map.getZoom() === zoom &&
+    map.project(map.getCenter(), zoom).distanceTo(map.project(target, zoom)) < 10 // pixels
+  if (closeEnough) return
+
+  map.flyTo(target, zoom, { duration: 0.6 }) // seconds for the fly animation
 }
 
 /* ------------------------------------------------------------------ */
