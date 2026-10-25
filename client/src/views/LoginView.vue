@@ -1,8 +1,9 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/services/auth'
 import FireworksBackground from '@/components/landing/FireworksBackground.vue'
+import MapNotice from '@/components/map/MapNotice.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -10,13 +11,31 @@ const route = useRoute()
 
 const email = ref('')
 const password = ref('')
-const error = ref('')
+const notice = ref(null) // the error popup's content, or null while hidden
+let noticeTimer = null
+
+// Shows a problem in the popup card (same MapNotice as the tracking page), then hides it after 5 seconds
+function showError(text) {
+  notice.value = {
+    type: 'error',
+    icon: 'bi-exclamation-triangle-fill',
+    title: 'Unable to log in',
+    text,
+  }
+  clearTimeout(noticeTimer)
+  noticeTimer = setTimeout(() => (notice.value = null), 5000)
+}
+// The X button
+function dismissNotice() {
+  clearTimeout(noticeTimer)
+  notice.value = null
+}
+onBeforeUnmount(() => clearTimeout(noticeTimer))
 const loading = ref(false)
 
 async function submit() {
-  error.value = ''
   if (!email.value || !password.value) {
-    error.value = 'Enter your email and password.'
+    showError('Enter your email and password.')
     return
   }
   loading.value = true
@@ -25,7 +44,7 @@ async function submit() {
     router.push(route.query.redirect || '/')
   } catch (err) {
     console.error(err)
-    error.value = err.response?.data?.message || 'Could not reach the server. Try again.'
+    showError(err.response?.data?.message || 'Could not reach the server. Try again.')
   } finally {
     loading.value = false
   }
@@ -54,14 +73,6 @@ const VIDEO_SRC = '/videos/Heartware.mp4'
             <h1 class="auth-title">Welcome back</h1>
             <p class="auth-sub">Log in to see your assignment and show-day updates.</p>
 
-            <div
-              v-if="error"
-              class="alert alert-danger py-2"
-              role="alert"
-              data-testid="login-error"
-            >
-              {{ error }}
-            </div>
 
             <form novalidate @submit.prevent="submit">
               <div class="form-floating auth-field mb-3">
@@ -247,6 +258,11 @@ const VIDEO_SRC = '/videos/Heartware.mp4'
           <i class="bi bi-arrow-left me-1" aria-hidden="true"></i>Back to log in
         </button>
       </section>
+    </div>
+
+    <!-- error popup: appears at the top, closes itself after 5 seconds or with its X -->
+    <div class="notice-host">
+      <MapNotice :notice="notice" @close="dismissNotice" />
     </div>
   </div>
 </template>
@@ -811,5 +827,20 @@ const VIDEO_SRC = '/videos/Heartware.mp4'
   .ov-block.is-active {
     transition: opacity 0.2s ease;
   }
+}
+
+/* Error popup (MapNotice, same card as the tracking page). Pinned under the navbar and centred on every screen size,
+   overriding MapNotice's map-page positioning (desktop shift to the right). */
+.notice-host {
+  --notice-top: 72px;
+  position: fixed;
+  inset: 0;
+  z-index: 1150;
+  pointer-events: none; /* only the card itself is clickable */
+}
+.notice-host :deep(.notice-wrap) {
+  left: 12px;
+  right: 12px;
+  justify-content: center;
 }
 </style>
