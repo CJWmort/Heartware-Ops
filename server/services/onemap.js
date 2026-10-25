@@ -82,11 +82,13 @@ async function geocodePostal(postalCode) {
 }
 
 async function getRoute(start, end, routeType) {
-    const body = {
-      params: { start, end, routeType }, // start/end are "lat,lng" strings
-      headers: { Authorization: token },
-    }
-    const call = () => axios.get(`${process.env.ONEMAP_BASE_URL}/api/public/routingsvc/route`, body);
+    // FIX: the token is read on EVERY call. It used to be copied into the request once, before login(), so the
+    // first route after a server start was sent with no token, failed with 401 twice, and the volunteer saw an error.
+    const call = () =>
+      axios.get(`${process.env.ONEMAP_BASE_URL}/api/public/routingsvc/route`, {
+        params: { start, end, routeType }, // start/end are "lat,lng" strings
+        headers: { Authorization: token },
+      });
 
     try {
         if (!token) await login();

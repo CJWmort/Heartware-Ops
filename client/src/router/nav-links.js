@@ -13,12 +13,6 @@ export const NAV_LINKS = {
       icon: 'bi-signpost-split',
       testid: 'nav-tracking',
     },
-    {
-      to: '/volunteer/report',
-      label: 'Incident',
-      icon: 'bi-exclamation-triangle',
-      testid: 'nav-report',
-    },
     { to: '/volunteer/badges', label: 'Badges', icon: 'bi-award', testid: 'nav-badges' },
   ],
   admin: [
