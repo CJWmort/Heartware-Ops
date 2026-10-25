@@ -206,10 +206,12 @@ exports.autoAward = async (req, res) => {
       return reached && assignment.school && (reportingMinutes(assignment.school.reportingTime) - singaporeMinutes(reached.at) >= EARLY_MINUTES) 
     })
 
+    const superSubs = await Assignments.findSuperSubs(event)
+
     const winners = {
       FULL_ROUTE: fullRoute.map(assignment => assignment.volunteer), 
       EARLY_BIRD: earlyBirds.map(a => a.volunteer), 
-      SUPER_SUB: [], // step 4 (needs the fromReserve marker first)
+      SUPER_SUB: superSubs.map(s => s.volunteer), 
     }
 
     const given = { FULL_ROUTE: 0, EARLY_BIRD: 0, SUPER_SUB: 0 }
@@ -227,7 +229,6 @@ exports.autoAward = async (req, res) => {
       }
     }
 
-    // 200, not 201: a run can give zero badges and still be a success
     res.status(200).json({ given, skipped })
   } catch (error) {
     res.status(500).json({ message: error.message })

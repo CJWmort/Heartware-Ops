@@ -93,6 +93,10 @@ const AssignmentsSchema = new mongoose.Schema({
     required: true,
     default: Date.now,
   },
+  fromReserve: {
+    type: Boolean,
+    default: false,
+  },
 });
 
 // A volunteer can only have one assignment (one school) per show
@@ -338,6 +342,11 @@ exports.findArrivals = function (show) {
   return Assignments.find({ show: show, status: CONFIRMED_STATUS, stage: { $gte: 1 } }).select('volunteer school stageHistory').populate('school', 'reportingTime')
 }
 
+//Super Sub badge - Hanafi
+exports.findSuperSubs = function (show) {
+  return Assignments.find({ show: show, status: CONFIRMED_STATUS, fromReserve: true, stage: { $gte: 1 } }).select('volunteer school stageHistory').populate('school', 'reportingTime')
+}
+
 // ===== LIVE BOARD ===== - Jun Wen
 
 // The list of valid shows, taken from the schema's enum (fills the admin's dropdown)
@@ -425,7 +434,7 @@ exports.findReserves = async function (show) {
 exports.fillFromReserve = async function (rowId, schoolId, distanceKm) {
   const row = await Assignments.findOneAndUpdate(
     { _id: rowId, status: "Reserve" },
-    { $set: { school: schoolId, status: "Pending", published: true, distance: distanceKm } },
+    { $set: { school: schoolId, status: "Pending", published: true, distance: distanceKm, fromReserve: true } },
     { new: true, runValidators: true }
   );
   if (!row) return { problem: "taken" };
@@ -433,8 +442,9 @@ exports.fillFromReserve = async function (rowId, schoolId, distanceKm) {
   const school = (await Schools.findByShow(row.show).lean()).find((s) => String(s._id) === String(schoolId));
   const holding = await Assignments.countDocuments({ show: row.show, school: schoolId, status: { $in: ["Pending", CONFIRMED_STATUS] } });
   if (!school || holding > school.p5Classes) {
-    await Assignments.updateOne({ _id: row._id }, { $set: { status: "Reserve", school: null, distance: null } });
+    await Assignments.updateOne({ _id: row._id }, { $set: { status: "Reserve", school: null, distance: null, fromReserve: false} });
     return { problem: "full" };
   }
   return { assignment: row };
 };
+
