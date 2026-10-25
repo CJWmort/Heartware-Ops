@@ -445,7 +445,10 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
           <div class="reg-panel-inner">
             <div class="pass-holder">
               <div class="lanyard"></div>
-              <div class="pass" :class="{ 'is-ready': passReady && step === 'form', 'is-otp': step === 'otp' }">
+              <div
+                class="pass"
+                :class="{ 'is-ready': passReady && step === 'form', 'is-otp': step === 'otp' }"
+              >
                 <div class="pass-head">
                   <span class="pass-slot"></span>
                   <span class="pass-brand"><i class="bi bi-heart-fill"></i> Heartware Ops</span>
@@ -458,7 +461,9 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
                     <i v-else class="bi bi-person-fill"></i>
                   </span>
                   <span class="pass-who">
-                    <span class="pass-name" :class="{ 'is-empty': !name.trim() }">{{ name.trim() || 'Your name' }}</span>
+                    <span class="pass-name" :class="{ 'is-empty': !name.trim() }">{{
+                      name.trim() || 'Your name'
+                    }}</span>
                     <span class="pass-role">Show-day volunteer</span>
                   </span>
                 </div>
@@ -474,19 +479,27 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
                     <dd>{{ phoneDisplay || '—' }}</dd>
                     <i class="bi bi-check-circle-fill pass-tick"></i>
                   </div>
-                  <div class="pass-row" :class="{ 'is-done': isDone('postalCode') && isDone('address') }">
+                  <div
+                    class="pass-row"
+                    :class="{ 'is-done': isDone('postalCode') && isDone('address') }"
+                  >
                     <dt><i class="bi bi-geo-alt"></i>Home</dt>
                     <dd>
                       <template v-if="address">
                         <span :key="address" class="pass-drop-in">{{ address }}</span>
                         <span class="pass-sub">Singapore {{ postalCode }}</span>
                       </template>
-                      <template v-else-if="postalStatus === 'loading'">Finding your address…</template>
+                      <template v-else-if="postalStatus === 'loading'"
+                        >Finding your address…</template
+                      >
                       <template v-else>—</template>
                     </dd>
                     <i class="bi bi-check-circle-fill pass-tick"></i>
                   </div>
-                  <div class="pass-row" :class="{ 'is-done': isDone('password') && isDone('confirmPassword') }">
+                  <div
+                    class="pass-row"
+                    :class="{ 'is-done': isDone('password') && isDone('confirmPassword') }"
+                  >
                     <dt><i class="bi bi-shield-lock"></i>Password</dt>
                     <dd>{{ password ? '••••••••' : '—' }}</dd>
                     <i class="bi bi-check-circle-fill pass-tick"></i>
@@ -500,8 +513,12 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
 
                 <div class="pass-foot">
                   <span class="pass-dots">
-                    <span v-for="field in fieldNames" :key="field" class="pass-dot"
-                      :class="{ 'is-done': isDone(field) }"></span>
+                    <span
+                      v-for="field in fieldNames"
+                      :key="field"
+                      class="pass-dot"
+                      :class="{ 'is-done': isDone(field) }"
+                    ></span>
                   </span>
                   <span class="pass-count">{{ filledCount }} of {{ fieldNames.length }}</span>
                   <span v-if="step === 'otp'" key="otp" class="pass-stamp is-otp">
@@ -518,7 +535,8 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
               <template v-if="step === 'otp'">Last step: type in the code we emailed you.</template>
               <template v-else-if="passReady">All set. Press Sign up to get your code.</template>
               <template v-else>
-                Your pass fills in as you type. Finish all {{ fieldNames.length }} fields to get it stamped.
+                Your pass fills in as you type. Finish all {{ fieldNames.length }} fields to get it
+                stamped.
               </template>
             </p>
           </div>
@@ -526,18 +544,26 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
           <!-- Wavy edge: right side on desktop (.wave-x), bottom on phones (.wave-y). Same shapes as the login page -->
           <div class="wave wave-x">
             <svg class="wave-back" viewBox="0 0 60 800" preserveAspectRatio="none">
-              <path d="M0,0 L34,0 C34,40.5 58,49.5 58,90 C58,139.5 22,150.5 22,200 C22,245 52,255 52,300 C52,345 34,355 34,400 C34,440.5 58,449.5 58,490 C58,539.5 22,550.5 22,600 C22,645 52,655 52,700 C52,745 34,755 34,800 L0,800 Z" />
+              <path
+                d="M0,0 L34,0 C34,40.5 58,49.5 58,90 C58,139.5 22,150.5 22,200 C22,245 52,255 52,300 C52,345 34,355 34,400 C34,440.5 58,449.5 58,490 C58,539.5 22,550.5 22,600 C22,645 52,655 52,700 C52,745 34,755 34,800 L0,800 Z"
+              />
             </svg>
             <svg class="wave-front" viewBox="0 0 60 800" preserveAspectRatio="none">
-              <path d="M0,0 L18,0 C18,49.5 50,60.5 50,110 C50,159.5 8,170.5 8,220 C8,260.5 36,269.5 36,310 C36,350.5 18,359.5 18,400 C18,449.5 50,460.5 50,510 C50,559.5 8,570.5 8,620 C8,660.5 36,669.5 36,710 C36,750.5 18,759.5 18,800 L0,800 Z" />
+              <path
+                d="M0,0 L18,0 C18,49.5 50,60.5 50,110 C50,159.5 8,170.5 8,220 C8,260.5 36,269.5 36,310 C36,350.5 18,359.5 18,400 C18,449.5 50,460.5 50,510 C50,559.5 8,570.5 8,620 C8,660.5 36,669.5 36,710 C36,750.5 18,759.5 18,800 L0,800 Z"
+              />
             </svg>
           </div>
           <div class="wave wave-y">
             <svg class="wave-back" viewBox="0 0 800 60" preserveAspectRatio="none">
-              <path d="M0,0 L0,34 C40.5,34 49.5,58 90,58 C139.5,58 150.5,22 200,22 C245,22 255,52 300,52 C345,52 355,34 400,34 C440.5,34 449.5,58 490,58 C539.5,58 550.5,22 600,22 C645,22 655,52 700,52 C745,52 755,34 800,34 L800,0 Z" />
+              <path
+                d="M0,0 L0,34 C40.5,34 49.5,58 90,58 C139.5,58 150.5,22 200,22 C245,22 255,52 300,52 C345,52 355,34 400,34 C440.5,34 449.5,58 490,58 C539.5,58 550.5,22 600,22 C645,22 655,52 700,52 C745,52 755,34 800,34 L800,0 Z"
+              />
             </svg>
             <svg class="wave-front" viewBox="0 0 800 60" preserveAspectRatio="none">
-              <path d="M0,0 L0,18 C49.5,18 60.5,50 110,50 C159.5,50 170.5,8 220,8 C260.5,8 269.5,36 310,36 C350.5,36 359.5,18 400,18 C449.5,18 460.5,50 510,50 C559.5,50 570.5,8 620,8 C660.5,8 669.5,36 710,36 C750.5,36 759.5,18 800,18 L800,0 Z" />
+              <path
+                d="M0,0 L0,18 C49.5,18 60.5,50 110,50 C159.5,50 170.5,8 220,8 C260.5,8 269.5,36 310,36 C350.5,36 359.5,18 400,18 C449.5,18 460.5,50 510,50 C559.5,50 570.5,8 620,8 C660.5,8 669.5,36 710,36 C750.5,36 759.5,18 800,18 L800,0 Z"
+              />
             </svg>
           </div>
         </aside>
@@ -581,7 +607,9 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
             <!-- ================= STEP 2: type the emailed code ================= -->
             <div v-if="step === 'otp'" class="reg-otp" data-testid="reg-otp">
               <div class="otp-intro">
-                <span class="otp-icon" aria-hidden="true"><i class="bi bi-envelope-check"></i></span>
+                <span class="otp-icon" aria-hidden="true"
+                  ><i class="bi bi-envelope-check"></i
+                ></span>
                 <div>
                   <h2 class="otp-title">Verify your email</h2>
                   <p class="text-muted-hw mb-0">
@@ -617,7 +645,10 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
                     v-for="(digit, i) in otpDigits"
                     :key="i"
                     class="otp-box"
-                    :class="{ 'is-filled': digit, 'is-active': otpFocused && i === Math.min(otpCode.length, 5) }"
+                    :class="{
+                      'is-filled': digit,
+                      'is-active': otpFocused && i === Math.min(otpCode.length, 5),
+                    }"
                     aria-hidden="true"
                     >{{ digit }}</span
                   >
@@ -688,7 +719,9 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
                     class="reg-section-title"
                     :class="{ 'is-done': isDone('name') && isDone('email') && isDone('phone') }"
                   >
-                    <span class="reg-section-icon"><i class="bi bi-person"></i><i class="bi bi-check-lg"></i></span>
+                    <span class="reg-section-icon"
+                      ><i class="bi bi-person"></i><i class="bi bi-check-lg"></i
+                    ></span>
                     About you
                   </legend>
 
@@ -779,7 +812,9 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
                     class="reg-section-title"
                     :class="{ 'is-done': isDone('postalCode') && isDone('address') }"
                   >
-                    <span class="reg-section-icon"><i class="bi bi-geo-alt"></i><i class="bi bi-check-lg"></i></span>
+                    <span class="reg-section-icon"
+                      ><i class="bi bi-geo-alt"></i><i class="bi bi-check-lg"></i
+                    ></span>
                     Where you live
                   </legend>
 
@@ -821,8 +856,13 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
                       </template>
                       <template v-else>
                         <i class="bi bi-wifi-off"></i> Couldn't reach OneMap to find your address.
-                        <button type="button" class="btn btn-link btn-sm p-0 align-baseline link-warning"
-                          @click="retryPostal">Try again</button>
+                        <button
+                          type="button"
+                          class="btn btn-link btn-sm p-0 align-baseline link-warning"
+                          @click="retryPostal"
+                        >
+                          Try again
+                        </button>
                       </template>
                     </div>
                   </div>
@@ -847,12 +887,19 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
                         autocomplete="off"
                       />
                       <!-- a quick shine across the box each time a new address drops in -->
-                      <span v-if="address" :key="address" class="addr-shine" aria-hidden="true"></span>
+                      <span
+                        v-if="address"
+                        :key="address"
+                        class="addr-shine"
+                        aria-hidden="true"
+                      ></span>
                       <div class="invalid-feedback">
                         <i class="bi bi-x-circle-fill"></i> {{ errors.address }}
                       </div>
                     </div>
-                    <div id="address-help" class="form-text">To change it, change your postal code.</div>
+                    <div id="address-help" class="form-text">
+                      To change it, change your postal code.
+                    </div>
                   </div>
                 </fieldset>
 
@@ -862,7 +909,9 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
                     class="reg-section-title"
                     :class="{ 'is-done': isDone('password') && isDone('confirmPassword') }"
                   >
-                    <span class="reg-section-icon"><i class="bi bi-key"></i><i class="bi bi-check-lg"></i></span>
+                    <span class="reg-section-icon"
+                      ><i class="bi bi-key"></i><i class="bi bi-check-lg"></i
+                    ></span>
                     Your password
                   </legend>
 
@@ -894,16 +943,29 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
                     </div>
 
                     <!-- Strength bar: one segment per rule met -->
-                    <div v-if="password" class="strength" :class="'lvl-' + passwordStrength" aria-hidden="true">
+                    <div
+                      v-if="password"
+                      class="strength"
+                      :class="'lvl-' + passwordStrength"
+                      aria-hidden="true"
+                    >
                       <span class="strength-bar">
-                        <span v-for="n in passwordRules.length" :key="n" :class="{ on: n <= passwordStrength }"></span>
+                        <span
+                          v-for="n in passwordRules.length"
+                          :key="n"
+                          :class="{ on: n <= passwordStrength }"
+                        ></span>
                       </span>
                       <span class="strength-label">{{ strengthLabel }}</span>
                     </div>
 
                     <!-- Password checklist: each rule turns green with a tick once it's met -->
                     <ul class="rules list-unstyled" data-testid="reg-password-rules">
-                      <li v-for="check in passwordChecks" :key="check.label" :class="{ 'is-met': check.met }">
+                      <li
+                        v-for="check in passwordChecks"
+                        :key="check.label"
+                        :class="{ 'is-met': check.met }"
+                      >
                         <i class="bi" :class="check.met ? 'bi-check-circle-fill' : 'bi-circle'"></i>
                         {{ check.label }}
                       </li>
@@ -946,12 +1008,14 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
 
                 <!-- Location consent. Required, so the button below stays disabled until it is ticked. -->
                 <label class="consent-card" :class="{ 'is-on': consent }">
-                  <span class="consent-icon" aria-hidden="true"><i class="bi bi-broadcast"></i></span>
+                  <span class="consent-icon" aria-hidden="true"
+                    ><i class="bi bi-broadcast"></i
+                  ></span>
                   <span class="consent-text">
-                    <span class="consent-title">Share my location on show day</span>
+                    <span class="consent-title">Location Sharing</span>
                     <span class="consent-desc">
-                      I agree that Heartware Ops can collect my device's location for live monitoring.
-                      It switches off when I log out.
+                      I agree that Heartware Ops can collect my device's location for live
+                      monitoring.
                     </span>
                   </span>
                   <span class="form-check form-switch consent-switch">
@@ -989,8 +1053,8 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
                     >Turn on location sharing to sign up.</template
                   >
                   <template v-else>
-                    Complete {{ fieldsLeft }} more {{ fieldsLeft === 1 ? 'field' : 'fields' }} to sign
-                    up.
+                    Complete {{ fieldsLeft }} more {{ fieldsLeft === 1 ? 'field' : 'fields' }} to
+                    sign up.
                   </template>
                 </p>
               </form>
@@ -1576,7 +1640,8 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
   right: 0;
   height: 3.3rem;
   border-radius: var(--bs-border-radius-lg);
-  background: linear-gradient(100deg, transparent 30%, rgb(117 183 152 / 0.35) 50%, transparent 70%) no-repeat;
+  background: linear-gradient(100deg, transparent 30%, rgb(117 183 152 / 0.35) 50%, transparent 70%)
+    no-repeat;
   background-size: 250% 100%;
   pointer-events: none;
   animation: shine 0.9s ease-out forwards;
