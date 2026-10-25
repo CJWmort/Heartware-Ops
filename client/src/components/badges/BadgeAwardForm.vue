@@ -110,7 +110,6 @@ onMounted(loadData)
 
     <form v-else novalidate @submit.prevent="submitAward">
       <div class="row g-4">
-        <!-- Left: what and when -->
         <div class="col-lg-5">
           <label for="award-badge" class="form-label field-label">Badge</label>
           <select id="award-badge" v-model="badgeCode" class="form-select" data-testid="awards-badge-select">
@@ -123,7 +122,6 @@ onMounted(loadData)
             </optgroup>
           </select>
 
-          <!-- Preview of the chosen badge, so the coordinator sees exactly what the volunteer will get -->
           <div v-if="selectedBadge" class="badge-preview">
             <span class="medal" aria-hidden="true"><i :class="['bi', selectedBadge.icon]"></i></span>
             <div class="min-w-0">
@@ -141,36 +139,36 @@ onMounted(loadData)
           </select>
         </div>
 
-        <!-- Right: who -->
         <div class="col-lg-7">
           <div class="d-flex justify-content-between align-items-baseline">
             <label for="award-search" class="form-label field-label">Volunteers</label>
             <span v-if="picked.length" class="small text-muted-hw">{{ picked.length }} selected</span>
           </div>
 
-          <div class="search-wrap">
-            <i class="bi bi-search" aria-hidden="true"></i>
-            <input id="award-search" v-model="search" type="search" class="form-control" autocomplete="off"
-                   placeholder="Search by name or email" data-testid="awards-volunteer-search" />
+          <div class="picker">
+            <div class="search-wrap">
+              <i class="bi bi-search" aria-hidden="true"></i>
+              <input id="award-search" v-model="search" type="search" class="form-control" autocomplete="off"
+                     placeholder="Search by name or email" data-testid="awards-volunteer-search" />
+            </div>
+
+            <ul v-if="results.length" class="results" aria-label="Matching volunteers">
+              <li v-for="v in results" :key="v._id">
+                <button type="button" class="result" :class="{ 'is-picked': isPicked(v) }" :aria-pressed="isPicked(v)"
+                        data-testid="awards-volunteer-result" @click="togglePick(v)">
+                  <span class="tick" aria-hidden="true"><i class="bi bi-check-lg"></i></span>
+                  <span class="min-w-0 text-start">
+                    <span class="d-block fw-semibold text-truncate">{{ v.name }}</span>
+                    <span class="d-block small text-muted-hw text-truncate">{{ v.email }}</span>
+                  </span>
+                </button>
+              </li>
+            </ul>
+            <div v-else-if="search.trim()" class="results results-empty">No volunteer matches “{{ search.trim() }}”.</div>
           </div>
 
-          <!-- Search results: each row is a real button, so Tab + Enter work -->
-          <ul v-if="results.length" class="results" aria-label="Matching volunteers">
-            <li v-for="v in results" :key="v._id">
-              <button type="button" class="result" :class="{ 'is-picked': isPicked(v) }" :aria-pressed="isPicked(v)"
-                      data-testid="awards-volunteer-result" @click="togglePick(v)">
-                <span class="tick" aria-hidden="true"><i class="bi bi-check-lg"></i></span>
-                <span class="min-w-0 text-start">
-                  <span class="d-block fw-semibold text-truncate">{{ v.name }}</span>
-                  <span class="d-block small text-muted-hw text-truncate">{{ v.email }}</span>
-                </span>
-              </button>
-            </li>
-          </ul>
-          <div v-else-if="search.trim()" class="small text-muted-hw mt-2">No volunteer matches “{{ search.trim() }}”.</div>
-          <div v-else-if="picked.length === 0" class="small text-muted-hw mt-2">Type a name or email, then tap each person to add them.</div>
+          <div v-if="picked.length === 0" class="small text-muted-hw mt-2">Type a name or email, then tap each person to add them.</div>
 
-          <!-- Who is ticked so far: removable chips -->
           <div v-if="picked.length" class="chips" aria-label="Selected volunteers">
             <span v-for="p in picked" :key="p._id" class="chip" data-testid="awards-picked">
               {{ p.name }}
@@ -181,7 +179,6 @@ onMounted(loadData)
           </div>
         </div>
 
-        <!-- Bottom: the note and the button -->
         <div class="col-12">
           <div class="d-flex justify-content-between align-items-baseline">
             <label for="award-message" class="form-label field-label">Thank-you note <span class="fw-normal text-muted-hw">(optional)</span></label>
@@ -217,12 +214,17 @@ onMounted(loadData)
 .award-card {
   --tint: rgb(20 33 61 / 0.08);
   --accent: var(--hw-red); /* ticks, focus edges */
+  --panel: var(--hw-surface); /* the floating results panel */
+  --panel-shadow: 0 12px 28px rgb(20 33 61 / 0.18);
   padding: 1.25rem;
   margin-bottom: 1.5rem;
 }
 [data-bs-theme='dark'] .award-card {
   --tint: rgb(255 255 255 / 0.07);
   --accent: var(--hw-landing-accent); /* brighter red, readable on navy */
+  /* In dark mode a shadow barely shows, so a raised panel is LIGHTER than the card instead (same "elevation" idea as main.css) */
+  --panel: #1c2540;
+  --panel-shadow: 0 12px 28px rgb(0 0 0 / 0.55);
 }
 @media (min-width: 992px) {
   .award-card {
@@ -312,12 +314,33 @@ onMounted(loadData)
 .search-wrap .form-control {
   padding-left: 2.3rem;
 }
+/* The anchor. "position: relative" doesn't move this box; it only says
+   "anything absolute inside me measures from MY edges" */
+.picker {
+  position: relative;
+}
+/* The floating panel. "position: absolute" takes it out of the normal flow,
+   so it uses up no space and the Thank-you note below stays where it is */
 .results {
+  position: absolute;
+  top: calc(100% + 0.35rem); /* 100% = the anchor's full height, so the panel starts just under the search box */
+  left: 0;
+  right: 0; /* left 0 + right 0 = exactly as wide as the search box */
+  z-index: 20; /* above the note and the orders card; below the navbar (1200) */
+  max-height: 18rem; /* about 5 people, then the panel scrolls instead of running down the page */
+  overflow-y: auto;
   list-style: none;
-  margin: 0.5rem 0 0;
+  margin: 0;
   padding: 0.25rem;
+  background: var(--panel); /* must be solid: a see-through panel would mix with the text under it */
   border: 1px solid var(--bs-border-color);
   border-radius: 0.6rem;
+  box-shadow: var(--panel-shadow); /* the shadow is what makes it read as "floating above" */
+}
+.results-empty {
+  padding: 0.6rem 0.75rem;
+  font-size: 0.875rem;
+  color: var(--hw-muted);
 }
 .result {
   display: flex;
