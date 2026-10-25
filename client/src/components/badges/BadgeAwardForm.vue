@@ -1,7 +1,7 @@
 <script setup>
 // Feature 5 – "Give a badge" form on the coordinator page — owner: Hanafi
 // Layout and CSS: AI-generated (declared in README.txt). Logic in the TODOs below: Hanafi.
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { listBadges, listVolunteers, awardBadge } from '@/services/badges.js'
 import { getShows } from '@/services/assignment.js'
 
@@ -85,7 +85,30 @@ async function submitAward() {
     }
 }
 
-onMounted(loadData)
+const pickerEl = ref(null) 
+const open = ref(false)    
+
+function closeIfOutside(e) {
+    if (!pickerEl.value?.contains(e.target)) open.value = false
+}
+
+function onPickerKeydown(e) {
+    if (e.key === 'Escape') open.value = false
+}
+
+onMounted(() => {
+    document.addEventListener('pointerdown', closeIfOutside)
+    document.addEventListener('keydown', onPickerKeydown)
+    document.addEventListener('focusin', closeIfOutside)
+})
+
+onBeforeUnmount(() => {
+    document.removeEventListener('pointerdown', closeIfOutside)
+    document.removeEventListener('keydown', onPickerKeydown)
+    document.removeEventListener('focusin', closeIfOutside)
+})
+
+onMounted(loadData)         
 </script>
 
 <template>
@@ -145,14 +168,14 @@ onMounted(loadData)
             <span v-if="picked.length" class="small text-muted-hw">{{ picked.length }} selected</span>
           </div>
 
-          <div class="picker">
+          <div class="picker" ref="pickerEl">
             <div class="search-wrap">
               <i class="bi bi-search" aria-hidden="true"></i>
               <input id="award-search" v-model="search" type="search" class="form-control" autocomplete="off"
-                     placeholder="Search by name or email" data-testid="awards-volunteer-search" />
+                    placeholder="Search by name or email" data-testid="awards-volunteer-search" @focus="open = true" @input="open = true" />
             </div>
 
-            <ul v-if="results.length" class="results" aria-label="Matching volunteers">
+            <ul v-if="open && results.length" class="results" aria-label="Matching volunteers">
               <li v-for="v in results" :key="v._id">
                 <button type="button" class="result" :class="{ 'is-picked': isPicked(v) }" :aria-pressed="isPicked(v)"
                         data-testid="awards-volunteer-result" @click="togglePick(v)">
@@ -164,7 +187,7 @@ onMounted(loadData)
                 </button>
               </li>
             </ul>
-            <div v-else-if="search.trim()" class="results results-empty">No volunteer matches “{{ search.trim() }}”.</div>
+            <div v-else-if="open && search.trim()" class="results results-empty">No volunteer matches “{{ search.trim() }}”.</div>
           </div>
 
           <div v-if="picked.length === 0" class="small text-muted-hw mt-2">Type a name or email, then tap each person to add them.</div>
