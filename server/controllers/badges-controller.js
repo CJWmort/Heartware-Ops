@@ -3,6 +3,7 @@ const BadgeAward = require("../models/badge-awards-model");
 const BadgeDesign = require("../models/badge-design-model");
 const BadgeOrder = require("../models/badge-order-model");
 const Account = require('../models/account-model')
+const Assignments = require('../models/assignments-model')
 
 
 exports.listBadges = (req, res) => res.json(BADGES);
@@ -160,6 +161,44 @@ exports.listVolunteers = async (req, res) => {
   try {
     const volunteers = await Account.retrieveVolunteerNames()
     res.status(200).json(volunteers)
+  } catch (error) {
+    res.status(500).json({ message: error.message })
+  }
+}
+
+exports.autoAward = async (req, res) => {
+  try {
+    const { event } = req.body
+    if (!Assignments.SHOWS.includes(event)) {
+      return res.status(400).json({ message: 'Please choose a show.' })
+    }
+
+    // Who qualifies for each rule, as lists of volunteer ids
+    const fullRoute = await Assignments.findFullRoute(event)
+
+    const winners = {
+      FULL_ROUTE: fullRoute.map(assignment => assignment.volunteer), // assignments → just the volunteer ids
+      EARLY_BIRD: [], // step 3
+      SUPER_SUB: [], // step 4 (needs the fromReserve marker first)
+    }
+
+    const given = { FULL_ROUTE: 0, EARLY_BIRD: 0, SUPER_SUB: 0 }
+    let skipped = 0
+
+    for (const code of Object.keys(winners)) {   
+      for (const volunteerId of winners[code]) {
+        try {
+          await BadgeAward.create({ badge: code, volunteer: volunteerId, event, awardedBy: req.session.userId }) // which badge, who, which show, given by whom?
+          given[code] += 1 
+        } catch (error) {
+          if (error.code === 11000) skipped += 1
+          else throw error
+        }
+      }
+    }
+
+    // 200, not 201: a run can give zero badges and still be a success
+    res.status(200).json({ given, skipped })
   } catch (error) {
     res.status(500).json({ message: error.message })
   }

@@ -13,5 +13,6 @@ router.get("/orders/me", requireRole('volunteer'), badgesController.listMyOrders
 router.get('/orders', requireRole('admin'), badgesController.listAllOrders)
 router.patch('/orders/:id/status', requireRole('admin'), badgesController.updateOrderStatus)
 router.get('/volunteers', requireRole('admin'), badgesController.listVolunteers)
+router.post('/auto-award', requireRole('admin'), badgesController.autoAward)
 
 module.exports = router;

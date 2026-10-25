@@ -328,6 +328,10 @@ exports.undoStage = async function (volunteerId, show, from) {
 
 exports.MAX_STAGE = MAX_STAGE;
 
+// Full Route badge - Hanafi
+exports.findFullRoute = function (show) {
+  return Assignments.find({ show: show, status: CONFIRMED_STATUS, stage: MAX_STAGE }).select('volunteer')
+}
 
 // ===== LIVE BOARD ===== - Jun Wen
 
