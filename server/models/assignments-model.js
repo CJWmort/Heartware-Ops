@@ -333,6 +333,11 @@ exports.findFullRoute = function (show) {
   return Assignments.find({ show: show, status: CONFIRMED_STATUS, stage: MAX_STAGE }).select('volunteer')
 }
 
+// Early Bird badge - Hanafi
+exports.findArrivals = function (show) {
+  return Assignments.find({ show: show, status: CONFIRMED_STATUS, stage: { $gte: 1 } }).select('volunteer school stageHistory').populate('school', 'reportingTime')
+}
+
 // ===== LIVE BOARD ===== - Jun Wen
 
 // The list of valid shows, taken from the schema's enum (fills the admin's dropdown)

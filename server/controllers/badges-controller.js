@@ -5,6 +5,30 @@ const BadgeOrder = require("../models/badge-order-model");
 const Account = require('../models/account-model')
 const Assignments = require('../models/assignments-model')
 
+function reportingMinutes(text) {
+  const clean = text.toLowerCase().replace(/\s/g, '') 
+  const [h, m] = clean.slice(0,-2).split(':').map(Number) 
+  let minutes = 0
+  if (clean.endsWith('pm')) {
+    if (h < 12) {
+      minutes = (h + 12) * 60 + m 
+    } else {
+      minutes = h * 60 + m 
+    }
+  } else {
+    if (h < 12) {
+      minutes = h * 60 + m  
+    } else {
+      minutes = m
+    }
+  }
+  return minutes
+}
+
+function singaporeMinutes(date) {
+  const [h, m] = date.toLocaleTimeString('en-GB', { timeZone: 'Asia/Singapore', hourCycle: 'h23' }).split(':').map(Number)
+  return h * 60 + m
+}
 
 exports.listBadges = (req, res) => res.json(BADGES);
 
@@ -173,12 +197,18 @@ exports.autoAward = async (req, res) => {
       return res.status(400).json({ message: 'Please choose a show.' })
     }
 
-    // Who qualifies for each rule, as lists of volunteer ids
     const fullRoute = await Assignments.findFullRoute(event)
+    const EARLY_MINUTES = 30 
+
+    const arrivals = await Assignments.findArrivals(event)
+    const earlyBirds = arrivals.filter(assignment => {
+      const reached = assignment.stageHistory.find(a => a.stage === 1) 
+      return reached && assignment.school && (reportingMinutes(assignment.school.reportingTime) - singaporeMinutes(reached.at) >= EARLY_MINUTES) 
+    })
 
     const winners = {
-      FULL_ROUTE: fullRoute.map(assignment => assignment.volunteer), // assignments → just the volunteer ids
-      EARLY_BIRD: [], // step 3
+      FULL_ROUTE: fullRoute.map(assignment => assignment.volunteer), 
+      EARLY_BIRD: earlyBirds.map(a => a.volunteer), 
       SUPER_SUB: [], // step 4 (needs the fromReserve marker first)
     }
 
