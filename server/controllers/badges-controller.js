@@ -2,6 +2,7 @@ const BADGES = require("../data/badges.json");
 const BadgeAward = require("../models/badge-awards-model"); 
 const BadgeDesign = require("../models/badge-design-model");
 const BadgeOrder = require("../models/badge-order-model");
+const Account = require('../models/account-model')
 
 
 exports.listBadges = (req, res) => res.json(BADGES);
@@ -25,6 +26,9 @@ exports.listMyAwards = async (req, res) => {
 exports.awardBadge = async (req, res) => {
   try {
     const { volunteerIds, badgeCode, event, message } = req.body;  
+    if (!Array.isArray(volunteerIds) || volunteerIds.length === 0) {
+      return res.status(400).json({ message: 'Please choose at least one volunteer.' })
+    }
     const given = [];
     const skipped = [];
 
@@ -152,3 +156,11 @@ exports.updateOrderStatus = async (req, res) => {
   }
 }
 
+exports.listVolunteers = async (req, res) => {
+  try {
+    const volunteers = await Account.retrieveVolunteerNames()
+    res.status(200).json(volunteers)
+  } catch (error) {
+    res.status(500).json({ message: error.message })
+  }
+}

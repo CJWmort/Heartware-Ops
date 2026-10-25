@@ -107,3 +107,12 @@ export async function updateOrderStatus(orderId, status) {
     throw addFriendlyMessage(error)
   }
 }
+
+export async function listVolunteers() {
+  try {
+    const { data } = await axios.get(`${BASE_URL}/volunteers`, { timeout: 15000 })
+    return data
+  } catch (error) {
+    throw addFriendlyMessage(error)
+  }
+}

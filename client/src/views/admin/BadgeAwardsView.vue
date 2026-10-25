@@ -4,17 +4,17 @@
 import { ref, onMounted } from 'vue'
 import { listAllOrders, updateOrderStatus } from '@/services/badges.js'
 import { timeAgo } from '@/utils/time.js'
+import BadgeAwardForm from '@/components/badges/BadgeAwardForm.vue'
 
-// Same steps, in the same order, as the server's STATUS_LIST
 const statusSteps = ['placed', 'in_production', 'shipped', 'delivered']
 const statusLabels = { placed: 'Placed', in_production: 'In production', shipped: 'Shipped', delivered: 'Delivered' }
 const statusIcons = { placed: 'bi-receipt', in_production: 'bi-tools', shipped: 'bi-truck', delivered: 'bi-house-check-fill' }
 
 const orders = ref([])
 const loading = ref(true)
-const error = ref('') // the whole list failed to load
-const actionError = ref('') // one button click was refused (e.g. 409 because the page was stale)
-const savingId = ref(null) // _id of the order whose button is waiting for the server, so it can't be clicked twice
+const error = ref('') 
+const actionError = ref('') 
+const savingId = ref(null) 
 
 async function loadOrders() {
     loading.value = true
@@ -59,7 +59,8 @@ onMounted(loadOrders)
   <section class="awards-page">
     <!-- Coming next: Part 1 "Auto-awards" and Part 2 "Give a badge" go above this card -->
 
-    <!-- Part 3: Badge orders -->
+    <!-- Badge orders -->
+    <BadgeAwardForm />
     <div class="card-hw orders-card" data-testid="orders-card">
       <div class="section-head">
         <div class="d-flex align-items-start gap-3 min-w-0">
@@ -76,7 +77,6 @@ onMounted(loadOrders)
         </button>
       </div>
 
-      <!-- A click was refused: say why, in the server's words -->
       <div v-if="actionError" class="alert alert-warning d-flex align-items-start gap-2 mb-3" role="alert" data-testid="orders-error">
         <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
         <div class="flex-grow-1">{{ actionError }}</div>
@@ -101,7 +101,6 @@ onMounted(loadOrders)
         </div>
       </div>
 
-      <!-- A real table on wide screens; on phones each row becomes a stacked card (see "Phones" in the CSS) -->
       <table v-else class="orders-table" data-testid="orders-table">
         <thead>
           <tr>
@@ -115,7 +114,6 @@ onMounted(loadOrders)
         <tbody>
           <tr v-for="order in orders" :key="order._id" data-testid="orders-row">
             <td data-label="Volunteer">
-              <!-- volunteer is null if their account was deleted after ordering -->
               <div class="fw-semibold text-truncate">{{ order.volunteer?.name || 'Deleted account' }}</div>
               <div class="small text-muted-hw text-truncate">{{ order.volunteer?.email || '—' }}</div>
             </td>
@@ -144,7 +142,6 @@ onMounted(loadOrders)
               <span class="status-pill" :class="'is-' + order.status" data-testid="orders-status">
                 <i :class="['bi', statusIcons[order.status]]" aria-hidden="true"></i>{{ statusLabels[order.status] || order.status }}
               </span>
-              <!-- 4 small bars: how far along the order is (the pill text says it in words too) -->
               <span class="mini-steps" aria-hidden="true">
                 <span v-for="(step, i) in statusSteps" :key="step" :class="{ on: i <= statusSteps.indexOf(order.status) }"></span>
               </span>

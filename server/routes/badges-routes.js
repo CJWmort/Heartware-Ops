@@ -12,5 +12,6 @@ router.get("/design/me", requireRole('volunteer'), badgesController.getMyDesign)
 router.get("/orders/me", requireRole('volunteer'), badgesController.listMyOrders);
 router.get('/orders', requireRole('admin'), badgesController.listAllOrders)
 router.patch('/orders/:id/status', requireRole('admin'), badgesController.updateOrderStatus)
+router.get('/volunteers', requireRole('admin'), badgesController.listVolunteers)
 
 module.exports = router;
