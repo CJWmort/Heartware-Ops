@@ -9,7 +9,7 @@ const myAwards = ref([])
 const error = ref('')
 
 function awardFor(code) {
-  return myAwards.value.find(a => a.badge.code === code)
+  return myAwards.value.find(a => a.badge?.code === code)
 }
 
 const selected = ref(null)
