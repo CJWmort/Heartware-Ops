@@ -18,6 +18,7 @@ const TICK_MS = 30000 // how often "x min ago" text is recalculated
 const LIVE_MS = 2 * 60 * 1000 // updated within 2 min = live
 const STALE_MS = 10 * 60 * 1000 // within 2-10 min = stale, older = not reporting
 const FOCUS_ZOOM = 17 // max zoom when focusing a volunteer
+const SOLO_ZOOM = 15
 const GLIDE_MS = 2000 // how long a marker takes to glide to its new position
 const BIG_JUMP_M = 500 // jumps larger than this snap instead of gliding
 
@@ -74,6 +75,7 @@ const showEl = ref(null) // the dropdown wrapper (for outside-click detection)
 const selectedId = ref(null) // volunteer currently selected
 const now = ref(Date.now()) // ticks so "x min ago" stays current
 const cardEl = ref(null)
+const barEl = ref(null)
 const cardH = ref(0) // height of the bottom card on mobile (moves map controls up)
 
 let clockOffset = 0 // server time minus browser time, so a wrong phone clock can't skew freshness
@@ -201,6 +203,7 @@ let map = null
 let L = null // Leaflet library, passed in by BaseMap
 let zoneLayer = null
 let volunteerLayer = null
+let baseBounds = null
 let schoolMarker = null // marker for the selected volunteer's school
 let linkLine = null // dashed line from the selected volunteer to their school
 let pinnedId = null // volunteer whose tooltip is pinned open while selected
@@ -227,6 +230,10 @@ function onMapReady(m, leaflet) {
   zoneLayer = L.layerGroup().addTo(map)
   volunteerLayer = L.layerGroup().addTo(map)
   lineRenderer = L.canvas() // reused for the dashed line
+
+  baseBounds = map.options.maxBounds
+  map.options.zoomSnap = 0.25
+  map.on('zoomend resize', () => limitView())
 
   map.zoomControl?.setPosition('bottomright') // move +/- buttons to the bottom right
   map.on('click', () => {
@@ -379,6 +386,62 @@ function applyFit() {
   hasFitted = true
 }
 
+function coveredInsets() {
+  const box = map.getContainer().getBoundingClientRect()
+  const top = barEl.value ? barEl.value.getBoundingClientRect().bottom - box.top : 0
+  const cardTop = cardEl.value ? cardEl.value.getBoundingClientRect().top - box.top : box.height
+  return { top, bottom: box.height - cardTop, free: cardTop - top }
+}
+
+function mobileInsets(maxRoom = 90) {
+  const { top, bottom, free } = coveredInsets()
+  const room = Math.max(20, Math.min(maxRoom, (free - 100) / 2))
+  return { top: top + room, bottom: bottom + room }
+}
+
+function limitView(zoom) {
+  if (!map || !baseBounds) return
+  if (!selectedId.value || isDesktop()) {
+    map.setMinZoom(Math.max(11, map.getBoundsZoom(baseBounds, true)))
+    map.setMaxBounds(baseBounds)
+    return
+  }
+  const covered = coveredInsets()
+  const pad = L.point(0, covered.top + covered.bottom)
+  map.setMinZoom(Math.max(11, map.getBoundsZoom(baseBounds, true, pad)))
+  const z = zoom ?? map.getZoom()
+  const sw = map.project(baseBounds.getSouthWest(), z).add(L.point(0, covered.bottom))
+  const ne = map.project(baseBounds.getNorthEast(), z).subtract(L.point(0, covered.top))
+  map.setMaxBounds(L.latLngBounds(map.unproject(sw, z), map.unproject(ne, z)))
+}
+
+function cameraFor(pts, padTL, padBR, maxZoom) {
+  const bounds = L.latLngBounds(pts)
+  const zoom = Math.min(map.getBoundsZoom(bounds, false, padTL.add(padBR)), maxZoom)
+  const offset = padBR.subtract(padTL).divideBy(2)
+  const sw = map.project(bounds.getSouthWest(), zoom)
+  const ne = map.project(bounds.getNorthEast(), zoom)
+  const target = map.unproject(sw.add(ne).divideBy(2).add(offset), zoom)
+  return { zoom, target }
+}
+
+function isClear(pt, camera, padTL, padBR) {
+  const size = map.getSize()
+  const p = map
+    .project(pt, camera.zoom)
+    .subtract(map.project(camera.target, camera.zoom))
+    .add(size.divideBy(2))
+  return p.x >= padTL.x && p.x <= size.x - padBR.x && p.y >= padTL.y && p.y <= size.y - padBR.y
+}
+
+function flyIfMoved(camera, duration) {
+  const closeEnough =
+    map.getZoom() === camera.zoom &&
+    map.project(map.getCenter(), camera.zoom).distanceTo(map.project(camera.target, camera.zoom)) < 10
+  if (closeEnough) return
+  map.flyTo(camera.target, camera.zoom, { duration })
+}
+
 // Zoom so the volunteer and their school are both in view
 function focusOn(v) {
   if (!map) return
@@ -387,51 +450,30 @@ function focusOn(v) {
   if (v.school?.lat != null) pts.push([v.school.lat, v.school.lng])
   if (!pts.length) return
 
-  const bottom = isDesktop() ? 70 : cardH.value + 70 // room for the tooltip and the bottom card
+  limitView()
+  const inset = isDesktop() ? { top: 150, bottom: 70 } : mobileInsets()
   const left = isDesktop() ? 440 : 60 // on desktop, stay clear of the top-left cards
+  const padTL = L.point(left, inset.top)
+  const padBR = L.point(60, inset.bottom)
 
-  // Work out where the camera should end up (the same maths flyToBounds does internally)
-  const bounds = L.latLngBounds(pts)
-  const padTL = L.point(left, 150)
-  const padBR = L.point(60, bottom)
-  const zoom = Math.min(map.getBoundsZoom(bounds, false, padTL.add(padBR)), FOCUS_ZOOM)
-  const offset = padBR.subtract(padTL).divideBy(2)
-  const sw = map.project(bounds.getSouthWest(), zoom)
-  const ne = map.project(bounds.getNorthEast(), zoom)
-  const target = map.unproject(sw.add(ne).divideBy(2).add(offset), zoom)
-
-  // Already there? Do nothing.
-  const closeEnough =
-    map.getZoom() === zoom &&
-    map.project(map.getCenter(), zoom).distanceTo(map.project(target, zoom)) < 10 // pixels
-  if (closeEnough) return
-
-  map.flyTo(target, zoom, { duration: 0.5 })
+  let camera = cameraFor(pts, padTL, padBR, FOCUS_ZOOM)
+  if (v.lat != null && !isClear([v.lat, v.lng], camera, padTL, padBR)) {
+    camera = cameraFor([[v.lat, v.lng]], padTL, padBR, SOLO_ZOOM)
+  }
+  limitView(camera.zoom)
+  flyIfMoved(camera, 0.5)
 }
 
 // Quick view: fly the map so one whole ring fits on screen.
 // A ring is already a list of [lat, lng] points, so Leaflet can use it directly as the area to fit.
 function viewRing(ring) {
   if (!map) return // map not ready yet
-  // same side/top padding idea as focusOn(): keep the ring clear of the top-left cards on desktop and the bottom card on phones
-  const padTL = L.point(isDesktop() ? 300 : 20, 70)
-  const padBR = L.point(20, cardH.value + 20)
-
-  // Work out where the camera should end up (same maths as focusOn / flyToBounds)
-  const bounds = L.latLngBounds(ring)
-  const zoom = map.getBoundsZoom(bounds, false, padTL.add(padBR))
-  const offset = padBR.subtract(padTL).divideBy(2)
-  const sw = map.project(bounds.getSouthWest(), zoom)
-  const ne = map.project(bounds.getNorthEast(), zoom)
-  const target = map.unproject(sw.add(ne).divideBy(2).add(offset), zoom)
-
-  // Already there? Do nothing, so pressing the button again doesn't make the map twitch.
-  const closeEnough =
-    map.getZoom() === zoom &&
-    map.project(map.getCenter(), zoom).distanceTo(map.project(target, zoom)) < 10 // pixels
-  if (closeEnough) return
-
-  map.flyTo(target, zoom, { duration: 0.6 }) // seconds for the fly animation
+  const inset = isDesktop() ? { top: 70, bottom: cardH.value + 20 } : mobileInsets(20)
+  const padTL = L.point(isDesktop() ? 300 : 20, inset.top)
+  const padBR = L.point(20, inset.bottom)
+  const camera = cameraFor(ring, padTL, padBR, map.getMaxZoom())
+  limitView(camera.zoom)
+  flyIfMoved(camera, 0.6)
 }
 
 /* ------------------------------------------------------------------ */
@@ -536,6 +578,7 @@ async function measureCard() {
   if (selectedId.value && cardEl.value) cardH.value = cardEl.value.offsetHeight + 12
 }
 watch(timesOpen, measureCard)
+watch(cardH, () => limitView())
 watch(() => selected.value?.stage, measureCard)
 
 async function selectVolunteer(id) {
@@ -564,6 +607,7 @@ async function selectVolunteer(id) {
 // Deselects: hides the card and school marker. fit = true also zooms back out.
 function clearSelection(fit = true) {
   selectedId.value = null
+  limitView()
   timesOpen.value = false
   query.value = ''
   cardH.value = 0
@@ -873,7 +917,7 @@ onUnmounted(() => {
       </div>
 
       <!-- Top bar: show dropdown + name search -->
-      <div class="board-bar">
+      <div ref="barEl" class="board-bar">
         <div class="bar-row">
           <div ref="showEl" class="show-select" @keydown.esc="showMenuOpen = false">
             <button
