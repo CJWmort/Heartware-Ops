@@ -288,7 +288,6 @@ function selectSchool(school) {
 function clearFocus() {
   if (focusedSchoolId.value === null) return // nothing focused: nothing to undo
   focusedSchoolId.value = null
-  limitView()
   resetMapView()
 }
 
@@ -329,70 +328,12 @@ function fitPadding() {
   return { paddingTopLeft: [30, 30], paddingBottomRight: [30, window.innerHeight * 0.45 + 30] } // phone: sheet 45vh
 }
 
-function coveredInsets() {
-  if (focusedSchoolId.value === null) return null
-  const none = { top: 0, left: 0, bottom: 0, right: 0 }
-  if (window.matchMedia('(min-width: 992px)').matches) return { ...none, left: 432 }
-  if (window.matchMedia('(min-width: 768px)').matches) return { ...none, left: 352 }
-  return { ...none, bottom: window.innerHeight * 0.45 }
-}
-
-function limitView(zoom) {
-  if (!map || !L || !baseBounds) return
-  const covered = coveredInsets()
-  if (!covered) {
-    map.setMinZoom(Math.max(11, map.getBoundsZoom(baseBounds, true)))
-    map.setMaxBounds(baseBounds)
-    return
-  }
-  const pad = L.point(covered.left + covered.right, covered.top + covered.bottom)
-  map.setMinZoom(Math.max(11, map.getBoundsZoom(baseBounds, true, pad)))
-  const z = zoom ?? map.getZoom()
-  const sw = map
-    .project(baseBounds.getSouthWest(), z)
-    .add(L.point(-covered.left, covered.bottom))
-  const ne = map
-    .project(baseBounds.getNorthEast(), z)
-    .add(L.point(covered.right, -covered.top))
-  map.setMaxBounds(L.latLngBounds(map.unproject(sw, z), map.unproject(ne, z)))
-}
-
-function cameraFor(pts, padTL, padBR, maxZoom) {
-  const bounds = L.latLngBounds(pts)
-  const zoom = Math.min(map.getBoundsZoom(bounds, false, padTL.add(padBR)), maxZoom)
-  const offset = padBR.subtract(padTL).divideBy(2)
-  const sw = map.project(bounds.getSouthWest(), zoom)
-  const ne = map.project(bounds.getNorthEast(), zoom)
-  const target = map.unproject(sw.add(ne).divideBy(2).add(offset), zoom)
-  return { zoom, target }
-}
-
-function isClear(pt, camera, padTL, padBR) {
-  const size = map.getSize()
-  const p = map
-    .project(pt, camera.zoom)
-    .subtract(map.project(camera.target, camera.zoom))
-    .add(size.divideBy(2))
-  return p.x >= padTL.x && p.x <= size.x - padBR.x && p.y >= padTL.y && p.y <= size.y - padBR.y
-}
-
 // Zoom the map so the school and all of its volunteers are visible (but never closer than zoom level 15).
 function focusSchool(school) {
   if (!map || !L || !school.lat || !school.lng) return // map not ready, or the school has no coordinates
   const pts = [[school.lat, school.lng]]
   for (const v of school.volunteers) if (v.lat && v.lng) pts.push([v.lat, v.lng])
-  limitView()
-  const pad = fitPadding()
-  const tl = pad.paddingTopLeft ?? pad.padding
-  const br = pad.paddingBottomRight ?? pad.padding
-  const padTL = L.point(tl[0], tl[1])
-  const padBR = L.point(br[0], br[1])
-  let camera = cameraFor(pts, padTL, padBR, 15)
-  if (!isClear([school.lat, school.lng], camera, padTL, padBR)) {
-    camera = cameraFor([[school.lat, school.lng]], padTL, padBR, 15)
-  }
-  limitView(camera.zoom)
-  map.setView(camera.target, camera.zoom)
+  map.fitBounds(pts, { ...fitPadding(), maxZoom: 15 }) // padding keeps the pins clear of the focus card
 }
 
 // One small badge per status for the collapsed card, e.g. "3 Accepted". Statuses with zero volunteers are skipped.
@@ -534,7 +475,6 @@ let markersGroup = null
 let linesGroup = null
 let volGroup = null
 let homeView = null
-let baseBounds = null
 let schoolMarkers = {} // schoolId -> its Leaflet marker, so a focus change can restyle pins without redrawing them all
 
 // Zoom the map so EVERY school of the selected show is visible and centred,
@@ -554,9 +494,6 @@ function onMapReady(m, leaflet) {
   map = m
   L = leaflet
   map.zoomControl?.setPosition('bottomright') // move +/- buttons to the bottom right (as in TrackingView)
-  baseBounds = map.options.maxBounds
-  map.options.zoomSnap = 0.25
-  map.on('zoomend resize', () => limitView())
   homeView = { center: m.getCenter(), zoom: m.getZoom() } // temporary starting view, replaced by fitOverview() below
 
   markersGroup = L.layerGroup().addTo(map)
@@ -651,7 +588,6 @@ watch(focusedSchoolId, () => {
 // (Declared before the refit watcher below so the refit sees focusedSchoolId = null.)
 watch(selectedShow, () => {
   focusedSchoolId.value = null
-  limitView()
 })
 // Refit the overview ONLY the first time, or when the admin picks a different show (and never while a school
 // is zoomed in). A background refresh replaces `assignments` too, but must not make the map jump,
