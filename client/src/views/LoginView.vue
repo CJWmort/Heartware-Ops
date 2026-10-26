@@ -1,9 +1,10 @@
 <script setup>
-import { ref, onBeforeUnmount } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/services/auth'
 import FireworksBackground from '@/components/landing/FireworksBackground.vue'
 import MapNotice from '@/components/map/MapNotice.vue'
+import axios from 'axios' // used only for the wake up ping of server hosted on render
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -50,6 +51,18 @@ async function submit() {
   }
 }
 
+// Wake-up ping: Render's free server sleeps when idle and takes up to a minute to start again.
+// Calling the cheap /api/health route the moment this page opens starts that wake-up while the
+// user is still typing their email and password, so the server is usually ready by the time they click Log in.
+onMounted(async () => {
+  try {
+    await axios.get('/api/health')
+  } catch (err) {
+    // Ignored on purpose: if the server is still asleep this ping may fail, but it has
+    // already done its job of waking the server. The real login request is separate.
+  }
+})
+
 // UI only (no login logic): which side the red panel is on.
 // 'login' = form visible, panel on the right.  'join' = panel sweeps left, sign-up info + video show.
 const mode = ref('login')
@@ -72,7 +85,6 @@ const VIDEO_SRC = '/videos/Heartware.mp4'
           <div class="auth-form-inner">
             <h1 class="auth-title">Welcome back</h1>
             <p class="auth-sub">Log in to see your assignment and show-day updates.</p>
-
 
             <form novalidate @submit.prevent="submit">
               <div class="form-floating auth-field mb-3">
