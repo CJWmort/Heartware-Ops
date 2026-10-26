@@ -7,6 +7,7 @@ const stubs = {
   '../models/account-model': { findById: async () => user, updateAvailableShows: async (id, shows) => { saved = shows; return { availableShows: shows }; }, removeAvailableShows: async (id, shows) => { saved = shows; return {}; } },
   '../models/assignments-model': { acceptedShowsAmong: async (id, shows) => accepted.filter((s) => shows.includes(s)), deleteOpenForShows: async (id, shows) => { deleted = shows; } },
   '../services/onemap': {}, bcrypt: {}, '../utils/otp': {},
+  '../sockets': { disconnectUser() {} }, // NEW: accounts-controller now imports sockets (logout closes live connections); a test must not load real socket.io
 };
 const orig = Module._load; Module._load = function (req, ...r) { return stubs[req] || orig(req, ...r); };
 const ctl = require(path.join(S, 'controllers/accounts-controller.js'));

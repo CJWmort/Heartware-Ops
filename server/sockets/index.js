@@ -59,4 +59,10 @@ function emit(eventName, payload, room) {
   else io.emit(eventName, payload);
 }
 
-module.exports = { initSockets, emit };
+// NEW: close every open socket of one user (called on logout, so a logged-out browser stops receiving live events).
+// Each user already joins the room "user:<id>" when they connect (see initSockets above).
+function disconnectUser(userId) {
+  if (io) io.in(`user:${userId}`).disconnectSockets(true);
+}
+
+module.exports = { initSockets, emit, disconnectUser };

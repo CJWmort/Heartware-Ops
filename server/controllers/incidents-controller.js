@@ -25,6 +25,11 @@ exports.createIncident = async (req, res) => {
       lng,
       address: typedAddress,
     } = req.body;
+    // NEW: the note is required. The form already enforces it; this stops hand-made requests with an empty note.
+    const cleanNote = typeof note === "string" ? note.trim() : "";
+    if (!cleanNote) {
+      return res.status(400).json({ message: "Please describe the incident." });
+    }
     // handle address retreival using geocoding by onemap
     let address = typedAddress?.trim() || null;
     try {
@@ -41,7 +46,7 @@ exports.createIncident = async (req, res) => {
       busNo,
       type,
       severity,
-      note,
+      note: cleanNote, // CHANGED: the trimmed text (was the raw value)
       location: lat != null ? { lat, lng } : undefined,
       address: address,
       // FIX: the session stores the id as req.session.userId (see accounts-controller login). The old

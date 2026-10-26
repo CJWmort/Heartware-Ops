@@ -7,6 +7,7 @@ const { replaceFromReserve } = require("../utils/reserve-replacement"); // ADDED
 const bcrypt = require("bcrypt");
 const otp = require("../utils/otp"); // email verification codes (Brevo)
 const Assignments = require("../models/assignments-model"); // NEW: needed to tidy allocations when availability changes
+const { disconnectUser } = require("../sockets"); // NEW: close live connections on logout
 
 // NEW (availability change): FIX for "stale allocations". Before, a volunteer could untick a show AFTER being allocated
 // to it, and the allocation stayed, so the school place was held by someone who said they could not come.
@@ -153,7 +154,9 @@ exports.login = async (req, res) => {
 };
 
 exports.logout = (req, res) => {
+  const userId = req.session?.userId; // NEW: read it BEFORE the session is destroyed
   req.session.destroy(() => {
+    if (userId) disconnectUser(userId); // NEW: close their live connections as well
     res.clearCookie("connect.sid");
     res.json({ message: "Logged out" });
   });
