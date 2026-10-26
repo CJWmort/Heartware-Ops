@@ -13,7 +13,11 @@ let socket = null
 export function connectSocket() {
   if (socket) return socket
   const url = import.meta.env.VITE_SOCKET_URL || undefined // undefined = same origin (Vite proxy)
-  socket = io(url, { withCredentials: true })
+  // NEW: on the deployed site the connection goes through the Vercel rewrite, which does not forward WebSockets,
+  // so use plain HTTP long-polling there. Locally (Vite proxy) the default is kept, so WebSocket still works.
+  const transports =
+    import.meta.env.PROD && !import.meta.env.VITE_SOCKET_URL ? ['polling'] : undefined
+  socket = io(url, { withCredentials: true, ...(transports && { transports }) })
   return socket
 }
 
