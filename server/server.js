@@ -25,6 +25,10 @@ server.use(express.json());
 
 // Specify the path to the environment variablef file 'config.env'
 dotenv.config({ path: "./config.env" });
+// Safety net: log unexpected errors instead of letting one stray error stop the whole server
+// (which made Render return 502 until it restarted).
+process.on("uncaughtException", (err) => console.error("Uncaught exception:", err));
+process.on("unhandledRejection", (err) => console.error("Unhandled rejection:", err));
 
 // Must come AFTER dotenv.config, so NODE_ENV written in config.env is also seen
 const isProduction = process.env.NODE_ENV === "production";

@@ -17,14 +17,25 @@ const { registerChat } = require("./chat"); // live chat events
 let io = null;
 
 function initSockets(httpServer, sessionMiddleware) {
-  const origins = (process.env.CLIENT_ORIGINS || "http://localhost:5173").split(",").map((o) => o.trim()) // FIX: trim, so "a, b" works;
+  const origins = (process.env.CLIENT_ORIGINS || "http://localhost:5173")
+    .split(",")
+    .map((o) => o.trim()); // FIX: trim, so "a, b" works;
   // FIX: credentials: true lets the browser send the login cookie with the socket handshake
   // (the old TODO planned a JWT, but this app uses cookie sessions, so the cookie is the proof of login).
   io = new Server(httpServer, { cors: { origin: origins, credentials: true } });
 
   // FIX (security): before, anyone could open a socket and receive every incident as it was reported.
   // Run the normal express-session middleware on the socket handshake so socket.request.session is filled in.
-  if (sessionMiddleware) io.engine.use(sessionMiddleware);
+  // Run the login-session check only on the FIRST request of a socket connection (the "handshake"),
+  // which has no "sid" yet. Later polling requests already belong to a logged-in connection, so
+  // skipping them avoids a MongoDB read on every poll and the header error that crashed the server.
+  if (sessionMiddleware) {
+    io.engine.use((req, res, next) => {
+      const isHandshake = req._query.sid === undefined; // no sid = brand-new connection
+      if (isHandshake) sessionMiddleware(req, res, next);
+      else next(); // existing connection: skip the session check
+    });
+  }
 
   // Refuse anyone who is not logged in (no userId in the session) before the connection is accepted.
   io.use((socket, next) => {
@@ -52,9 +63,6 @@ function initSockets(httpServer, sessionMiddleware) {
 
     socket.on("disconnect", () => console.log("socket disconnected", socket.id));
   });
-
-  // TODO(Wei Ming): optional – run the overdue-checkpoint check every minute here
-  // with setInterval(...) and emit('alert:new', alert, 'hq') for each new alert.
 
   return io;
 }
