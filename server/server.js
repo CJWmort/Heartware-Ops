@@ -2,12 +2,15 @@ const express = require("express");
 const dotenv = require("dotenv");
 const mongoose = require("mongoose");
 const session = require("express-session");
+const jwt = require("jsonwebtoken");
 const MongoStore = require("connect-mongo"); // NEW: keeps logins in MongoDB instead of the server's memory
 const http = require("http"); // added for sockets to work by weiming
 const { initSockets } = require("./sockets"); // added for sockets to work by weiming
 const ThreadState = require("./models/thread-state-model");
 
 const server = express();
+const dns = require("dns");
+dns.setServers(["8.8.8.8", "1.1.1.1"]);
 // make sure u add this line when you are using Express to do form (POST)
 server.use(express.urlencoded({ extended: true }));
 
@@ -52,6 +55,14 @@ server.use(sessionMiddleware);
 // can be set as Render's "Health Check Path". saveUninitialized is false, so a ping never creates a session row.
 server.get("/api/health", (req, res) => res.json({ ok: true }));
 
+server.get("/api/socket-token", (req, res) => {
+  if (!req.session?.userId) return res.status(401).json({ message: "Please log in." });
+  const token = jwt.sign({ userId: req.session.userId, role: req.session.role }, process.env.SECRET, {
+    expiresIn: 60,
+  });
+  res.json({ token });
+});
+
 // Routing
 server.use("/api/users", require("./routes/accounts-routes"));
 server.use("/api/incidents", require("./routes/incidents-routes"));
@@ -92,6 +103,4 @@ function startServer() {
 }
 
 // call connectDB first and when connection is ready we start the web server
-connectDB()
-  .then(() => ThreadState.backfillLegacy())
-  .then(startServer);
+connectDB().then(() => ThreadState.backfillLegacy()).then(startServer);
