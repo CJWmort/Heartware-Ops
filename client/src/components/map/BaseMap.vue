@@ -32,7 +32,6 @@ const props = defineProps({
   // ADDED: true (default) = can't zoom out past the point where Singapore fills the view (no grey margins).
   // false = may zoom out to the base minimum (11), so a tall map can still show the whole island.
   fillBounds: { type: Boolean, default: true },
-  boundsPad: { type: Number, default: 0 },
 })
 const emit = defineEmits(['ready'])
 
@@ -56,7 +55,7 @@ onMounted(() => {
   // OneMap only covers Singapore – stop users panning off the map
   // Mainland Singapore only – Tuas (west) to Changi (east), Southern coast to Woodlands (north)
   const MAINLAND_SG = L.latLngBounds([1.235, 103.59], [1.475, 104.05])
-  map.setMaxBounds(MAINLAND_SG.pad(props.boundsPad))
+  map.setMaxBounds(MAINLAND_SG)
   map.options.maxBoundsViscosity = 1.0 // 1.0 = hard edge, can't drag outside at all
 
   // Don't let the user zoom out so far that the bounds no longer fill the screen.
