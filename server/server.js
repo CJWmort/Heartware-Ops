@@ -2,6 +2,7 @@ const express = require("express");
 const dotenv = require("dotenv");
 const mongoose = require("mongoose");
 const session = require("express-session");
+const MongoStore = require("connect-mongo"); // NEW: keeps logins in MongoDB instead of the server's memory
 const http = require("http"); // added for sockets to work by weiming
 const { initSockets } = require("./sockets"); // added for sockets to work by weiming
 const ThreadState = require("./models/thread-state-model");
@@ -36,6 +37,9 @@ const sessionMiddleware = session({
   secret: process.env.SECRET,
   resave: false,
   saveUninitialized: false,
+  // NEW: sessions are saved in the database, so a restart or a sleeping server no longer logs everyone out
+  // (and the "MemoryStore is not designed for production" warning goes away). ttl = 8 hours, same as the cookie.
+  store: MongoStore.create({ mongoUrl: process.env.DB, ttl: 8 * 60 * 60 }),
   cookie: {
     httpOnly: true, // JS can't read it
     sameSite: "lax", // fine while the browser talks to ONE origin (see client/vercel.json rewrite)
