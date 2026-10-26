@@ -6,7 +6,13 @@
 // accept / decline / withdraw. Keeping that logic in the service keeps this file about the screen only.
 import { computed, onMounted, ref } from 'vue'
 import SchoolRouteMap from '@/components/map/SchoolRouteMap.vue'
-import { useMyAssignment, showStatus, statusClass, formatDate } from '@/services/assignment'
+import {
+  useMyAssignment,
+  showStatus,
+  statusClass,
+  formatDate,
+  formatDeadline,
+} from '@/services/assignment' // CHANGED: formatDeadline added
 
 const {
   volData,
@@ -43,7 +49,9 @@ const directionsShow = ref(null) // show whose directions are open (popup is ope
 // Home location from the volunteer's account (saved when they registered)
 const home = computed(() => {
   const v = volData.value
-  return typeof v?.lat === 'number' && typeof v?.lng === 'number' ? { lat: v.lat, lng: v.lng } : null
+  return typeof v?.lat === 'number' && typeof v?.lng === 'number'
+    ? { lat: v.lat, lng: v.lng }
+    : null
 })
 
 // Directions only make sense when both ends have a location
@@ -129,7 +137,9 @@ function datePart(date, part) {
               <i class="bi bi-clock" aria-hidden="true"></i>
               <span>
                 <small class="d-block text-muted-hw">Reporting time</small>
-                {{ show.assignment?.school?.reportingTime || show.withdrawal?.reportingTime || '—' }}
+                {{
+                  show.assignment?.school?.reportingTime || show.withdrawal?.reportingTime || '—'
+                }}
               </span>
             </div>
             <div class="detail">
@@ -152,7 +162,9 @@ function datePart(date, part) {
                 <!-- declined / withdrawn: the assignment was deleted, so show where they were going from the log -->
                 <template v-else-if="show.withdrawal">
                   {{ show.withdrawal.reportingLocation || '—' }}
-                  <small v-if="show.withdrawal.reason" class="d-block">Reason: {{ show.withdrawal.reason }}</small>
+                  <small v-if="show.withdrawal.reason" class="d-block"
+                    >Reason: {{ show.withdrawal.reason }}</small
+                  >
                 </template>
                 <template v-else>—</template>
               </span>
@@ -300,7 +312,8 @@ function datePart(date, part) {
             <div class="modal-header">
               <div>
                 <h5 class="modal-title" id="directions-title">
-                  <i class="bi bi-sign-turn-right me-1"></i> Directions to {{ directionsShow.assignment.school.name }}
+                  <i class="bi bi-sign-turn-right me-1"></i> Directions to
+                  {{ directionsShow.assignment.school.name }}
                 </h5>
                 <small class="text-muted-hw">
                   {{ directionsShow.name }} · {{ formatDate(directionsShow.date) }}
@@ -309,7 +322,12 @@ function datePart(date, part) {
                   </template>
                 </small>
               </div>
-              <button type="button" class="btn-close" aria-label="Close" @click="directionsShow = null"></button>
+              <button
+                type="button"
+                class="btn-close"
+                aria-label="Close"
+                @click="directionsShow = null"
+              ></button>
             </div>
             <div class="modal-body">
               <SchoolRouteMap :home="home" :school="directionsShow.assignment.school" />

@@ -1,7 +1,7 @@
 const Module = require('module'); const path = require('path'); const assert = require('assert'); const fs = require('fs');
 const S = path.resolve(__dirname, '..'); const calls = [];
 const fake = { SHOWS: ['NE Show 1','NE Show 2','NE Show 3','NE Show 4'], publish: async (show) => { calls.push(show); return { modifiedCount: show ? 3 : 12 }; } };
-const stubs = { 'mongoose': { Types: { ObjectId: { isValid: () => true } } }, '../models/assignments-model': fake, '../models/account-model': {}, '../models/schools-model': {}, 'dotenv': { config() {} }, '../utils/greedy': {} };
+const stubs = { 'mongoose': { Types: { ObjectId: { isValid: () => true } } }, '../models/shows-model': {}, /* FIX: shows-model was added later and crashed on the stubbed mongoose */ '../models/assignments-model': fake, '../models/account-model': {}, '../models/schools-model': {}, 'dotenv': { config() {} }, '../utils/greedy': {} };
 const orig = Module._load;
 Module._load = function (req, parent, ...r) { if (stubs[req]) return stubs[req]; if (req === '../utils/scarcityFirst') return () => {}; return orig(req, parent, ...r); };
 const ctl = require(path.join(S, 'controllers/assignments-controller.js'));
@@ -14,7 +14,7 @@ const res = () => { const o = { code: 200 }; o.status = (c) => { o.code = c; ret
   r = res(); await ctl.publishAssignments({ body: { show: 5 } }, r); assert.equal(r.code, 200); assert.equal(calls.at(-1), null); console.log('5 ok  non-text show ignored (treated as all)');
   // static checks on the model source: volunteers can only see / answer PUBLISHED rows
   const m = fs.readFileSync(path.join(S, 'models/assignments-model.js'), 'utf8');
-  const fn = (name) => { const a = m.indexOf('exports.' + name); return m.slice(a, m.indexOf('\n};', a)); };
+  const fn = (name) => { const a = m.indexOf('exports.' + name + ' ='); /* FIX: ' =' so 'publish' no longer matches 'publishedShows' */ return m.slice(a, m.indexOf('\n};', a)); };
   for (const n of ['findMine', 'acceptMine', 'declineMine']) assert.ok(/published: true/.test(fn(n)), n + ' must require published: true');
   assert.ok(!/published/.test(fn('withdrawMine')), 'withdraw is for accepted rows, which were already published');
   assert.ok(/\$ne: true/.test(fn('publish')) && /\$set: \{ published: true \}/.test(fn('publish')));

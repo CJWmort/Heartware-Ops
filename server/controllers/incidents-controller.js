@@ -1,3 +1,4 @@
+const mongoose = require("mongoose"); // NEW: to check ids
 const Incident = require("../models/incidents-model"); //access the database
 const TEMPLATES = require("../data/incident-templates.json"); //gets the templates declared inside data
 
@@ -80,6 +81,8 @@ exports.listIncidents = async (req, res) => {
 exports.updateIncidentStatus = async (req, res) => {
   try {
     const { status, note } = req.body;
+    // FIX: a malformed id made MongoDB throw and answered 500; now it is a clear 400
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: "Invalid incident id" });
     const incident = await Incident.retrieveById(req.params.id);
     if (!incident) return res.status(404).json({ message: "Incident not found" });
     if (NEXT_STATUS[incident.status] !== status)

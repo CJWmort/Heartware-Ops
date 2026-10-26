@@ -4,7 +4,7 @@
 // Server → client events we agreed on (see docs/API.md):
 //   incident:new, incident:updated, alert:new, tracking:update
 // Chat events (see sockets/chat.js and controllers/messages-controller.js):
-//   message:new, thread:updated, thread:closed, typing, read:update, presence:update, presence:list
+//   message:new, thread:updated, typing, read:update, presence:update, presence:list
 //
 // From any controller you can broadcast with:
 //   const { emit } = require('../sockets')
@@ -16,7 +16,7 @@ const { registerChat } = require("./chat"); // live chat events
 let io = null;
 
 function initSockets(httpServer, sessionMiddleware) {
-  const origins = (process.env.CLIENT_ORIGINS || "http://localhost:5173").split(",");
+  const origins = (process.env.CLIENT_ORIGINS || "http://localhost:5173").split(",").map((o) => o.trim()) // FIX: trim, so "a, b" works;
   // FIX: credentials: true lets the browser send the login cookie with the socket handshake
   // (the old TODO planned a JWT, but this app uses cookie sessions, so the cookie is the proof of login).
   io = new Server(httpServer, { cors: { origin: origins, credentials: true } });

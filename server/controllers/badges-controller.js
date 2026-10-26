@@ -203,7 +203,7 @@ exports.autoAward = async (req, res) => {
     const arrivals = await Assignments.findArrivals(event)
     const earlyBirds = arrivals.filter(assignment => {
       const reached = assignment.stageHistory.find(a => a.stage === 1) 
-      return reached && assignment.school && (reportingMinutes(assignment.school.reportingTime) - singaporeMinutes(reached.at) >= EARLY_MINUTES) 
+      return reached && assignment.school && assignment.school.reportingTime && (reportingMinutes /* FIX: skip schools with no reportingTime instead of crashing the whole run */(assignment.school.reportingTime) - singaporeMinutes(reached.at) >= EARLY_MINUTES) 
     })
 
     const superSubs = await Assignments.findSuperSubs(event)

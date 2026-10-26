@@ -1,15 +1,14 @@
-const EARTH_RADIUS_KM = 6371;
-const toRad = (deg) => (deg * Math.PI) / 180;
-// calculates distance between 2 coordinates 
-function haversine(a, b) {
-  const lat1 = toRad(a[0]);
-  const lon1 = toRad(a[1]);
-  const lat2 = toRad(b[0]);
-  const lon2 = toRad(b[1]);
-  const h =
-    Math.sin((lat2 - lat1) / 2) ** 2 +
-    Math.cos(lat1) * Math.cos(lat2) * Math.sin((lon2 - lon1) / 2) ** 2;
-  return 2 * EARTH_RADIUS_KM * Math.asin(Math.sqrt(h));
-}
+// Straight-line (great-circle) distance in km between two { lat, lng } points.
+// FIX: this file used CommonJS (module.exports) inside an ES-module app and exported `haversine` with array inputs,
+// but the unit tests import `haversineKm` with { lat, lng } objects. Now it is an ES module with that name.
+const EARTH_RADIUS_KM = 6371
+const toRad = (deg) => (deg * Math.PI) / 180 // degrees -> radians
 
-module.exports = {haversine};
+export function haversineKm(a, b) {
+  const dLat = toRad(b.lat - a.lat) // difference in latitude
+  const dLng = toRad(b.lng - a.lng) // difference in longitude
+  const h =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2
+  return 2 * EARTH_RADIUS_KM * Math.asin(Math.sqrt(h)) // distance in km
+}

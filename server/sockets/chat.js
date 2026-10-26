@@ -6,7 +6,7 @@
 //
 // Client -> server:  typing { volunteerId? }     read { volunteerId?, upTo? }
 // Server -> client:  typing, read:update, presence:update, presence:list
-// (message:new, thread:updated and thread:closed are sent from the messages controller)
+// (message:new and thread:updated are sent from the messages controller)
 
 const mongoose = require("mongoose");
 const presence = require("./presence");

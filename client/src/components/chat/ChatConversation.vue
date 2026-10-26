@@ -9,7 +9,6 @@ const auth = useAuthStore()
 const text = ref('')
 const list = ref(null) // the scrolling message area
 const input = ref(null) // the text box
-const confirmClose = ref(false) // admin: show the "delete history?" question
 
 // Who is on the other end
 const title = computed(() => (chat.isAdmin ? chat.activeThread?.name || 'Volunteer' : 'HQ'))
@@ -62,11 +61,6 @@ async function submit() {
   }
 }
 
-async function doClose() {
-  confirmClose.value = false
-  await chat.closeChat()
-}
-
 function toBottom() {
   nextTick(() => {
     if (list.value) list.value.scrollTop = list.value.scrollHeight
@@ -112,33 +106,12 @@ onMounted(() => {
       </h2>
 
       <button
-        v-if="chat.isAdmin"
-        type="button"
-        class="btn btn-sm btn-outline-danger"
-        :disabled="!chat.messages.length"
-        @click="confirmClose = true"
-      >
-        <i class="bi bi-trash3 me-1" aria-hidden="true"></i>Close chat
-      </button>
-      <button
         type="button"
         class="btn-close"
         aria-label="Close chat panel"
         @click="chat.close()"
       ></button>
     </header>
-
-    <div
-      v-if="confirmClose"
-      class="alert alert-warning rounded-0 mb-0 py-2 small"
-      role="alertdialog"
-    >
-      <p class="mb-2">Close this chat? Every message in it is permanently deleted for everyone.</p>
-      <button type="button" class="btn btn-sm btn-danger me-2" @click="doClose">Close chat</button>
-      <button type="button" class="btn btn-sm btn-outline-secondary" @click="confirmClose = false">
-        Keep chat
-      </button>
-    </div>
 
     <div
       ref="list"

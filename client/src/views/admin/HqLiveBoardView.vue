@@ -817,6 +817,7 @@ function onVisibilityChange() {
   if (document.visibilityState === 'visible') loadBoard()
 }
 
+let disposed = false // FIX: true once the admin left the page, so timers are never started after the awaits below
 onMounted(async () => {
   document.addEventListener('pointerdown', onDocPointerDown, true)
   try {
@@ -832,8 +833,10 @@ onMounted(async () => {
     return
   }
 
+  if (disposed) return // left the page while the show list was loading
   needFit = true
   await loadBoard()
+  if (disposed) return // left the page while the board was loading: do not start polling
 
   // Poll for new positions while the tab is visible
   pollTimer = setInterval(() => {
@@ -844,6 +847,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  disposed = true
   document.removeEventListener('pointerdown', onDocPointerDown, true)
   clearInterval(pollTimer)
   clearInterval(tickTimer)

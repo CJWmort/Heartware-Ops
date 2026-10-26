@@ -4,9 +4,12 @@ let store = []; let nextId = 1; let invalid = []; let vols = {}; let schools = {
 const ok = (r) => r.code === 200;
 const fake = {
   SHOWS: ['NE Show 1','NE Show 2','NE Show 3','NE Show 4'],
+  publishedShows: async () => [], // FIX: the controller now asks which shows are published (none in this test)
   findKept: async () => store.filter(a => ['Accepted','Declined','Withdrawn'].includes(a.status)).map(a => ({ volunteer: a.volunteer, school: a.school, show: a.show, status: a.status })),
-  deleteReplaceable: async () => { store = store.filter(a => !['Pending','Reserve'].includes(a.status)); },
-  deleteAll: async () => { store = []; },
+  // CHANGED to mirror the model: delete only inside the given shows
+  deleteReplaceable: async (shows) => { store = store.filter(a => !(['Pending','Reserve'].includes(a.status) && shows.includes(a.show))); },
+  deleteAll: async (show) => { store = show ? store.filter(a => a.show !== show) : []; },
+  findOverduePending: async () => [], // NEW: the controller now runs the expiry sweep first (nothing is overdue here)
   validateMany: () => invalid,
   createMany: async (rows) => { // mimic the unique (volunteer, show) index
     for (const r of rows) { if (store.some(a => String(a.volunteer) === String(r.volunteer) && a.show === r.show)) throw new Error('E11000 duplicate key ' + r.volunteer + ' ' + r.show); }
@@ -14,7 +17,7 @@ const fake = {
   },
   retrieveAll: async () => store,
 };
-const stubs = { 'mongoose': { Types: { ObjectId: { isValid: () => true } } }, '../models/assignments-model': fake,
+const stubs = { 'mongoose': { Types: { ObjectId: { isValid: () => true } } }, '../models/shows-model': {}, /* FIX: shows-model was added later and crashed on the stubbed mongoose */ '../models/assignments-model': fake,
   '../models/account-model': { findVolunteersByShow: async (s) => vols[s] || [] }, '../models/schools-model': { findByShow: async (s) => schools[s] || [] },
   'dotenv': { config() {} }, '../utils/greedy': { greedyByPair() {} } };
 const orig = Module._load;
@@ -70,5 +73,15 @@ const of = (v, show = 'NE Show 1') => rows(show).find(a => a.volunteer === v);
   console.log('H ok  invalid record -> 500 and nothing was deleted'); invalid = [];
   // I. reset:"true" string is not a reset
   const acc = store.find(a => a.status === 'Pending'); acc.status = 'Accepted'; await run({ reset: 'true' }); assert.ok(store.some(a => a.status === 'Accepted')); console.log('I ok  only boolean true triggers a reset');
+  // J. one show only: running / resetting NE Show 2 must not touch NE Show 1
+  store = []; vols = { 'NE Show 1': [V(1,1.31), V(2,1.32)], 'NE Show 2': [V(1,1.31), V(2,1.32)] };
+  schools = { 'NE Show 1': [SC(1,1.31,1)], 'NE Show 2': [{ ...SC(3,1.33,1), show: 'NE Show 2' }] };
+  assert.ok(ok(await run())); const show1Before = JSON.stringify(rows('NE Show 1'));
+  vols['NE Show 2'].push(V(9,1.34)); assert.ok(ok(await run({ show: 'NE Show 2' })));
+  assert.equal(JSON.stringify(rows('NE Show 1')), show1Before); assert.equal(rows('NE Show 2').length, 3);
+  console.log('J1 ok  allocating NE Show 2 only leaves NE Show 1 rows identical');
+  assert.ok(ok(await run({ reset: true, show: 'NE Show 2' }))); assert.equal(JSON.stringify(rows('NE Show 1')), show1Before);
+  console.log('J2 ok  resetting NE Show 2 only does not erase NE Show 1');
+  assert.equal((await run({ show: 'NE Show 9' })).code, 400); console.log('J3 ok  unknown show -> 400');
   console.log('ALL RE-RUN CHECKS PASSED');
 })().catch(e => { console.error('FAIL', e); process.exit(1); });

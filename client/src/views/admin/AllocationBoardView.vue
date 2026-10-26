@@ -362,7 +362,8 @@ function statusSummary(school) {
 async function loadData(quiet = false) {
   try {
     const response = await axios.get(API_URL + 'assignments')
-    assignments.value = response.data
+    // FIX: only replace the data when it really changed. A new array every 5 s redrew every map pin and closed open tooltips.
+    if (JSON.stringify(response.data) !== JSON.stringify(assignments.value)) assignments.value = response.data
   } catch (error) {
     if (!quiet)
       showPopup('error', 'Could not load', error.response?.data?.message || 'Could not load assignments.')
@@ -379,14 +380,14 @@ async function runAllocation(reset = false) {
   const ok = await askConfirm(
     reset
       ? {
-          title: 'Reset all assignments?',
-          text: 'This erases ALL assignments, including volunteers who already accepted, and starts again.',
+          title: `Reset ${selectedShow.value}?`,
+          text: `This erases ALL assignments for ${selectedShow.value}, including volunteers who already accepted. Other shows are not affected.`,
           confirmText: 'Reset',
           danger: true,
         }
       : {
-          title: 'Run allocation?',
-          text: 'Volunteers who already accepted keep their school; everyone else is matched again.',
+          title: `Allocate ${selectedShow.value}?`,
+          text: 'Volunteers who already accepted keep their school; everyone else in this show is matched again.',
           confirmText: 'Allocate',
           icon: 'bi-diagram-3-fill',
         },
@@ -395,19 +396,26 @@ async function runAllocation(reset = false) {
   runningAlloc.value = true
   dismissPopup()
   try {
-    const response = await axios.post(API_URL + 'assignments/run', { reset })
+    const response = await axios.post(API_URL + 'assignments/run', { reset, show: selectedShow.value }) // CHANGED: send the selected show so only that one is touched
     // The run answers { assignments, skippedShows }: published shows are locked and not re-run
     assignments.value = response.data.assignments
     const skipped = response.data.skippedShows || []
+    // NEW: how many late volunteers the server added to each published show, e.g. { 'NE Show 1': { added: 2, placed: 1 } }
+    const toppedUp = response.data.toppedUp || {}
+    // One short sentence per show, e.g. "NE Show 1: 2 late volunteers added (1 placed, 1 on reserve)"
+    const lateNotes = Object.entries(toppedUp)
+      .filter(([, t]) => t.added > 0) // skip shows where nobody was late
+      .map(([show, t]) => `${show}: ${t.added} late volunteer${t.added === 1 ? '' : 's'} added (${t.placed} placed, ${t.added - t.placed} on reserve)`)
+    const lateText = lateNotes.length > 0 ? ' ' + lateNotes.join('. ') + '.' : '' // empty when nobody was late
     if (skipped.length > 0) {
       showPopup(
         'info',
         'Allocation done',
-        `${skipped.join(', ')} ${skipped.length === 1 ? 'is' : 'are'} published, so ${skipped.length === 1 ? 'it was' : 'they were'} not re-run (open places there are filled automatically). Use Reset to start over.`,
+        `${skipped.join(', ')} ${skipped.length === 1 ? 'is' : 'are'} published, so ${skipped.length === 1 ? 'it was' : 'they were'} not re-run (open places there are filled automatically).${lateText} Use Reset to start over.`,
         9000,
       )
     } else {
-      showPopup('info', reset ? 'Reset done' : 'Allocation done', reset ? 'All assignments were erased.' : 'The allocation is a draft until you publish it.')
+      showPopup('info', reset ? 'Reset done' : 'Allocation done', reset ? `All assignments for ${selectedShow.value} were erased.` : 'The allocation is a draft until you publish it.')
     }
   } catch (error) {
     showPopup('error', 'Allocation failed', error.response?.data?.message || 'Could not run the allocation.')

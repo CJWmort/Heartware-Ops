@@ -3,7 +3,8 @@ const Assignments = require("../models/assignments-model");
 const Account = require("../models/account-model");
 const School = require("../models/schools-model");
 const Shows = require("../models/shows-model");
-const { replaceFromReserve } = require("../utils/reserve-replacement");
+const { replaceFromReserve, topUpPublishedShow } = require("../utils/reserve-replacement");
+const { expireOverduePending } = require("../utils/expire-pending"); // NEW // CHANGED: topUpPublishedShow added
 const dotenv = require("dotenv");
 
 const { scarcityFirst } = require("../utils/scarcityFirst");
@@ -14,6 +15,7 @@ const { greedyByPair } = require("../utils/greedy");
 // GET /api/assignments/
 exports.getAssignments = async (req, res) => {
   try {
+    await expireOverduePending().catch((e) => console.error("Expiry sweep failed:", e.message)); // NEW: lapse unanswered offers first (a failure here never blocks the request)
     const assignments = await Assignments.retrieveAll();
     res.json(assignments);
   } catch (error) {
@@ -24,6 +26,7 @@ exports.getAssignments = async (req, res) => {
 // GET /api/assignments/me -- the logged in volunteer's assignments
 exports.getMyAssignments = async (req, res) => {
   try {
+    await expireOverduePending().catch((e) => console.error("Expiry sweep failed:", e.message)); // NEW: lapse unanswered offers first (a failure here never blocks the request)
     const assignments = await Assignments.findMine(req.session.userId);
     res.json(assignments.map((a) => Assignments.withToday(a))); // stage / stageHistory only reflect today
   } catch (error) {
@@ -98,20 +101,28 @@ exports.getShowAssignments = async (req, res) => {
 // The result is saved as a DRAFT (published = false); volunteers see it only after /publish.
 exports.runAssignments = async (req, res) => {
   try {
+    await expireOverduePending().catch((e) => console.error("Expiry sweep failed:", e.message)); // NEW: lapse unanswered offers first (a failure here never blocks the request)
     // Only a real boolean true resets; the string "true" does not, so a typo can't erase accepted volunteers
     const reset = req.body?.reset === true;
+    // NEW: optional { show } limits the run (and the reset) to ONE show. Left out = every show, as before.
+    const only = typeof req.body?.show === "string" ? req.body.show.trim() : "";
+    if (only && !Assignments.SHOWS.includes(only)) {
+      return res.status(400).json({ message: "Unknown show." });
+    }
+    const showsToRun = only ? [only] : Assignments.SHOWS; // the shows this request is allowed to touch
     // Rows that must survive this run (Accepted / Declined / Withdrawn); nothing is kept on a reset
     const kept = reset ? [] : await Assignments.findKept();
     // A published show is locked: re-running it would undo the automatic replacements and rebuild the reserve
     // list after volunteers have already seen their school. Reset ignores the lock.
-    const skippedShows = reset ? [] : await Assignments.publishedShows();
+    // (only counts published shows that are part of this run)
+    const skippedShows = (reset ? [] : await Assignments.publishedShows()).filter((s) => showsToRun.includes(s));
 
     // Work out every show first, so a bad record stops the run BEFORE anything is deleted
     // (before: delete first, so one error halfway left the table empty)
     const results = [];
     // FIX: was `for (show of [...])` with no `const`, which created an accidental global variable.
     // Assignments.SHOWS comes from the model's enum, so the list of shows lives in one place instead of four.
-    for (const show of Assignments.SHOWS) {
+    for (const show of showsToRun) { // CHANGED: was every show in Assignments.SHOWS
       if (skippedShows.includes(show)) continue;
       const keptInShow = kept.filter((a) => a.show === show);
 
@@ -153,12 +164,23 @@ exports.runAssignments = async (req, res) => {
     }
 
     // Remove only what is being re-calculated (or everything, on a reset), then save the new matches
-    if (reset) await Assignments.deleteAll();
-    else await Assignments.deleteReplaceable(skippedShows);
+    // CHANGED: delete only inside the shows being re-run (published shows are left alone)
+    const rerunShows = showsToRun.filter((s) => !skippedShows.includes(s));
+    if (reset) await Assignments.deleteAll(only || null); // reset ONE show (or all if no show was sent)
+    else await Assignments.deleteReplaceable(rerunShows);
     await Assignments.createMany(results);
+
+    // NEW: published shows are still not rebuilt, but volunteers who signed up late are now added to them
+    // (Reserve rows, then placed into any open places). Done AFTER the save above, so a validation error
+    // earlier can never leave a half-finished top-up. On a reset skippedShows is empty, so nothing happens.
+    const toppedUp = {};
+    for (const show of skippedShows) toppedUp[show] = await topUpPublishedShow(show);
+
+    // read the list AFTER the top-up so the board sees the new rows
     const assignments = await Assignments.retrieveAll();
-    // CHANGED: was the bare list; skippedShows tells the board which published shows were left alone
-    res.json({ assignments, skippedShows });
+    // CHANGED: was the bare list; skippedShows tells the board which published shows were left alone,
+    // toppedUp tells it how many late volunteers were added to each of them, e.g. { "NE Show 1": { added: 2, placed: 1 } }
+    res.json({ assignments, skippedShows, toppedUp });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
@@ -186,6 +208,7 @@ exports.publishAssignments = async (req, res) => {
 // PATCH /api/assignments/:id/accept -- logged in volunteer accepts their assignment
 exports.acceptMyAssignment = async (req, res) => {
   try {
+    await expireOverduePending().catch((e) => console.error("Expiry sweep failed:", e.message)); // NEW: lapse unanswered offers first (a failure here never blocks the request)
     const { id } = req.params;
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ message: "Invalid assignment id" });
@@ -230,18 +253,18 @@ async function leaveAssignment(req, res, status) {
     return res.status(404).json({ message });
   }
 
-  const show = await Shows.findByName(assignment.show);
-  const entry = {
-    showId: show?._id,
-    show: assignment.show,
-    reportingDate: show?.date,
-    reportingTime: assignment.school?.reportingTime,
-    reportingLocation: assignment.school?.name,
-    status,
-    reason,
-  };
-
   try {
+    // FIX: the show lookup is now INSIDE the try. Before, if it threw, the row was already deleted and never restored
+    const show = await Shows.findByName(assignment.show);
+    const entry = {
+      showId: show?._id,
+      show: assignment.show,
+      reportingDate: show?.date,
+      reportingTime: assignment.school?.reportingTime,
+      reportingLocation: assignment.school?.name,
+      status,
+      reason,
+    };
     const user = await Account.logWithdrawnShow(userId, entry);
     // Their place is open now: give it to the nearest volunteer on the reserve list straight away.
     // The decline / withdrawal has already succeeded, so a problem here is only logged, never sent to the volunteer.

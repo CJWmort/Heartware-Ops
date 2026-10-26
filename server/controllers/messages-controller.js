@@ -17,6 +17,8 @@ exports.listMessages = async (req, res) => {
   try {
     const thread = threadFor(req, req.query);
     if (!thread) return res.status(400).json({ message: "volunteerId is required" });
+    // FIX: an admin sending a malformed volunteerId caused a 500; answer 400 instead
+    if (!mongoose.isValidObjectId(thread)) return res.status(400).json({ message: "Invalid volunteer" });
     res.json(await Message.retrieveThread(thread));
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -120,27 +122,6 @@ exports.getUnread = async (req, res) => {
       return res.json({ unread: perThread.reduce((sum, t) => sum + t.unread, 0) });
     }
     res.json({ unread: await Message.unreadForVolunteer(req.session.userId) });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
-};
-
-// DELETE /api/messages/threads/:volunteerId  (admin only)
-// Closes the chat: permanently deletes ALL its messages. If the volunteer writes again later, a fresh chat starts.
-exports.closeThread = async (req, res) => {
-  try {
-    const { volunteerId } = req.params;
-    if (!mongoose.isValidObjectId(volunteerId))
-      return res.status(400).json({ message: "Invalid volunteer" });
-
-    const deleted = await Message.removeThread(volunteerId);
-    await ThreadState.remove(volunteerId);
-    if (!deleted) return res.status(404).json({ message: "Chat not found" });
-
-    // The volunteer's open chat clears, and the chat disappears from every admin's list
-    emit("thread:closed", { volunteerId }, `user:${volunteerId}`);
-    emit("thread:closed", { volunteerId }, "hq");
-    res.json({ ok: true });
   } catch (error) {
     res.status(500).json({ message: error.message });
   }
