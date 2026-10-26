@@ -17,7 +17,9 @@ export function connectSocket() {
   // so use plain HTTP long-polling there. Locally (Vite proxy) the default is kept, so WebSocket still works.
   const transports =
     import.meta.env.PROD && !import.meta.env.VITE_SOCKET_URL ? ['polling'] : undefined
-  socket = io(url, { withCredentials: true, ...(transports && { transports }) })
+  // NEW: addTrailingSlash:false makes the client call "/socket.io?..." instead of "/socket.io/?...".
+  // Vercel's "/socket.io/:path*" rewrite does not match the trailing-slash form, so it served index.html and live updates failed.
+  socket = io(url, { withCredentials: true, addTrailingSlash: false, ...(transports && { transports }) })
   return socket
 }
 
