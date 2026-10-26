@@ -920,12 +920,14 @@ onUnmounted(() => {
       <div ref="barEl" class="board-bar">
         <div class="bar-row">
           <div ref="showEl" class="show-select" @keydown.esc="showMenuOpen = false">
+            <!-- E2E: data-testid="hq-show-select" lets Playwright find this element (see e2e/f4-tracking-live.spec.js) -->
             <button
               type="button"
               class="show-btn"
               aria-haspopup="listbox"
               :aria-expanded="showMenuOpen"
               aria-label="Show"
+              data-testid="hq-show-select"
               @click="toggleShowMenu"
             >
               <i class="bi bi-calendar-event" aria-hidden="true"></i>
@@ -959,6 +961,7 @@ onUnmounted(() => {
 
           <div class="search-box">
             <i class="bi bi-search" aria-hidden="true"></i>
+            <!-- E2E: data-testid="hq-search" lets Playwright find this element (see e2e/f4-tracking-live.spec.js) -->
             <input
               ref="inputEl"
               v-model="query"
@@ -966,6 +969,7 @@ onUnmounted(() => {
               placeholder="Find by name"
               autocomplete="off"
               aria-label="Find by name"
+              data-testid="hq-search"
               @focus="onSearchFocus"
               @blur="searchOpen = false"
               @keydown.enter.prevent="pickFirst"
@@ -983,11 +987,13 @@ onUnmounted(() => {
             </button>
           </div>
 
+          <!-- E2E: data-testid="hq-bell" lets Playwright find this element (see e2e/f4-tracking-live.spec.js) -->
           <button
             type="button"
             class="bell-btn"
             :class="{ active: bellOpen }"
             aria-label="Zone activity"
+            data-testid="hq-bell"
             :aria-expanded="bellOpen"
             @click="toggleBell"
           >
@@ -1000,18 +1006,21 @@ onUnmounted(() => {
         <div v-if="rows.length" class="zone-row" aria-label="Volunteers by zone">
           <span v-for="z in ZONES" :key="z.key" class="zone-chip" :title="z.hint">
             <span class="zone-dot" :class="z.key"></span>{{ z.label }}
-            <strong>{{ zoneCounts[z.key] }}</strong>
+            <!-- E2E: hq-zone-count-<inner|outer|outside|none> lets Playwright read how many volunteers are in each zone -->
+            <strong :data-testid="'hq-zone-count-' + z.key">{{ zoneCounts[z.key] }}</strong>
           </span>
         </div>
 
         <div v-if="searchOpen" class="results" role="listbox">
           <div class="results-head">{{ liveCount }} live · {{ rows.length }} volunteers</div>
+          <!-- E2E: data-testid="hq-result" lets Playwright find this element (see e2e/f4-tracking-live.spec.js) -->
           <button
             v-for="v in results"
             :key="v.volunteerId"
             type="button"
             class="result"
             role="option"
+            data-testid="hq-result"
             @mousedown.prevent="selectVolunteer(v.volunteerId)"
           >
             <span class="status-dot" :class="v.status"></span>
@@ -1049,11 +1058,13 @@ onUnmounted(() => {
           </div>
 
           <div class="activity-list">
+            <!-- E2E: data-testid="hq-event" lets Playwright find this element (see e2e/f4-tracking-live.spec.js) -->
             <button
               v-for="e in eventRows"
               :key="e.id"
               type="button"
               class="event"
+              data-testid="hq-event"
               @click="openEvent(e)"
             >
               <span class="event-icon" :class="e.enter ? 'enter' : 'leave'" aria-hidden="true">
@@ -1083,7 +1094,8 @@ onUnmounted(() => {
             </div>
             <div class="vol-card-title">
               <div class="vol-name">{{ selected.name }}</div>
-              <div class="vol-status">
+              <!-- E2E: vol-card-status lets Playwright read Live / Stale / Not reporting -->
+              <div class="vol-status" data-testid="vol-card-status">
                 <span class="status-dot" :class="selected.status"></span>
                 {{ STATUS[selected.status].label
                 }}<template v-if="selected.ago"> · {{ selected.ago }}</template>

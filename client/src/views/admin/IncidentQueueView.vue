@@ -446,10 +446,12 @@ onUnmounted(() => {
 
             <!-- Search box. v-model keeps it in sync with searchbar in the script (see visibleIncidents). -->
             <div class="d-flex flex-wrap align-items-center gap-2 mb-0">
+              <!-- E2E: data-testid="inc-search" lets the Feature 5 test type a note into this box -->
               <input
                 type="search"
                 class="form-control search-box"
                 placeholder="Search school, name, type or note"
+                data-testid="inc-search"
                 v-model="searchbar"
               />
             </div>

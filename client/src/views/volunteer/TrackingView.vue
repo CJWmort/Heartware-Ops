@@ -920,11 +920,13 @@ onUnmounted(() => {
       />
 
       <!-- Sharing status pill -->
+      <!-- E2E: data-testid="share-status" (on the pill below) lets Playwright read "Sharing location" (see e2e/f4-tracking-live.spec.js) -->
       <Transition name="fade" mode="out-in">
         <div
           v-if="shareStatus"
           :key="shareStatus"
           class="share-pill"
+          data-testid="share-status"
           :class="shareStatus"
           role="status"
           :title="shareHint"
@@ -952,21 +954,25 @@ onUnmounted(() => {
       <MapNotice :notice="notice" @close="dismissNotice" />
 
       <!-- F4: the report card floats over the map; it reuses this page's GPS through the location prop -->
+      <!-- FIX: pass the volunteer's current school (:school) so the incident is saved with it -->
       <IncidentReportForm
         v-if="showIncidentReport"
         :location="location"
+        :school="currentAssignment?.school?.name"
         @close="showIncidentReport = false"
       />
 
       <!-- Bottom sheet: Drive/Walk always visible, route details when expanded. Hidden while the report card is open (F4). -->
       <div v-show="!showIncidentReport" ref="sheetEl" class="sheet" :style="sheetStyle">
         <div ref="peekEl" class="sheet-peek">
+          <!-- E2E: data-testid="sheet-toggle" lets Playwright find this element (see e2e/f4-tracking-live.spec.js) -->
           <div
             class="sheet-handle"
             role="button"
             tabindex="0"
             :aria-expanded="expanded"
             aria-label="Toggle route details"
+            data-testid="sheet-toggle"
             @pointerdown="onSheetPointerDown"
             @pointermove="onSheetPointerMove"
             @pointerup="onSheetPointerUp"
@@ -1029,7 +1035,8 @@ onUnmounted(() => {
                   <div class="info-label">
                     <i class="bi bi-mortarboard-fill" aria-hidden="true"></i>Allocated school
                   </div>
-                  <div class="info-value">{{ currentAssignment?.school?.name || '—' }}</div>
+                  <!-- E2E: data-testid="track-school" lets Playwright find this element (see e2e/f4-tracking-live.spec.js) -->
+                  <div class="info-value" data-testid="track-school">{{ currentAssignment?.school?.name || '—' }}</div>
                 </div>
                 <div class="info-card">
                   <div class="info-label">
@@ -1048,7 +1055,8 @@ onUnmounted(() => {
                     ><i class="bi" :class="journeyLeg.icon" aria-hidden="true"></i
                     >{{ journeyLeg.text }}</span
                   >
-                  <span class="journey-count">{{ currentStage }}/{{ JOURNEY_STAGES.length }}</span>
+                  <!-- E2E: data-testid="journey-count" lets Playwright find this element (see e2e/f4-tracking-live.spec.js) -->
+                  <span class="journey-count" data-testid="journey-count">{{ currentStage }}/{{ JOURNEY_STAGES.length }}</span>
                 </div>
 
                 <ol class="journey-dots" aria-label="Journey progress">
@@ -1086,7 +1094,8 @@ onUnmounted(() => {
                 >
                   <i class="bi bi-check2-circle" aria-hidden="true"></i> {{ nextStage.label }}
                 </button>
-                <div v-else class="journey-complete">
+                <div v-else class="journey-complete" data-testid="journey-complete">
+                  <!-- E2E: data-testid="journey-complete" lets Playwright check the "Day complete" message (see e2e/f4-tracking-live.spec.js) -->
                   <i class="bi bi-check-circle-fill" aria-hidden="true"></i> Day complete
                 </div>
               </div>

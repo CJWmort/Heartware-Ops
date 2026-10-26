@@ -755,7 +755,8 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
                         data-testid="reg-email"
                         autocomplete="email"
                       />
-                      <div class="invalid-feedback">
+                      <!-- E2E: data-testid="reg-email-error" lets Playwright read this error message -->
+                      <div class="invalid-feedback" data-testid="reg-email-error">
                         <i class="bi bi-x-circle-fill"></i> {{ errors.email }}
                       </div>
                     </div>
@@ -793,7 +794,8 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
                         data-testid="reg-phone"
                         autocomplete="tel-national"
                       />
-                      <div class="invalid-feedback">
+                      <!-- E2E: data-testid="reg-phone-error" lets Playwright read this error message -->
+                      <div class="invalid-feedback" data-testid="reg-phone-error">
                         <i class="bi bi-x-circle-fill"></i> {{ errors.phone }}
                       </div>
                     </div>
@@ -931,7 +933,8 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
                       >
                         <i class="bi" :class="showPassword ? 'bi-eye' : 'bi-eye-slash'"></i>
                       </button>
-                      <div class="invalid-feedback">
+                      <!-- E2E: data-testid="reg-password-error" lets Playwright read this error message -->
+                      <div class="invalid-feedback" data-testid="reg-password-error">
                         <i class="bi bi-x-circle-fill"></i> {{ errors.password }}
                       </div>
                     </div>
@@ -980,6 +983,7 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
                           'is-valid': isOk('confirmPassword'),
                         }"
                         @blur="touch('confirmPassword')"
+                        data-testid="reg-confirm-password"
                         autocomplete="new-password"
                       />
                       <button
@@ -990,7 +994,8 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
                       >
                         <i class="bi" :class="showConfirmPassword ? 'bi-eye' : 'bi-eye-slash'"></i>
                       </button>
-                      <div class="invalid-feedback">
+                      <!-- E2E: data-testid="reg-confirm-password-error" lets Playwright read this error message -->
+                      <div class="invalid-feedback" data-testid="reg-confirm-password-error">
                         <i class="bi bi-x-circle-fill"></i> {{ errors.confirmPassword }}
                       </div>
                       <div class="valid-feedback">

@@ -6,7 +6,11 @@ import { listTemplates, reportIncident, getAddressAt } from '@/services/incident
 import ConfirmDialog from '../common/ConfirmDialog.vue'
 
 // PROP = data the parent (Tracking) hands DOWN to this component
-const props = defineProps({ location: { type: Object, default: null } }) // { lat, lng, accuracy } or null
+const props = defineProps({
+  location: { type: Object, default: null }, // { lat, lng, accuracy } or null
+  // FIX: school name sent in from TrackingView, so the admin card does not say "Unknown school"
+  school: { type: String, default: '' },
+})
 const emit = defineEmits(['close']) // EMIT = message sent UP to Tracking: 'close' tells it to hide this card
 
 const templates = ref([])
@@ -15,7 +19,6 @@ const note = ref('')
 const submitting = ref(false)
 const submitted = ref(false)
 const errorMessage = ref('')
-const locationStatus = computed(() => (props.location ? 'ready' : 'unavailable'))
 const address = ref('') // address line to be pre-filled from GPS, volunteer can edit
 const confirmDialog = ref(null) // the card's content, or null while closed`
 let addressRequested = false // Tracking's location changes every few seconds; ask for the address only once
@@ -91,6 +94,7 @@ async function submitReport() {
       severity: template?.defaultSeverity || 'medium', //either takes defaultSeverity or baseline medium
       note: note.value,
       address: address.value.trim(),
+      school: props.school, // FIX: send the school so the admin card shows it instead of "Unknown school"
     }
 
     if (props.location) {

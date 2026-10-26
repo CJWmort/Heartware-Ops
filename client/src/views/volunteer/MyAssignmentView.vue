@@ -264,10 +264,12 @@ function datePart(date, part) {
               </div>
             </div>
             <div class="modal-footer">
+              <!-- E2E: data-testid="pullout-cancel" lets the Assignment test press "Keep my slot" without relying on its wording -->
               <button
                 type="button"
                 class="btn btn-outline-secondary"
                 :disabled="withdrawing"
+                data-testid="pullout-cancel"
                 @click="closeWithdrawModal"
               >
                 Keep my slot

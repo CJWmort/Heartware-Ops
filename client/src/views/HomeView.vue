@@ -11,8 +11,18 @@ const auth = useAuthStore()
 // when its left-hand side operand is null or undefined
 const links = computed(() => NAV_LINKS[auth.role] ?? [])
 
-// NEW: true when the demo card on the landing page is showing its back (the "answer")
-const flipped = ref(false)
+// NEW: list of video cards. To add one, copy a line and change the title/file.
+// Files live in client/public/videos/, so the URL starts with /videos/
+const videos = [
+  { id: 'v1', title: 'Heartware Video 1', src: '/videos/Heartware3.mp4' },
+  { id: 'v2', title: 'Heartware Video 2', src: '/videos/Heartware2.mp4' },
+]
+
+// NEW: stores WHICH card is flipped (null = none), so flipping a card flips the previous one back
+const flippedId = ref(null)
+const toggle = (id) => {
+  flippedId.value = flippedId.value === id ? null : id // click again = flip back
+}
 
 // (The old `features` array moved into FeatureSpotlights.vue, which is the only place that uses it now)
 </script>
@@ -58,29 +68,50 @@ const flipped = ref(false)
             <RouterLink to="/login" class="cta-ghost" data-testid="cta-login">Log in →</RouterLink>
           </div>
 
-          <!-- Flip card: hover (on desktop) or tap (on phones) to reveal the answer -->
-          <button
-            type="button"
-            class="demo-scene mt-4"
-            :class="{ flipped }"
-            :aria-pressed="flipped"
-            aria-label="Demo card: tap to see what happens when a group misses a checkpoint"
-            @click="flipped = !flipped"
-          >
-            <span class="demo-inner">
-              <span class="demo-face demo-front">
-                <small class="face-label">INCIDENT ALERT</small>
-                <strong>Group 3B just missed a checkpoint. What happens?</strong>
-                <small class="flip-hint">hover or tap to reveal…</small>
-              </span>
-              <span class="demo-face demo-back">
-                <small class="face-label">WHAT HAPPENS</small>
-                <strong
-                  >HQ is alerted automatically and can message the volunteer straight away.</strong
+          <!-- NEW: row of flip cards, one per entry in `videos`. Click the front to flip and watch -->
+          <div class="demo-row mt-4">
+            <div
+              v-for="v in videos"
+              :key="v.id"
+              class="demo-scene"
+              :class="{ flipped: flippedId === v.id }"
+            >
+              <div class="demo-inner">
+                <!-- Front: a real button, so keyboard users can flip it too -->
+                <button
+                  type="button"
+                  class="demo-face demo-front"
+                  :aria-label="`Watch ${v.title}`"
+                  @click="toggle(v.id)"
                 >
-              </span>
-            </span>
-          </button>
+                  <small class="face-label">NDP VIDEO</small>
+                  <strong>{{ v.title }}</strong>
+                  <small class="flip-hint">tap to watch ▶</small>
+                </button>
+
+                <!-- Back: the player. A <button> cannot contain a <video>, so front and back are separate -->
+                <div class="demo-face demo-back">
+                  <!-- v-if: the <video> only exists while flipped, so flipping back stops playback.
+                       preload="none": the file is not downloaded until the user presses play -->
+                  <video
+                    v-if="flippedId === v.id"
+                    :src="v.src"
+                    controls
+                    preload="none"
+                    playsinline
+                  ></video>
+                  <button
+                    type="button"
+                    class="back-btn"
+                    aria-label="Flip back"
+                    @click="toggle(v.id)"
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- Right: rotating feature panel -->
@@ -140,23 +171,26 @@ const flipped = ref(false)
   color: var(--hw-landing-accent);
 }
 
-/* ---- Flip card (3D rotation with CSS) ---- */
-.demo-scene {
-  display: block;
-  width: min(100%, 22rem);
-  height: 9rem;
-  padding: 0;
-  border: 0;
-  background: none;
-  perspective: 900px; /* gives the rotation depth */
-  cursor: pointer;
-  margin-left: auto;
-  margin-right: auto;
+/* ---- Flip cards (3D rotation with CSS) ---- */
+/* NEW: lays the cards side by side, wrapping onto a new line on narrow screens */
+.demo-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  justify-content: center;
 }
 @media (min-width: 992px) {
-  .demo-scene {
-    margin-left: 0;
-  }
+  .demo-row {
+    justify-content: flex-start;
+  } /* left-align on desktop */
+}
+.demo-scene {
+  width: min(
+    100%,
+    15.5rem
+  ); /* CHANGED: narrower than before (22rem) so two cards fit in the column */
+  height: 9rem;
+  perspective: 900px; /* gives the rotation depth */
 }
 .demo-inner {
   position: relative;
@@ -168,12 +202,6 @@ const flipped = ref(false)
 }
 .demo-scene.flipped .demo-inner {
   transform: rotateY(180deg);
-}
-/* On devices with a mouse, hovering also flips the card */
-@media (hover: hover) {
-  .demo-scene:hover .demo-inner {
-    transform: rotateY(180deg);
-  }
 }
 .demo-face {
   position: absolute;
@@ -192,6 +220,33 @@ const flipped = ref(false)
 }
 .demo-back {
   transform: rotateY(180deg); /* pre-rotated so it reads correctly once the card flips */
+  padding: 0; /* NEW: the video fills the whole back face */
+  background: #000;
+  overflow: hidden;
+}
+.demo-back video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain; /* shows the whole video without cropping */
+}
+/* NEW: the front is a <button>, so reset the browser's default button look */
+.demo-front {
+  border: 0;
+  font: inherit;
+  cursor: pointer;
+}
+/* NEW: small round button in the corner to flip the card back */
+.back-btn {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.3rem;
+  width: 1.6rem;
+  height: 1.6rem;
+  border: 0;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 0.6);
+  color: #fff;
+  line-height: 1;
 }
 .face-label {
   letter-spacing: 0.08em;

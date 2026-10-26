@@ -770,10 +770,12 @@ loadData()
             <div class="alloc-actions d-flex flex-wrap align-items-center gap-2">
               <!-- Allocate: matches unassigned volunteers to schools (draft only, nothing is visible to volunteers yet).
                    Disabled while a run is in progress. title = the tooltip shown on hover. -->
+              <!-- E2E: data-testid="alloc-run" lets the Allocation test press this button -->
               <button
                 class="btn btn-brand"
                 :disabled="runningAlloc"
                 title="Match unassigned volunteers; accepted volunteers keep their school"
+                data-testid="alloc-run"
                 @click="runAllocation(false)"
               >
                 Allocate
@@ -787,7 +789,8 @@ loadData()
                 <!-- Publish: makes the selected show visible to volunteers. Disabled while publishing, or when there are
                      no drafts to publish. The number on the badge is draftCount (unpublished rows in this show). -->
                 Publish
-                <span class="badge text-bg-light ms-1" title="Unpublished drafts">{{
+                <!-- E2E: data-testid="alloc-draft-count" lets the test read how many drafts are waiting -->
+                <span class="badge text-bg-light ms-1" title="Unpublished drafts" data-testid="alloc-draft-count">{{
                   draftCount
                 }}</span>
               </button>

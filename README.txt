@@ -2,11 +2,11 @@ HEARTWARE VOLUNTEER OPS  (IS216 G5T1)
 =====================================
 
 LIVE APP
-  URL: <PASTE THE DEPLOYED FRONTEND URL HERE>
+  URL: https://https://heartware-ops.vercel.app/
 
-DUMMY ACCOUNTS  (replace with the real ones before submitting)
-  Admin      : <admin email>      / <password>
-  Volunteer  : <volunteer email>  / <password>
+IMPORTANT ACCOUNTS  (replace with the real ones before submitting)
+  Admin      : admin@gmail.com      / password: admin
+  Volunteer  :   / <password>
 
 WHAT'S IN THIS ZIP
   client/   Vue 3 + Bootstrap single-page app (built with Vite)
@@ -24,6 +24,7 @@ RUN LOCALLY  (Node 22 or newer, pnpm installed)
          BREVO_API_KEY=<optional locally; REQUIRED in production>
          BREVO_SENDER_EMAIL=<verified sender email>
          OTP_MOCK=true            (local only: shows the email code on the page)
+
   3. Start the server:
          cd server
          pnpm install
@@ -37,6 +38,7 @@ RUN LOCALLY  (Node 22 or newer, pnpm installed)
          pnpm run dev                  (http://localhost:8000)
      Schools: the "schools" collection must be loaded (data in server/data/primary_schools.json;
      each school also needs a "show" and "reportingTime"). <TEAM: say how this is loaded>
+
   4. Start the client (new terminal):
          cd client
          pnpm install
