@@ -19,9 +19,9 @@ export async function listBadges() {
   }
 }
 
-export async function autoAward(eventId) {
+export async function autoAward(event) {
   try {
-    const { data } = await axios.post(`${BASE_URL}/auto-award`, { eventId }, { timeout: 15000 })
+    const { data } = await axios.post(`${BASE_URL}/auto-award`, { event }, { timeout: 15000 })
     return data
   } catch (error) {
     throw addFriendlyMessage(error)
@@ -86,6 +86,15 @@ export async function getMyOrders() {
   }
 }
 
+export async function listAllOrders() {
+  try {
+    const { data } = await axios.get(`${BASE_URL}/orders`, { timeout: 15000 })
+    return data
+  } catch (error) {
+    throw addFriendlyMessage(error)
+  }
+}
+
 export async function updateOrderStatus(orderId, status) {
   try {
     const { data } = await axios.patch(
@@ -93,6 +102,15 @@ export async function updateOrderStatus(orderId, status) {
       { status },
       { timeout: 15000 },
     )
+    return data
+  } catch (error) {
+    throw addFriendlyMessage(error)
+  }
+}
+
+export async function listVolunteers() {
+  try {
+    const { data } = await axios.get(`${BASE_URL}/volunteers`, { timeout: 15000 })
     return data
   } catch (error) {
     throw addFriendlyMessage(error)

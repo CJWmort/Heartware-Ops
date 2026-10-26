@@ -146,3 +146,6 @@ exports.findVolunteersByShow = function (show) {
 exports.findByPhone = function (phone) {
   return Account.findOne({ phone: String(phone).replace(/\s+/g, "") });
 };
+
+// .collation() from AI
+exports.retrieveVolunteerNames = () => Account.find({ role: "volunteer" }).select("name email").sort({ name: 1 }).collation({ locale: 'en' })

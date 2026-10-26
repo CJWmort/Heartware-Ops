@@ -10,5 +10,9 @@ router.put("/design/me", requireRole('volunteer'), badgesController.saveMyDesign
 router.post("/orders", requireRole('volunteer'), badgesController.placeOrder);
 router.get("/design/me", requireRole('volunteer'), badgesController.getMyDesign);
 router.get("/orders/me", requireRole('volunteer'), badgesController.listMyOrders);
+router.get('/orders', requireRole('admin'), badgesController.listAllOrders)
+router.patch('/orders/:id/status', requireRole('admin'), badgesController.updateOrderStatus)
+router.get('/volunteers', requireRole('admin'), badgesController.listVolunteers)
+router.post('/auto-award', requireRole('admin'), badgesController.autoAward)
 
 module.exports = router;

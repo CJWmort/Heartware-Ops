@@ -376,6 +376,18 @@ onMounted(async () => {
 <style scoped>
 .studio {
   --studio-navbar-h: 56px; 
+  --tint: rgb(20 33 61 / 0.08); 
+  --dash: #c3c8d2; 
+  --hover-bg: #fafbfd; 
+  --pulse: rgb(20 33 61 / 0.35); 
+  --glow: #ffffff; 
+}
+[data-bs-theme='dark'] .studio {
+  --tint: rgb(255 255 255 / 0.08); 
+  --dash: #4a5570;
+  --hover-bg: rgb(255 255 255 / 0.04);
+  --pulse: rgb(230 234 242 / 0.35);
+  --glow: #24304d; 
 }
 
 /* ---------- Preview ---------- */
@@ -386,7 +398,7 @@ onMounted(async () => {
   display: grid;
   place-items: center;
   padding: 1.75rem;
-  background: radial-gradient(circle at 50% 42%, #ffffff 0%, var(--hw-bg) 72%);
+  background: radial-gradient(circle at 50% 42%, var(--glow) 0%, var(--hw-bg) 72%);
 }
 .preview-svg {
   width: 100%;
@@ -402,8 +414,6 @@ onMounted(async () => {
   text-align: center;
 }
  
-/* While designing, the preview stays in view as you scroll through the options.
-   Once locked there is nothing to watch change, so it scrolls like normal content. */
 @media (min-width: 768px) {
   .studio:not(.is-locked) .preview-card {
     position: sticky;
@@ -430,7 +440,6 @@ onMounted(async () => {
   }
 }
  
-/* Locked, side by side: preview and summary cards share one height (a tidy pair) */
 .studio.is-locked .preview-card {
   height: 100%;
   display: flex;
@@ -440,11 +449,9 @@ onMounted(async () => {
   flex: 1;
 }
 .studio.is-locked .preview-svg {
-  max-width: 240px; /* smaller once locked: the summary and tracker matter more now */
+  max-width: 240px; 
 }
  
-/* main.css gives .btn-brand no disabled colours, so a disabled one turned into a grey
-   outline that looked like Cancel (similarity). Keep it red, just faded. */
 .studio .btn-brand {
   --bs-btn-disabled-bg: var(--hw-red);
   --bs-btn-disabled-border-color: var(--hw-red);
@@ -453,7 +460,7 @@ onMounted(async () => {
  
 /* ---------- Option groups ---------- */
 .studio-group + .studio-group {
-  margin-top: 1.5rem; /* bigger gap BETWEEN groups than inside them (proximity) */
+  margin-top: 1.5rem; 
 }
 .group-label {
   display: block;
@@ -465,7 +472,6 @@ onMounted(async () => {
   color: var(--hw-muted);
 }
  
-/* Tiles: the real radio stays in the page (keyboard + tests), the label is what you see */
 .tile-grid {
   display: grid;
   gap: 0.5rem;
@@ -500,8 +506,8 @@ onMounted(async () => {
   transition: border-color 0.15s, background-color 0.15s, box-shadow 0.15s;
 }
 .option-tile:hover {
-  border-color: #c3c8d2;
-  background: #fafbfd;
+  border-color: var(--dash);
+  background: var(--hover-bg);
 }
 .tile-shape {
   width: 36px;
@@ -510,9 +516,8 @@ onMounted(async () => {
 .tile-icon {
   font-size: 1.5rem;
   line-height: 1;
-  color: var(--hw-heading); /* CHANGED: stays readable in dark mode */
+  color: var(--hw-heading); 
 }
-/* Selected: border + tint + bold label + tick (not colour alone) */
 .btn-check:checked + .option-tile {
   border-color: var(--hw-red);
   background: rgb(214 0 28 / 0.05);
@@ -520,7 +525,7 @@ onMounted(async () => {
   font-weight: 600;
 }
 .btn-check:checked + .option-tile::after {
-  content: '\f26a'; /* bi-check-circle-fill */
+  content: '\f26a'; 
   font-family: 'bootstrap-icons';
   position: absolute;
   top: 4px;
@@ -530,7 +535,7 @@ onMounted(async () => {
   color: var(--hw-red);
 }
 .btn-check:focus-visible + .option-tile {
-  outline: 2px solid var(--hw-navy);
+  outline: 2px solid var(--hw-heading);
   outline-offset: 2px;
 }
  
@@ -569,7 +574,7 @@ onMounted(async () => {
 }
 @media (max-width: 575.98px) {
   .action-bar .btn {
-    flex: 1 1 auto; /* bigger targets on phones */
+    flex: 1 1 auto; 
   }
 }
  
@@ -580,14 +585,13 @@ onMounted(async () => {
   gap: 0.75rem;
   padding: 0.75rem 1rem;
   border-radius: 0.6rem;
-  background: rgb(20 33 61 / 0.06);
-  color: var(--hw-heading); /* CHANGED: stays readable in dark mode */
+  background: var(--tint);
+  color: var(--hw-heading); 
 }
 .locked-note > i {
   font-size: 1.25rem;
   line-height: 1.2;
 }
-/* Label on the left, value on the right, one thin line between rows */
 .spec-list {
   display: grid;
   grid-template-columns: max-content 1fr;
@@ -620,9 +624,8 @@ onMounted(async () => {
 .spec-icon {
   font-size: 1.1rem;
   line-height: 1;
-  color: var(--hw-heading); /* CHANGED: stays readable in dark mode */
+  color: var(--hw-heading); 
 }
-/* Full-strength colour (the ordered colour, not a faded one); the inner edge keeps white visible */
 .swatch {
   width: 1.5rem;
   height: 1.5rem;
@@ -671,14 +674,14 @@ onMounted(async () => {
   flex-shrink: 0;
   padding: 0.25rem 0.65rem;
   border-radius: 999px;
-  background: rgb(20 33 61 / 0.08);
-  color: var(--hw-heading); /* CHANGED: stays readable in dark mode */
+  background: var(--tint);
+  color: var(--hw-heading); 
   font-size: 0.75rem;
   font-weight: 600;
   white-space: nowrap;
 }
  
-/* Tracker: four steps on one line (continuity); position + text carry the meaning */
+/* Tracker */
 .tracker {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -696,7 +699,6 @@ onMounted(async () => {
   text-align: center;
   color: var(--hw-muted);
 }
-/* The line into each step: a grey track (::before) with a green fill on top (::after) */
 .tracker li::before,
 .tracker li::after {
   content: '';
@@ -730,7 +732,7 @@ onMounted(async () => {
   width: 16px;
   height: 16px;
   border-radius: 50%;
-  border: 2px solid #c3c8d2;
+  border: 2px solid var(--dash);
   background: var(--hw-surface);
 }
 .tracker li.done,
@@ -742,25 +744,23 @@ onMounted(async () => {
   background: var(--hw-success);
 }
 .tracker li.done .dot::after {
-  content: '\f26e'; /* bi-check */
+  content: '\f26e'; 
   font-family: 'bootstrap-icons';
   font-size: 0.75rem;
   line-height: 1;
   color: #fff;
 }
 .tracker li.current .dot {
-  border-color: var(--hw-navy);
-  background: var(--hw-navy);
-  box-shadow: 0 0 0 4px rgb(20 33 61 / 0.15); /* the "you are here" ring when motion is off */
+  border-color: var(--hw-heading); 
+  background: var(--hw-heading);
+  box-shadow: 0 0 0 4px var(--tint); 
 }
 .tracker li.current .step-label {
   font-weight: 600;
 }
  
-/* Motion, only for people who haven't asked their device to reduce it.
-   --i is the step's position (0 to 3), set in the template, so each step waits its turn. */
+/* Motion */
 @media (prefers-reduced-motion: no-preference) {
-  /* Once, on page load: each line fills left to right, then its dot lights up */
   .tracker li.done::after,
   .tracker li.current::after {
     animation: tracker-fill 0.3s ease-out both;
@@ -770,7 +770,6 @@ onMounted(async () => {
     animation: tracker-dot-in 0.3s ease-out both;
     animation-delay: calc(var(--i) * 0.3s);
   }
-  /* The current step keeps a soft pulse: "your badge is here right now" */
   .tracker li.current .dot {
     animation:
       tracker-dot-in 0.3s ease-out both,
@@ -787,7 +786,7 @@ onMounted(async () => {
 }
 @keyframes tracker-dot-in {
   0% {
-    border-color: #c3c8d2;
+    border-color: var(--dash);
     background: var(--hw-surface);
   }
   60% {
@@ -796,13 +795,13 @@ onMounted(async () => {
 }
 @keyframes tracker-pulse {
   0% {
-    box-shadow: 0 0 0 0 rgb(20 33 61 / 0.35);
+    box-shadow: 0 0 0 0 var(--pulse);
   }
   70% {
-    box-shadow: 0 0 0 10px rgb(20 33 61 / 0);
+    box-shadow: 0 0 0 10px transparent;
   }
   100% {
-    box-shadow: 0 0 0 0 rgb(20 33 61 / 0);
+    box-shadow: 0 0 0 0 transparent;
   }
 }
 </style>

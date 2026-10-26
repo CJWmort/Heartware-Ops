@@ -1,7 +1,7 @@
 [
-  { "code": "FULL_ROUTE", "name": "Full Route Completed", "description": "Checked in at all 6 checkpoints.", "icon": "bi-flag-fill", "awardType": "auto" },
-  { "code": "ON_TIME", "name": "On-Time Every Checkpoint", "description": "No overdue alerts for your group.", "icon": "bi-stopwatch-fill", "awardType": "auto" },
-  { "code": "STAND_IN_HERO", "name": "Stand-in Hero", "description": "Stepped in to fill an open slot.", "icon": "bi-lightning-charge-fill", "awardType": "auto" },
+  { "code": "FULL_ROUTE", "name": "Full Route Completed", "description": "Checked in at all 8 checkpoints.", "icon": "bi-flag-fill", "awardType": "auto" },
+  { "code": "EARLY_BIRD", "name": "Early Bird", "description": "Reached your school before its reporting time.", "icon": "bi-sunrise-fill", "awardType": "auto" },
+  { "code": "SUPER_SUB", "name": "Super-Sub", "description": "Moved in from the reserve list to fill a dropped slot.", "icon": "bi-lightning-charge-fill", "awardType": "auto" },
   { "code": "HEART_OF_GOLD", "name": "Heart of Gold", "description": "Special thanks from the Heartware team.", "icon": "bi-heart-fill", "awardType": "manual" },
   { "code": "CALM_UNDER_PRESSURE", "name": "Calm Under Pressure", "description": "Handled an incident with care.", "icon": "bi-shield-check", "awardType": "manual" }
 ]
