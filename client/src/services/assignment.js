@@ -243,7 +243,7 @@ export function useMyAssignment() {
 
     try {
       await setAvailableShows(selectedShows.value)
-      volAvailableShows.value = selectedShows.value
+      await loadData() // reload: a newly ticked published show now shows "On reserve list" (or a school, if a place was open)
       closeAvailabilityModal()
     } catch (error) {
       // NEW: show the server's reason when it has one (e.g. "You have accepted a place in NE Show 2. Press Withdraw first..."),
