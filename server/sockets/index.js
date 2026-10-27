@@ -22,7 +22,9 @@ function initSockets(httpServer, sessionMiddleware) {
     .map((o) => o.trim()); // FIX: trim, so "a, b" works;
   // FIX: credentials: true lets the browser send the login cookie with the socket handshake
   // (the old TODO planned a JWT, but this app uses cookie sessions, so the cookie is the proof of login).
-  io = new Server(httpServer, { cors: { origin: origins, credentials: true } });
+  // addTrailingSlash: false lets the server answer "/socket.io?..." as well as "/socket.io/?...". The client on main
+  // calls it without the slash (for Vercel); without this every live connection got a 404.
+  io = new Server(httpServer, { addTrailingSlash: false, cors: { origin: origins, credentials: true } });
 
   // FIX (security): before, anyone could open a socket and receive every incident as it was reported.
   // Run the normal express-session middleware on the socket handshake so socket.request.session is filled in.

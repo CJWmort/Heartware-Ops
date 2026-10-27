@@ -28,6 +28,7 @@ import { listIncidents, listTemplates, updateIncidentStatus } from '@/services/i
 import IncidentCard from '@/components/incident/IncidentCard.vue'
 import IncidentFocusCard from '@/components/incident/IncidentFocusCard.vue'
 import MapNotice from '@/components/map/MapNotice.vue' // temporary status popup (same as the Allocation board)
+import MapLoading from '@/components/map/MapLoading.vue' // NEW: dimmed overlay + spinner shown over the map while data is fetched
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue' // custom card instead of the browser's prompt()
 import { connectSocket } from '@/services/socket' // live updates
 import { tipCard, bindTip, createIncidentIcon } from '@/utils/map-icons' // shared hover-card helpers (same as the Allocation and Live boards)
@@ -48,6 +49,9 @@ const showResolved = ref(false)
 
 // STATUS POPUP (same MapNotice popup as the Allocation board). Messages are temporary: they disappear after a few
 // seconds, or when the close button is pressed.
+// NEW: true until the FIRST load (incidents + templates) finishes, success or error. It drives the "Fetching..." overlay.
+// Live updates (loadIncidents) never set it back to true, so the overlay does not flash on every socket event.
+const loading = ref(true)
 const popup = ref(null) // { type: 'error' | 'info', icon, title, text } or null
 let popupTimer = null
 function showPopup(type, title, text, ms = 6000) {
@@ -357,6 +361,8 @@ onMounted(async () => {
     plotIncidents()
   } catch (error) {
     showPopup('error', 'Could not load', error.friendlyMessage)
+  } finally {
+    loading.value = false // NEW: runs after success AND failure, so the overlay can never get stuck on screen
   }
 })
 // Stop listening when the admin leaves the page, otherwise handlers pile up each time they come back.
@@ -380,6 +386,9 @@ onUnmounted(() => {
       <!-- The map. BaseMap builds the Leaflet map and calls onMapReady(map, L) in the script when it is ready;
            every pin is drawn from the script, not from this template. -->
       <BaseMap testid="incident-map" :zoom="12" @ready="onMapReady" />
+
+      <!-- NEW: overlay on top of the map until the first incidents arrive (MapLoading is position:absolute, so it covers .map-stage) -->
+      <MapLoading v-if="loading" class="inc-loading" text="Fetching Incidents..." />
 
       <!-- Button to bring the menu back after it was hidden (only exists while the menu is hidden and nothing is selected) -->
       <button
@@ -582,6 +591,11 @@ onUnmounted(() => {
   box-shadow: 0 0 0 2px var(--bs-primary);
 }
 
+/* NEW: the loading overlay must sit ABOVE the menu (.inc-panel is z-index 1100 and open by default), otherwise the menu
+   hides it. 1105 is still below MapNotice (1150), so error popups stay visible. The longer selector beats MapLoading's own style. */
+.inc-stage .inc-loading {
+  z-index: 1105;
+}
 /* Button that brings the menu back (only shown when the menu is hidden and nothing is selected) */
 .inc-reopen {
   position: absolute;

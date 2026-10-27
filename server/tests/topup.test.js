@@ -31,7 +31,7 @@ const fake = {
     return { assignment: row };
   },
 };
-const stubs = { mongoose: { Types: { ObjectId: { isValid: () => true } } }, '../models/shows-model': {}, '../models/assignments-model': fake,
+const stubs = { mongoose: { Types: { ObjectId: { isValid: () => true } } }, '../sockets': { emit() {} }, /* live updates: not needed in a test */ '../models/shows-model': {}, '../models/assignments-model': fake,
   '../models/account-model': { findVolunteersByShow: async (s) => vols[s] || [] }, '../models/schools-model': { findByShow: async (s) => schools[s] || [] },
   dotenv: { config() {} }, '../utils/greedy': { greedyByPair() {} } };
 const orig = Module._load;

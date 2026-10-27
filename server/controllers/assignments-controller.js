@@ -5,6 +5,7 @@ const School = require("../models/schools-model");
 const Shows = require("../models/shows-model");
 const { replaceFromReserve, topUpPublishedShow } = require("../utils/reserve-replacement");
 const { expireOverduePending } = require("../utils/expire-pending"); // NEW // CHANGED: topUpPublishedShow added
+const { emit } = require("../sockets"); // live updates: tells open My Assignment pages to reload
 const dotenv = require("dotenv");
 
 const { scarcityFirst } = require("../utils/scarcityFirst");
@@ -180,6 +181,9 @@ exports.runAssignments = async (req, res) => {
     const assignments = await Assignments.retrieveAll();
     // CHANGED: was the bare list; skippedShows tells the board which published shows were left alone,
     // toppedUp tells it how many late volunteers were added to each of them, e.g. { "NE Show 1": { added: 2, placed: 1 } }
+    // Live update: open My Assignment pages reload their own data. A reset changes what volunteers see;
+    // an allocate can too (late volunteers topped up into published shows). The event carries no volunteer data.
+    emit("assignments:updated", { reason: reset ? "reset" : "allocate", shows: showsToRun });
     res.json({ assignments, skippedShows, toppedUp });
   } catch (error) {
     res.status(500).json({ message: error.message });
@@ -199,6 +203,8 @@ exports.publishAssignments = async (req, res) => {
 
     const result = await Assignments.publish(show || null);
     // modifiedCount = how many rows were released (0 means everything was already published)
+    // Live update: volunteers in the published show(s) see their school straight away (only if something was released)
+    if (result.modifiedCount > 0) emit("assignments:updated", { reason: "publish", shows: show ? [show] : Assignments.SHOWS });
     res.json({ published: result.modifiedCount, show: show || "all" });
   } catch (error) {
     res.status(500).json({ message: error.message });

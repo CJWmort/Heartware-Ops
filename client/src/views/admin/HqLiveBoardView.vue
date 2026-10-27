@@ -1696,7 +1696,7 @@ onUnmounted(() => {
   z-index: 1055; /* below the top bar (1060) so the search list covers them */
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: center; /* centres the cards left/right (top-centre) */
   gap: 8px;
   pointer-events: none; /* only the cards take clicks */
 }
@@ -1940,12 +1940,8 @@ onUnmounted(() => {
   .empty-pill {
     bottom: 24px;
   }
-  .toast-stack {
-    top: 12px; /* desktop: top right corner */
-    left: auto;
-    right: 12px;
-    width: 340px;
-  }
+  /* CHANGED: removed the desktop .toast-stack override (top 12px, left auto, right 12px, width 340px = top-right corner).
+     The base .toast-stack rule already centres the alert cards sideways, so they stay top-centre. */
 }
 
 /* Show dropdown */

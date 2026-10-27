@@ -135,9 +135,9 @@ function onKeydown(e) {
   inset: 0;
   z-index: 2000; /* above the navbar, the floating panel (1100) and the popup notice (1150) */
   display: flex;
-  align-items: center;
+  align-items: flex-start; /* CHANGED: was "center". Puts the card at the top; justify-content: center below still centres it sideways */
   justify-content: center;
-  padding: 16px;
+  padding: 72px 16px 16px; /* CHANGED: extra top space so the card sits just below the navbar */
   background: rgb(0 0 0 / 0.55);
 }
 .confirm-card {

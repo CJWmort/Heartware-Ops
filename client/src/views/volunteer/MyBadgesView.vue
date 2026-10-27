@@ -121,7 +121,8 @@ onMounted(async () => {
     <!-- Pop-up -->
     <div v-if="selected" class="modal d-block" tabindex="-1" role="dialog" aria-modal="true"
          aria-labelledby="badge-modal-title" data-testid="badge-modal" @click.self="selected = null">
-      <div class="modal-dialog modal-dialog-centered">
+      <!-- CHANGED: removed "modal-dialog-centered" so this popup opens at the TOP centre, not the middle of the screen -->
+      <div class="modal-dialog">
         <div class="modal-content badge-modal">
           <button type="button" class="btn-close" aria-label="Close" data-testid="badge-modal-close" @click="selected = null"></button>
           <div class="modal-body text-center px-4 pt-4 pb-4">

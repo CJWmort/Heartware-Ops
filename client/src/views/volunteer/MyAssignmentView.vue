@@ -225,7 +225,8 @@ function datePart(date, part) {
         data-testid="pullout-modal"
         @click.self="closeWithdrawModal"
       >
-        <div class="modal-dialog modal-dialog-centered">
+        <!-- CHANGED: removed "modal-dialog-centered" so this popup opens at the TOP centre, not the middle of the screen -->
+        <div class="modal-dialog">
           <div class="modal-content">
             <div class="modal-header">
               <!-- CHANGED: the Accepted wording was "Pull out of ...?". It now uses the same words as the row button
@@ -309,7 +310,8 @@ function datePart(date, part) {
         @click.self="directionsShow = null"
         @keydown.esc="directionsShow = null"
       >
-        <div class="modal-dialog modal-dialog-centered modal-lg">
+        <!-- CHANGED: removed "modal-dialog-centered" so this popup opens at the TOP centre, not the middle of the screen -->
+        <div class="modal-dialog modal-lg">
           <div class="modal-content">
             <div class="modal-header">
               <div>
@@ -352,7 +354,8 @@ function datePart(date, part) {
         @click.self="closeAvailabilityModal"
         @keydown.esc="closeAvailabilityModal"
       >
-        <div class="modal-dialog modal-dialog-centered">
+        <!-- CHANGED: removed "modal-dialog-centered" so this popup opens at the TOP centre, not the middle of the screen -->
+        <div class="modal-dialog">
           <div class="modal-content">
             <div class="modal-header">
               <h5 class="modal-title" id="availability-title">
