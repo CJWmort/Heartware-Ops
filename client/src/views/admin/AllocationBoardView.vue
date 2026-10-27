@@ -202,10 +202,18 @@ const stats = computed(() => {
 })
 // The same numbers as a list, so the template can draw the chips with one v-for.
 const statChips = computed(() => [
-  { label: 'Schools', value: stats.value.schools },
-  { label: 'Accepted', value: stats.value.Accepted },
-  { label: 'Pending', value: stats.value.Pending }
+  { key: '', label: 'Schools', value: stats.value.schools }, // key '' = no status filter, so this chip clears the filter
+  { key: 'Accepted', label: 'Accepted', value: stats.value.Accepted }, // key = the volunteer status this chip filters by
+  { key: 'Pending', label: 'Pending', value: stats.value.Pending }
 ])
+
+// Which stat chip is pressed: 'Accepted' | 'Pending' | '' (empty = show all schools)
+const statusFilter = ref('')
+
+// Called when a stat chip is clicked: pressing the active one again turns the filter off (same as the Incidents page).
+function toggleStatus(key) {
+  statusFilter.value = statusFilter.value === key ? '' : key // same chip again -> '' (show all)
+}
 
 // ---------------------------------------------------------------------------------------------------
 // 3. SEARCH AND FILTER
@@ -229,6 +237,9 @@ const visibleSchools = computed(() => {
         s.volunteers.some(
           (v) => (v.name || '').toUpperCase().includes(q) || String(v.phone || '').includes(q),
         )) &&
+      // A pressed stat chip keeps only schools with at least one volunteer of that status.
+      // While the search box has text the chip is ignored, so the search looks through everything (same as Incidents).
+      (!statusFilter.value || q || s.volunteers.some((v) => v.status === statusFilter.value)) &&
       // Switch on: keep only schools with a free place (filled < capacity). p5Classes = places needed.
       (!needsOnly.value || filledCount(s) < s.p5Classes),
   )
@@ -714,7 +725,10 @@ loadData()
       <BaseMap :zoom="12" @ready="onMapReady" />
 
       <!-- NEW: overlay on top of the map until the first assignments arrive (MapLoading is position:absolute, so it covers .map-stage) -->
-      <MapLoading v-if="loading" class="alloc-loading" text="Fetching Allocation Data..." />
+      <!-- NEW: <Transition> keeps the overlay on screen while it fades out (and fades it in), instead of removing it instantly -->
+      <Transition name="alloc-fade">
+        <MapLoading v-if="loading" class="alloc-loading" text="Fetching Allocation Data..." />
+      </Transition>
 
       <!-- Button to bring the panel back after it was hidden (only exists while the panel is hidden) -->
       <button
@@ -832,10 +846,20 @@ loadData()
                one row from tablet up (a row is 12 columns wide). -->
           <div v-if="groupedAssignments[selectedShow]" class="row g-1 mb-2 alloc-chips">
             <div v-for="chip in statChips" :key="chip.label" class="col-4">
-              <div class="card-hw py-1 px-0 text-center">
+              <!-- Each chip is a button that filters the school list (like the Incidents page).
+                   is-active / aria-pressed are off for the Schools chip (it means "no filter") and while the search box
+                   has text, because a search ignores the chip. -->
+              <button
+                type="button"
+                class="stat-btn card-hw py-1 px-0 text-center w-100"
+                :class="{ 'is-active': !!chip.key && statusFilter === chip.key && !searchbar.trim() }"
+                :aria-pressed="!!chip.key && statusFilter === chip.key && !searchbar.trim()"
+                :data-testid="`alloc-stat-${chip.label.toLowerCase()}`"
+                @click="toggleStatus(chip.key)"
+              >
                 <div class="fs-6 fw-semibold">{{ chip.value }}</div>
                 <div class="chip-label text-muted-hw">{{ chip.label }}</div>
-              </div>
+              </button>
             </div>
           </div>
 
@@ -932,7 +956,9 @@ loadData()
               {{
                 needsOnly && !searchbar.trim()
                   ? 'Every school has enough volunteers.'
-                  : 'No schools or volunteers match.'
+                  : statusFilter && !searchbar.trim()
+                    ? `No schools with ${statusFilter} volunteers.` // a chip is pressed and nothing matches
+                    : 'No schools or volunteers match.'
               }}
             </p>
             <!-- SCHOOL CARDS: one per school in visibleSchools (so the search and the "Needs Volunteers" filter apply),
@@ -1173,6 +1199,19 @@ loadData()
   padding: 0 max(12px, calc((100% - var(--hw-content-w)) / 2)) 12px; /* was a fixed 1100px: uses the shared --hw-content-w, same as the navbar */
 }
 /* Chip captions are tiny on phones so all the chips fit */
+/* The stat chips are buttons: keep the card look, add a pointer, and ring the pressed one (same as the Incidents page) */
+.stat-btn {
+  border: 0;
+  cursor: pointer;
+  color: inherit;
+}
+.stat-btn:focus-visible {
+  outline: 2px solid var(--bs-primary); /* keyboard focus ring */
+  outline-offset: 2px;
+}
+.stat-btn.is-active {
+  box-shadow: 0 0 0 2px var(--bs-primary); /* ring around the pressed chip */
+}
 .alloc-chips .chip-label {
   font-size: 0.7rem; /* tiny label so six chips fit in one row */
   line-height: 1.1;
@@ -1187,6 +1226,16 @@ loadData()
    hides it. 1105 is still below MapNotice (1150), so error popups stay visible. The longer selector beats MapLoading's own style. */
 .alloc-stage .alloc-loading {
   z-index: 1105;
+}
+/* NEW: fade rules used by <Transition name="alloc-fade">. Vue adds these classes while the overlay appears (enter) and
+   disappears (leave): it starts / ends at opacity 0 and eases in between, so the map is revealed gradually, not with a jump. */
+.alloc-fade-enter-active,
+.alloc-fade-leave-active {
+  transition: opacity 0.5s ease; /* 0.5 s fade; change this number to make it faster or slower */
+}
+.alloc-fade-enter-from,
+.alloc-fade-leave-to {
+  opacity: 0;
 }
 /* Button that brings the menu back (only shown when the menu is hidden and no school is focused) */
 .alloc-reopen {
