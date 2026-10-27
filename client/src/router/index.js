@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router' // needed by createRouter() / createWebHistory() below
 import { useAuthStore } from '@/services/auth'
+import { landingFor } from './landing' // NEW: the page each role lands on instead of Home
 import HomeView from '@/views/HomeView.vue'
 
 const routes = [
@@ -118,7 +119,8 @@ router.beforeEach(async (to) => {
   const { guestOnly, public: isPublic, roles } = to.meta
 
   // Check if user has role, if already logged in, go home. Otherwise allow.
-  if (guestOnly) return auth.isLoggedIn ? { name: 'home' } : true
+  // CHANGED: a logged-in person opening /login or /register goes to their own page, not Home
+  if (guestOnly) return auth.isLoggedIn ? landingFor(auth.role) : true
 
   // Allow everyone to access Home and 'not allowed' view
   if (isPublic) return true
@@ -128,7 +130,8 @@ router.beforeEach(async (to) => {
   if (!auth.isLoggedIn) return { name: 'login', query: { redirect: to.fullPath } }
 
   // If user role is not on the allowed role list, go to home view.
-  if (roles && !roles.includes(auth.role)) return { name: 'home' }
+  // CHANGED: wrong role (e.g. a volunteer opening /admin) goes to their own page, not Home
+  if (roles && !roles.includes(auth.role)) return landingFor(auth.role)
   return true
 })
 

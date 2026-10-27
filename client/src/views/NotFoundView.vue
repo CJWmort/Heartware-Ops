@@ -1,7 +1,14 @@
+<script setup>
+import { useAuthStore } from '@/services/auth'
+import { landingFor } from '@/router/landing' // NEW: logged-in people go back to their own page, not Home
+
+const auth = useAuthStore()
+</script>
+
 <template>
   <div class="text-center py-5" data-testid="not-found">
     <p class="display-4 fw-bold text-danger mb-0">404</p>
     <h1 class="h4">We couldn't find that page</h1>
-    <RouterLink to="/" class="btn btn-brand mt-3">Back to home</RouterLink>
+    <RouterLink :to="landingFor(auth.role)" class="btn btn-brand mt-3">Back to home</RouterLink>
   </div>
 </template>

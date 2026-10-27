@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/services/auth'
 import { NAV_LINKS } from '@/router/nav-links'
+import { landingFor } from '@/router/landing' // NEW: where the "Heartware Ops" logo link goes for each role
 import logoUrl from '@/assets/heartware-logo.png'
 import ChatButton from '@/components/chat/ChatButton.vue'
 import ChatPanel from '@/components/chat/ChatPanel.vue'
@@ -97,9 +98,11 @@ async function logout() {
     <div class="nav-backdrop" :class="{ 'is-open': menuOpen }" aria-hidden="true"></div>
 
     <div ref="bar" class="container">
+      <!-- CHANGED: the logo link goes to the person's own page (volunteer -> Assignment, admin -> Allocation).
+           A guest (not logged in) still goes to the Home page. -->
       <RouterLink
         class="navbar-brand fw-semibold d-flex align-items-center gap-2"
-        to="/"
+        :to="landingFor(auth.role)"
         @click="closeMenu"
       >
         <img :src="logoUrl" alt="" class="nav-logo" aria-hidden="true" />

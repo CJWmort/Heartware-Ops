@@ -2,6 +2,7 @@
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/services/auth'
+import { landingFor } from '@/router/landing' // NEW: where each role lands after login (not Home)
 import FireworksBackground from '@/components/landing/FireworksBackground.vue'
 import MapNotice from '@/components/map/MapNotice.vue'
 import axios from 'axios' // used only for the wake up ping of server hosted on render
@@ -42,7 +43,9 @@ async function submit() {
   loading.value = true
   try {
     await auth.login(email.value, password.value)
-    router.push(route.query.redirect || '/')
+    // NEW: go to the page they were trying to open (?redirect=...). If there is none, go to the role's own page
+    // (volunteer -> Assignment, admin -> Allocation) instead of the Home page.
+    router.push(route.query.redirect || landingFor(auth.role))
   } catch (err) {
     console.error(err)
     showError(err.response?.data?.message || 'Could not reach the server. Try again.')
