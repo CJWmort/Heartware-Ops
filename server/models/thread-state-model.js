@@ -36,9 +36,6 @@ exports.markRead = (volunteerId, side, upTo) =>
     { upsert: true, new: true, setDefaultsOnInsert: true },
   );
 
-// Used when HQ closes a chat
-exports.remove = (volunteerId) => ThreadState.deleteOne({ volunteer: volunteerId });
-
 // Runs once at startup. Chats created before ThreadState existed have messages but no read-state record,
 // and a missing record counts as "never read" (so every old chat would show as unread).
 // For each such chat we create a record marked read up to its latest message. Safe to run on every boot:

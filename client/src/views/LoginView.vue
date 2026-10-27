@@ -1,9 +1,10 @@
 <script setup>
-import { ref, onBeforeUnmount } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/services/auth'
 import FireworksBackground from '@/components/landing/FireworksBackground.vue'
 import MapNotice from '@/components/map/MapNotice.vue'
+import axios from 'axios' // used only for the wake up ping of server hosted on render
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -50,6 +51,18 @@ async function submit() {
   }
 }
 
+// Wake-up ping: Render's free server sleeps when idle and takes up to a minute to start again.
+// Calling the cheap /api/health route the moment this page opens starts that wake-up while the
+// user is still typing their email and password, so the server is usually ready by the time they click Log in.
+onMounted(async () => {
+  try {
+    await axios.get('/api/health')
+  } catch (err) {
+    // Ignored on purpose: if the server is still asleep this ping may fail, but it has
+    // already done its job of waking the server. The real login request is separate.
+  }
+})
+
 // UI only (no login logic): which side the red panel is on.
 // 'login' = form visible, panel on the right.  'join' = panel sweeps left, sign-up info + video show.
 const mode = ref('login')
@@ -58,8 +71,17 @@ const mode = ref('login')
 const showPassword = ref(false)
 
 // UI only: muted background video on the sign-up side.
-// The file lives in client/public/videos/ (anything in /public is served from the site root).
-const VIDEO_SRC = '/videos/Heartware.mp4'
+// The files live in client/public/videos/ (anything in /public is served from the site root).
+const VIDEO_SRC = '/videos/Heartware.mp4' // landscape 16:9, for the right half of the card on tablet/desktop
+const VIDEO_SRC_PHONE = '/videos/Heartware2.mp4' // portrait 9:16, fills the whole card on phones
+
+// UI only: true below Bootstrap's "md" breakpoint (768px), so phones get the portrait video.
+// Same breakpoint as the CSS below. Updates if the window is resized or the phone is rotated.
+const phoneQuery = window.matchMedia('(max-width: 767.98px)')
+const isPhone = ref(phoneQuery.matches)
+const onBreakpointChange = (e) => (isPhone.value = e.matches)
+onMounted(() => phoneQuery.addEventListener('change', onBreakpointChange))
+onBeforeUnmount(() => phoneQuery.removeEventListener('change', onBreakpointChange))
 </script>
 
 <template>
@@ -72,7 +94,6 @@ const VIDEO_SRC = '/videos/Heartware.mp4'
           <div class="auth-form-inner">
             <h1 class="auth-title">Welcome back</h1>
             <p class="auth-sub">Log in to see your assignment and show-day updates.</p>
-
 
             <form novalidate @submit.prevent="submit">
               <div class="form-floating auth-field mb-3">
@@ -140,13 +161,16 @@ const VIDEO_SRC = '/videos/Heartware.mp4'
 
         <!-- Decorative: muted looping video. It only loads while this side is showing -->
         <!-- col-md-6 (was col-md-5): a wider video column means less of the video is cropped -->
-        <div class="col-12 col-md-6 order-first order-md-last auth-scene" aria-hidden="true">
-          <FireworksBackground v-if="mode === 'join'" :skyline="false" />
+        <!-- Phones: this layer covers the whole card (full-screen portrait video) and only shows on the sign-up side -->
+        <div class="col-12 col-md-6 auth-scene" aria-hidden="true">
+          <!-- fireworks only on desktop: on phones the video covers the whole layer, so they'd be hidden anyway -->
+          <FireworksBackground v-if="mode === 'join' && !isPhone" :skyline="false" />
           <Transition name="scene-fade">
             <video
               v-if="mode === 'join'"
+              :key="isPhone ? 'phone' : 'wide'"
               class="scene-video"
-              :src="VIDEO_SRC"
+              :src="isPhone ? VIDEO_SRC_PHONE : VIDEO_SRC"
               autoplay
               muted
               loop
@@ -270,7 +294,9 @@ const VIDEO_SRC = '/videos/Heartware.mp4'
 <style scoped>
 /* ---------------------------------------------------------------------------------------------
    Login card with a sliding red panel.
-   Phones: the panel sits in a banner along the top and slides DOWN over the form.
+   Phones: a short red banner sits along the top. "See how it works" makes it sweep DOWN over the whole card
+   (which grows to fill the screen), then its top edge pulls down to a red sign-up panel at the bottom,
+   revealing a video that fills everything above it.
    Tablet/desktop (>= 768px, Bootstrap "md"): the panel sits on the right and slides LEFT.
    Every move happens in two steps (grow over the other side, then shrink off the old side),
    done with one CSS transition per edge and a delay on the second edge. No JavaScript timers.
@@ -283,7 +309,8 @@ const VIDEO_SRC = '/videos/Heartware.mp4'
 
 .auth-card {
   --split: 50%; /* where the form column ends (= Bootstrap col-md-6, half the card) */
-  --scene-h: 400px; /* phones: height of the top banner / video strip */
+  --hello-h: 190px; /* phones: height of the short "New to the crew?" banner (log-in side) */
+  --join-h: 380px; /* phones: height of the red sign-up panel under the video (sign-up side) */
   --wave: 34px; /* how far the wavy edge sticks out of the panel */
   --panel: var(--hw-red); /* panel colour; the waves use the same value so the edge is seamless */
   --panel-soft: rgb(255 45 65 / 0.5); /* lighter second wave behind the main one */
@@ -308,7 +335,8 @@ const VIDEO_SRC = '/videos/Heartware.mp4'
   align-items: center;
   justify-content: center;
   min-height: 460px; /* tall enough for the sign-up info when the panel covers this side */
-  padding: calc(2rem + var(--wave)) 1.5rem 2.5rem;
+  /* phones: top padding leaves room for the red banner and its wavy bottom edge, which sit over this pane */
+  padding: calc(var(--hello-h) + var(--wave) + 2rem) 1.5rem 2.5rem;
 }
 .auth-form-inner {
   width: 100%;
@@ -436,10 +464,9 @@ const VIDEO_SRC = '/videos/Heartware.mp4'
   text-decoration: underline;
 }
 
-/* The right-hand (desktop) / top (phone) scene. The night sky shows until the video's first frame */
+/* The right-hand (desktop) / full-card (phone) scene. The night sky shows until the video's first frame */
 .auth-scene {
   position: relative;
-  height: var(--scene-h);
   overflow: hidden;
   background:
     radial-gradient(1.5px 1.5px at 14% 22%, rgb(255 255 255 / 0.9) 50%, transparent 52%),
@@ -490,7 +517,7 @@ const VIDEO_SRC = '/videos/Heartware.mp4'
   left: 0;
   right: 0;
   top: 0;
-  bottom: calc(100% - var(--scene-h));
+  bottom: calc(100% - var(--hello-h));
   background: var(--panel);
   /* going back to the form: top edge grows up over the sky first, then the bottom edge slides off the form */
   transition:
@@ -500,9 +527,10 @@ const VIDEO_SRC = '/videos/Heartware.mp4'
   animation: curtain 0.95s var(--ease) 0.15s backwards;
 }
 .is-join .auth-panel {
-  top: var(--scene-h);
+  /* phones: only the bottom part of the card stays red; the video fills everything above it */
+  top: calc(100% - var(--join-h));
   bottom: 0;
-  /* going to sign-up info: bottom edge grows down over the form first, then the top edge pulls back to reveal the sky */
+  /* going to sign-up info: bottom edge grows down over the form first, then the top edge pulls down to reveal the video */
   transition:
     bottom 0.5s var(--ease),
     top 0.7s var(--ease) 0.36s;
@@ -619,19 +647,20 @@ const VIDEO_SRC = '/videos/Heartware.mp4'
     transform 0.6s var(--ease) 0.52s,
     visibility 0s linear 0.52s;
 }
+/* phones: "New to the crew?" sits in the short top banner; the sign-up info sits in the red panel under the video */
 .ov-hello {
   left: 0;
   right: 0;
   top: 0;
-  height: var(--scene-h);
+  height: var(--hello-h);
   padding-block: 1rem;
 }
 .ov-join {
   left: 0;
   right: 0;
-  top: var(--scene-h);
+  top: calc(100% - var(--join-h));
   bottom: 0;
-  padding-top: 1.75rem;
+  padding: 1.25rem 1.5rem 1rem;
 }
 .ov-title {
   font-size: clamp(1.6rem, 3.4vw, 2.2rem);
@@ -692,6 +721,80 @@ const VIDEO_SRC = '/videos/Heartware.mp4'
   text-decoration: underline;
 }
 
+/* =========================== Phones only (below Bootstrap "md") =========================== */
+@media (max-width: 767.98px) {
+  /* Sign-up side: the card grows to fill the screen under the navbar (same height as .auth-wrap),
+     so the video gets as much room as possible without scrolling. It grows while the red panel
+     sweeps down over the form, and shrinks back while the panel slides up off the form. */
+  .auth-base {
+    min-height: 0;
+    transition: min-height 0.7s var(--ease) 0.36s;
+  }
+  .is-join .auth-base {
+    min-height: calc(100dvh - 7.5rem);
+    transition: min-height 0.5s var(--ease);
+  }
+  /* keep the form pinned under the banner, so it doesn't jump while the card changes height */
+  .auth-form-pane {
+    align-items: flex-start;
+  }
+
+  /* The video layer fills everything above the red sign-up panel (4px tucks under the panel's wavy edge).
+     Hidden on the log-in side; it switches on/off only while the red panel covers it, so the swap is never seen. */
+  .auth-scene {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: calc(var(--join-h) - 4px);
+    z-index: 5; /* above the form's icons, eye button and floating labels (they use z-index 2-3) */
+    visibility: hidden;
+    transition: visibility 0s linear 0.5s; /* back to log in: hide once the panel has risen over it */
+  }
+  .is-join .auth-scene {
+    visibility: visible;
+    transition: visibility 0s linear 0.36s; /* to sign-up: show once the panel has covered the card */
+  }
+  /* cover = the video fills its whole area edge to edge (no black bars); the portrait clip is trimmed top and bottom */
+  .scene-video {
+    object-fit: cover;
+  }
+
+  /* sign-up info: a little tighter so it fits the red panel on small phones */
+  .ov-join .ov-text {
+    margin-bottom: 0.9rem;
+  }
+  .ov-join .ov-list {
+    gap: 0.6rem;
+    margin-bottom: 1.2rem;
+    font-size: 0.95rem;
+  }
+
+  /* compact "New to the crew?" banner */
+  .ov-hello .ov-title {
+    font-size: 1.45rem;
+    margin-bottom: 0.35rem;
+  }
+  .ov-hello .ov-text {
+    font-size: 0.92rem;
+    max-width: 36ch;
+    margin-bottom: 0.8rem;
+  }
+  .ov-hello .ov-btn {
+    font-size: 0.9rem;
+    padding-block: 0.4rem;
+  }
+  /* smaller ring, tucked into the corner so it doesn't crowd the short banner */
+  .auth-panel-deco::before {
+    width: 180px;
+    box-shadow: 0 0 0 24px rgb(255 255 255 / 0.03);
+    top: 0;
+    left: auto;
+    right: 0;
+    transform: translate(45%, -45%);
+  }
+}
+
 /* =========================== Tablet / desktop: side by side =========================== */
 @media (min-width: 768px) {
   .auth-card {
@@ -710,7 +813,7 @@ const VIDEO_SRC = '/videos/Heartware.mp4'
     margin-bottom: 1.25rem;
   }
   .auth-scene {
-    height: auto;
+    height: auto; /* fills its half of the card */
   }
 
   .auth-panel {
@@ -812,6 +915,12 @@ const VIDEO_SRC = '/videos/Heartware.mp4'
   }
   .wave svg {
     animation: none !important;
+  }
+  .auth-scene,
+  .is-join .auth-scene,
+  .auth-base,
+  .is-join .auth-base {
+    transition: none;
   }
   .scene-video {
     display: none; /* no moving background for reduce-motion users; the night sky shows instead */

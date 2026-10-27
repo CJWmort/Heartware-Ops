@@ -9,7 +9,7 @@ const myAwards = ref([])
 const error = ref('')
 
 function awardFor(code) {
-  return myAwards.value.find(a => a.badge.code === code)
+  return myAwards.value.find(a => a.badge?.code === code)
 }
 
 const selected = ref(null)
@@ -153,6 +153,16 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+/* ---------- Colours that change in dark mode ---------- */
+.badges-page {
+  --tint: rgb(20 33 61 / 0.08); 
+  --dash: #c3c8d2; 
+}
+[data-bs-theme='dark'] .badges-page {
+  --tint: rgb(255 255 255 / 0.08); 
+  --dash: #4a5570;
+}
+
 /* ---------- Progress card ---------- */
 .progress-card {
   display: flex;
@@ -176,7 +186,7 @@ onMounted(async () => {
 .ring-svg {
   width: 100%;
   height: 100%;
-  transform: rotate(-90deg); /* start the first segment at 12 o'clock */
+  transform: rotate(-90deg); 
 }
 .ring-seg {
   fill: none;
@@ -198,7 +208,7 @@ onMounted(async () => {
 .ring-number {
   font-size: 1.9rem;
   font-weight: 700;
-  color: var(--hw-navy);
+  color: var(--hw-heading); 
 }
 .ring-total {
   font-size: 0.95rem;
@@ -208,7 +218,7 @@ onMounted(async () => {
 .progress-headline {
   font-size: 1.25rem;
   font-weight: 700;
-  color: var(--hw-navy);
+  color: var(--hw-heading); 
   line-height: 1.2;
   margin-bottom: 0.2rem;
 }
@@ -224,12 +234,11 @@ onMounted(async () => {
     font-size: 1.5rem;
   }
   .progress-card .btn {
-    width: 100%; /* full-width target on phones */
+    width: 100%; 
   }
 }
 
 /* ---------- Sections ---------- */
-/* Real headings now: bigger and darker than the tile text, so the page reads in two levels */
 .section-title {
   display: flex;
   align-items: center;
@@ -237,7 +246,7 @@ onMounted(async () => {
   margin: 0 0 0.9rem;
   font-size: 1.15rem;
   font-weight: 700;
-  color: var(--hw-navy);
+  color: var(--hw-heading); 
 }
 .section-count {
   display: inline-grid;
@@ -246,17 +255,17 @@ onMounted(async () => {
   height: 1.6rem;
   padding: 0 0.45rem;
   border-radius: 999px;
-  background: rgb(20 33 61 / 0.08);
+  background: var(--tint);
   font-size: 0.8rem;
   font-weight: 700;
 }
 .badge-grid + .section-title,
 .empty-earned + .section-title {
-  margin-top: 2.25rem; /* bigger gap between groups than inside them (proximity) */
+  margin-top: 2.25rem; 
 }
 .badge-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); /* 2 per row on a 375px phone */
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); 
   gap: 0.75rem;
 }
 @media (min-width: 992px) {
@@ -265,7 +274,7 @@ onMounted(async () => {
   }
 }
 
-/* ---------- Tiles: real buttons, so Tab + Enter work ---------- */
+/* ---------- Tiles---------- */
 .badge-tile {
   display: flex;
   flex-direction: column;
@@ -286,12 +295,13 @@ onMounted(async () => {
   box-shadow: var(--hw-shadow);
 }
 .badge-tile:focus-visible {
-  outline: 2px solid var(--hw-navy);
+  outline: 2px solid var(--hw-heading);
   outline-offset: 2px;
 }
 .badge-tile.is-locked {
   border-style: dashed;
-  background: #fafbfd;
+  border-color: var(--dash);
+  background: transparent; 
 }
 .badge-name {
   font-weight: 600;
@@ -323,7 +333,7 @@ onMounted(async () => {
 }
 .is-earned .medal,
 .medal.is-earned {
-  overflow: hidden; /* keeps the shine inside the circle */
+  overflow: hidden; 
   color: #fff;
   background: radial-gradient(circle at 32% 28%, #ff5a68 0%, var(--hw-red) 55%, var(--hw-red-dark) 100%);
   box-shadow:
@@ -332,11 +342,10 @@ onMounted(async () => {
 }
 .is-locked .medal,
 .medal.is-locked {
-  color: #9aa1ad;
+  color: var(--hw-muted);
   background: var(--hw-surface);
-  border: 2px dashed #c3c8d2;
+  border: 2px dashed var(--dash);
 }
-/* The lock sits on the medal's edge, so "locked" is shown by a shape, not only by grey */
 .medal-lock {
   position: absolute;
   right: -4px;
@@ -346,13 +355,13 @@ onMounted(async () => {
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background: var(--hw-navy);
-  color: #fff;
+  background: var(--hw-heading); 
+  color: var(--hw-surface); 
   font-size: 0.7rem;
   box-shadow: 0 0 0 2px var(--hw-surface);
 }
 .medal-lg {
-  margin: 0 auto; /* the medal is a block, so text-center alone doesn't centre it */
+  margin: 0 auto; 
   width: 96px;
   height: 96px;
   font-size: 2.4rem;
@@ -362,8 +371,6 @@ onMounted(async () => {
   height: 30px;
   font-size: 0.85rem;
 }
-
-/* ---------- Empty state ---------- */
 .empty-earned {
   display: flex;
   align-items: flex-start;
@@ -383,13 +390,14 @@ onMounted(async () => {
   position: relative;
   border: 0;
   border-radius: var(--hw-radius);
+  background: var(--hw-surface); 
   box-shadow: 0 20px 50px rgb(20 33 61 / 0.25);
 }
 .badge-modal .btn-close {
   position: absolute;
   top: 0.9rem;
   right: 0.9rem;
-  z-index: 1; /* .modal-body is also positioned and comes later, so without this it covers the button */
+  z-index: 1; 
 }
 .state-pill {
   display: inline-flex;
@@ -404,10 +412,9 @@ onMounted(async () => {
   color: var(--hw-success);
 }
 .state-pill.locked {
-  background: rgb(20 33 61 / 0.08);
-  color: var(--hw-navy);
+  background: var(--tint);
+  color: var(--hw-heading);
 }
-/* The thank-you note reads like a note, set apart from the badge facts */
 .thank-you {
   padding: 1rem 1.25rem;
   border-left: 3px solid var(--hw-red);
@@ -419,7 +426,6 @@ onMounted(async () => {
   font-style: italic;
 }
 
-/* A light band that sweeps across an earned medal, like light catching metal */
 .is-earned .medal::after {
   content: '';
   position: absolute;
@@ -428,27 +434,19 @@ onMounted(async () => {
   transform: translateX(-120%);
 }
 
-/* Motion, only for people who haven't asked their device to reduce it.
-   Everything plays ONCE on load (no endless loops): a badge you earned is a fact, not a live process. */
 @media (prefers-reduced-motion: no-preference) {
-  /* Ring: each earned segment draws itself, one after another */
   .ring-seg.filled {
     animation: ring-draw 0.45s ease-out both;
     animation-delay: calc(var(--i) * 0.15s + 0.1s);
   }
-  /* Earned medals pop in one by one, then catch the light once */
   .badge-tile.is-earned .medal {
     animation: medal-pop 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both;
     animation-delay: calc(var(--i) * 0.12s + 0.2s);
   }
-  /* "backwards" (not "both"): once the sweep ends, the band goes back to its normal
-  off-medal spot, so the hover transition below is free to move it again */
   .badge-tile.is-earned .medal::after {
     animation: medal-shine 0.9s ease-in-out backwards;
     animation-delay: calc(var(--i) * 0.12s + 0.6s);
   }
-  /* Hover: the transition lives only on :hover, so the band glides across when you
-     point at it and snaps back out of sight when you leave */
   .badge-tile.is-earned:hover .medal::after {
     transform: translateX(120%);
     transition: transform 0.9s ease-in-out;

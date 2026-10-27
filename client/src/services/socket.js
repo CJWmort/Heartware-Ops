@@ -5,15 +5,31 @@
 //   socket.on('incident:new', (incident) => { ... })
 //   onUnmounted(() => socket.off('incident:new'))
 import { io } from 'socket.io-client'
-// FIX: removed `import { getToken } from './api'`. That file no longer exists, so importing this module crashed the
-// build. The app uses cookie sessions (no token), so the browser's login cookie is sent instead (withCredentials).
+import axios from 'axios'
 
 let socket = null
 
 export function connectSocket() {
   if (socket) return socket
-  const url = import.meta.env.VITE_SOCKET_URL || undefined // undefined = same origin (Vite proxy)
-  socket = io(url, { withCredentials: true })
+  const url = import.meta.env.VITE_SOCKET_URL || undefined
+  const direct = Boolean(url)
+  // NEW: addTrailingSlash:false makes the client call "/socket.io?..." instead of "/socket.io/?...".
+  // Vercel's "/socket.io/:path*" rewrite does not match the trailing-slash form, so it served index.html
+  // and live updates failed on the deployed site.
+  const options = { withCredentials: true, addTrailingSlash: false }
+  if (direct) {
+    options.auth = async (cb) => {
+      try {
+        const { data } = await axios.get('/api/socket-token')
+        cb({ token: data.token })
+      } catch {
+        cb({})
+      }
+    }
+  } else if (import.meta.env.PROD) {
+    options.transports = ['polling']
+  }
+  socket = io(url, options)
   return socket
 }
 

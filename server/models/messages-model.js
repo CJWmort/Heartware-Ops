@@ -34,8 +34,12 @@ const MessageSchema = new mongoose.Schema(
 const Message = mongoose.model("Message", MessageSchema, "messages");
 
 // Whole conversation, oldest first so it reads top to bottom. Limit stops a huge chat from loading at once.
-exports.retrieveThread = (threadId) =>
-  Message.find({ thread: threadId }).sort({ createdAt: 1 }).limit(200);
+exports.retrieveThread = async (threadId) => {
+  // FIX: take the NEWEST 200 (sort descending) - before, oldest-first + limit hid every message after the 200th
+  const latest = await Message.find({ thread: threadId }).sort({ createdAt: -1 }).limit(200);
+  // flip back to oldest-first so the chat still reads top to bottom
+  return latest.reverse();
+};
 exports.create = (data) => Message.create(data);
 // Latest message of every thread (used for the HQ inbox preview line)
 exports.latestPerThread = () =>
@@ -80,10 +84,4 @@ exports.threadSummary = async (volunteerId) => {
     lastAt: last?.createdAt || null,
     unreadAdmin,
   };
-};
-
-// close chat = delete the whole history. Returns how many messages were deleted. ----
-exports.removeThread = async (volunteerId) => {
-  const result = await Message.deleteMany({ thread: volunteerId });
-  return result.deletedCount;
 };

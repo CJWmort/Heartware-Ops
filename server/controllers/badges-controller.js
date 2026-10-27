@@ -2,7 +2,33 @@ const BADGES = require("../data/badges.json");
 const BadgeAward = require("../models/badge-awards-model"); 
 const BadgeDesign = require("../models/badge-design-model");
 const BadgeOrder = require("../models/badge-order-model");
+const Account = require('../models/account-model')
+const Assignments = require('../models/assignments-model')
 
+function reportingMinutes(text) {
+  const clean = text.toLowerCase().replace(/\s/g, '') 
+  const [h, m] = clean.slice(0,-2).split(':').map(Number) 
+  let minutes = 0
+  if (clean.endsWith('pm')) {
+    if (h < 12) {
+      minutes = (h + 12) * 60 + m 
+    } else {
+      minutes = h * 60 + m 
+    }
+  } else {
+    if (h < 12) {
+      minutes = h * 60 + m  
+    } else {
+      minutes = m
+    }
+  }
+  return minutes
+}
+
+function singaporeMinutes(date) {
+  const [h, m] = date.toLocaleTimeString('en-GB', { timeZone: 'Asia/Singapore', hourCycle: 'h23' }).split(':').map(Number)
+  return h * 60 + m
+}
 
 exports.listBadges = (req, res) => res.json(BADGES);
 
@@ -25,6 +51,9 @@ exports.listMyAwards = async (req, res) => {
 exports.awardBadge = async (req, res) => {
   try {
     const { volunteerIds, badgeCode, event, message } = req.body;  
+    if (!Array.isArray(volunteerIds) || volunteerIds.length === 0) {
+      return res.status(400).json({ message: 'Please choose at least one volunteer.' })
+    }
     const given = [];
     const skipped = [];
 
@@ -111,6 +140,96 @@ exports.listMyOrders = async (req, res) => {
   try {
     const orders = await BadgeOrder.findByVolunteer(req.session.userId)
     res.status(200).json(orders)
+  } catch (error) {
+    res.status(500).json({ message: error.message })
+  }
+}
+
+exports.listAllOrders = async (req, res) => {
+  try {
+    const orders = await BadgeOrder.findAll()
+    res.status(200).json(orders)
+  } catch (error) {
+    res.status(500).json({ message: error.message })
+  }
+}
+
+exports.updateOrderStatus = async (req, res) => {
+  try {
+    const newStatus = req.body.status
+    const order = await BadgeOrder.findById(req.params.id)
+    if (!order) {
+      return res.status(404).json({ message: 'Cannot find order.' })
+    }
+    const current = BadgeOrder.STATUS_LIST.indexOf(order.status)
+    if (order.status === 'delivered') {
+      return res.status(409).json({ message: 'Order is already delivered'})
+    }
+    if (BadgeOrder.STATUS_LIST.indexOf(newStatus) !== current + 1) {
+      return res.status(409).json({ message: 'Current status ' + order.status + ' can only be changed to ' + BadgeOrder.STATUS_LIST[current + 1]})
+    }
+
+    order.status = newStatus
+    await order.save()
+    res.status(200).json(order)
+  } catch (error) {
+    if (error.name === 'CastError'){
+      res.status(400).json({ message: 'That order ID is invalid.'})
+    } else {
+    res.status(500).json({ message: error.message })
+    }
+  }
+}
+
+exports.listVolunteers = async (req, res) => {
+  try {
+    const volunteers = await Account.retrieveVolunteerNames()
+    res.status(200).json(volunteers)
+  } catch (error) {
+    res.status(500).json({ message: error.message })
+  }
+}
+
+exports.autoAward = async (req, res) => {
+  try {
+    const { event } = req.body
+    if (!Assignments.SHOWS.includes(event)) {
+      return res.status(400).json({ message: 'Please choose a show.' })
+    }
+
+    const fullRoute = await Assignments.findFullRoute(event)
+    const EARLY_MINUTES = 30 
+
+    const arrivals = await Assignments.findArrivals(event)
+    const earlyBirds = arrivals.filter(assignment => {
+      const reached = assignment.stageHistory.find(a => a.stage === 1) 
+      return reached && assignment.school && assignment.school.reportingTime && (reportingMinutes /* FIX: skip schools with no reportingTime instead of crashing the whole run */(assignment.school.reportingTime) - singaporeMinutes(reached.at) >= EARLY_MINUTES) 
+    })
+
+    const superSubs = await Assignments.findSuperSubs(event)
+
+    const winners = {
+      FULL_ROUTE: fullRoute.map(assignment => assignment.volunteer), 
+      EARLY_BIRD: earlyBirds.map(a => a.volunteer), 
+      SUPER_SUB: superSubs.map(s => s.volunteer), 
+    }
+
+    const given = { FULL_ROUTE: 0, EARLY_BIRD: 0, SUPER_SUB: 0 }
+    let skipped = 0
+
+    for (const code of Object.keys(winners)) {   
+      for (const volunteerId of winners[code]) {
+        try {
+          await BadgeAward.create({ badge: code, volunteer: volunteerId, event, awardedBy: req.session.userId }) // which badge, who, which show, given by whom?
+          given[code] += 1 
+        } catch (error) {
+          if (error.code === 11000) skipped += 1
+          else throw error
+        }
+      }
+    }
+
+    res.status(200).json({ given, skipped })
   } catch (error) {
     res.status(500).json({ message: error.message })
   }

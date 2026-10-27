@@ -288,6 +288,7 @@ function selectSchool(school) {
 function clearFocus() {
   if (focusedSchoolId.value === null) return // nothing focused: nothing to undo
   focusedSchoolId.value = null
+  limitView()
   resetMapView()
 }
 
@@ -328,12 +329,70 @@ function fitPadding() {
   return { paddingTopLeft: [30, 30], paddingBottomRight: [30, window.innerHeight * 0.45 + 30] } // phone: sheet 45vh
 }
 
+function coveredInsets() {
+  if (focusedSchoolId.value === null) return null
+  const none = { top: 0, left: 0, bottom: 0, right: 0 }
+  if (window.matchMedia('(min-width: 992px)').matches) return { ...none, left: 432 }
+  if (window.matchMedia('(min-width: 768px)').matches) return { ...none, left: 352 }
+  return { ...none, bottom: window.innerHeight * 0.45 }
+}
+
+function limitView(zoom) {
+  if (!map || !L || !baseBounds) return
+  const covered = coveredInsets()
+  if (!covered) {
+    map.setMinZoom(Math.max(11, map.getBoundsZoom(baseBounds, true)))
+    map.setMaxBounds(baseBounds)
+    return
+  }
+  const pad = L.point(covered.left + covered.right, covered.top + covered.bottom)
+  map.setMinZoom(Math.max(11, map.getBoundsZoom(baseBounds, true, pad)))
+  const z = zoom ?? map.getZoom()
+  const sw = map
+    .project(baseBounds.getSouthWest(), z)
+    .add(L.point(-covered.left, covered.bottom))
+  const ne = map
+    .project(baseBounds.getNorthEast(), z)
+    .add(L.point(covered.right, -covered.top))
+  map.setMaxBounds(L.latLngBounds(map.unproject(sw, z), map.unproject(ne, z)))
+}
+
+function cameraFor(pts, padTL, padBR, maxZoom) {
+  const bounds = L.latLngBounds(pts)
+  const zoom = Math.min(map.getBoundsZoom(bounds, false, padTL.add(padBR)), maxZoom)
+  const offset = padBR.subtract(padTL).divideBy(2)
+  const sw = map.project(bounds.getSouthWest(), zoom)
+  const ne = map.project(bounds.getNorthEast(), zoom)
+  const target = map.unproject(sw.add(ne).divideBy(2).add(offset), zoom)
+  return { zoom, target }
+}
+
+function isClear(pt, camera, padTL, padBR) {
+  const size = map.getSize()
+  const p = map
+    .project(pt, camera.zoom)
+    .subtract(map.project(camera.target, camera.zoom))
+    .add(size.divideBy(2))
+  return p.x >= padTL.x && p.x <= size.x - padBR.x && p.y >= padTL.y && p.y <= size.y - padBR.y
+}
+
 // Zoom the map so the school and all of its volunteers are visible (but never closer than zoom level 15).
 function focusSchool(school) {
   if (!map || !L || !school.lat || !school.lng) return // map not ready, or the school has no coordinates
   const pts = [[school.lat, school.lng]]
   for (const v of school.volunteers) if (v.lat && v.lng) pts.push([v.lat, v.lng])
-  map.fitBounds(pts, { ...fitPadding(), maxZoom: 15 }) // padding keeps the pins clear of the focus card
+  limitView()
+  const pad = fitPadding()
+  const tl = pad.paddingTopLeft ?? pad.padding
+  const br = pad.paddingBottomRight ?? pad.padding
+  const padTL = L.point(tl[0], tl[1])
+  const padBR = L.point(br[0], br[1])
+  let camera = cameraFor(pts, padTL, padBR, 15)
+  if (!isClear([school.lat, school.lng], camera, padTL, padBR)) {
+    camera = cameraFor([[school.lat, school.lng]], padTL, padBR, 15)
+  }
+  limitView(camera.zoom)
+  map.setView(camera.target, camera.zoom)
 }
 
 // One small badge per status for the collapsed card, e.g. "3 Accepted". Statuses with zero volunteers are skipped.
@@ -362,7 +421,8 @@ function statusSummary(school) {
 async function loadData(quiet = false) {
   try {
     const response = await axios.get(API_URL + 'assignments')
-    assignments.value = response.data
+    // FIX: only replace the data when it really changed. A new array every 5 s redrew every map pin and closed open tooltips.
+    if (JSON.stringify(response.data) !== JSON.stringify(assignments.value)) assignments.value = response.data
   } catch (error) {
     if (!quiet)
       showPopup('error', 'Could not load', error.response?.data?.message || 'Could not load assignments.')
@@ -379,14 +439,14 @@ async function runAllocation(reset = false) {
   const ok = await askConfirm(
     reset
       ? {
-          title: 'Reset all assignments?',
-          text: 'This erases ALL assignments, including volunteers who already accepted, and starts again.',
+          title: `Reset ${selectedShow.value}?`,
+          text: `This erases ALL assignments for ${selectedShow.value}, including volunteers who already accepted. Other shows are not affected.`,
           confirmText: 'Reset',
           danger: true,
         }
       : {
-          title: 'Run allocation?',
-          text: 'Volunteers who already accepted keep their school; everyone else is matched again.',
+          title: `Allocate ${selectedShow.value}?`,
+          text: 'Volunteers who already accepted keep their school; everyone else in this show is matched again.',
           confirmText: 'Allocate',
           icon: 'bi-diagram-3-fill',
         },
@@ -395,19 +455,26 @@ async function runAllocation(reset = false) {
   runningAlloc.value = true
   dismissPopup()
   try {
-    const response = await axios.post(API_URL + 'assignments/run', { reset })
+    const response = await axios.post(API_URL + 'assignments/run', { reset, show: selectedShow.value }) // CHANGED: send the selected show so only that one is touched
     // The run answers { assignments, skippedShows }: published shows are locked and not re-run
     assignments.value = response.data.assignments
     const skipped = response.data.skippedShows || []
+    // NEW: how many late volunteers the server added to each published show, e.g. { 'NE Show 1': { added: 2, placed: 1 } }
+    const toppedUp = response.data.toppedUp || {}
+    // One short sentence per show, e.g. "NE Show 1: 2 late volunteers added (1 placed, 1 on reserve)"
+    const lateNotes = Object.entries(toppedUp)
+      .filter(([, t]) => t.added > 0) // skip shows where nobody was late
+      .map(([show, t]) => `${show}: ${t.added} late volunteer${t.added === 1 ? '' : 's'} added (${t.placed} placed, ${t.added - t.placed} on reserve)`)
+    const lateText = lateNotes.length > 0 ? ' ' + lateNotes.join('. ') + '.' : '' // empty when nobody was late
     if (skipped.length > 0) {
       showPopup(
         'info',
         'Allocation done',
-        `${skipped.join(', ')} ${skipped.length === 1 ? 'is' : 'are'} published, so ${skipped.length === 1 ? 'it was' : 'they were'} not re-run (open places there are filled automatically). Use Reset to start over.`,
+        `${skipped.join(', ')} ${skipped.length === 1 ? 'is' : 'are'} published, so ${skipped.length === 1 ? 'it was' : 'they were'} not re-run (open places there are filled automatically).${lateText} Use Reset to start over.`,
         9000,
       )
     } else {
-      showPopup('info', reset ? 'Reset done' : 'Allocation done', reset ? 'All assignments were erased.' : 'The allocation is a draft until you publish it.')
+      showPopup('info', reset ? 'Reset done' : 'Allocation done', reset ? `All assignments for ${selectedShow.value} were erased.` : 'The allocation is a draft until you publish it.')
     }
   } catch (error) {
     showPopup('error', 'Allocation failed', error.response?.data?.message || 'Could not run the allocation.')
@@ -467,6 +534,7 @@ let markersGroup = null
 let linesGroup = null
 let volGroup = null
 let homeView = null
+let baseBounds = null
 let schoolMarkers = {} // schoolId -> its Leaflet marker, so a focus change can restyle pins without redrawing them all
 
 // Zoom the map so EVERY school of the selected show is visible and centred,
@@ -486,6 +554,9 @@ function onMapReady(m, leaflet) {
   map = m
   L = leaflet
   map.zoomControl?.setPosition('bottomright') // move +/- buttons to the bottom right (as in TrackingView)
+  baseBounds = map.options.maxBounds
+  map.options.zoomSnap = 0.25
+  map.on('zoomend resize', () => limitView())
   homeView = { center: m.getCenter(), zoom: m.getZoom() } // temporary starting view, replaced by fitOverview() below
 
   markersGroup = L.layerGroup().addTo(map)
@@ -580,6 +651,7 @@ watch(focusedSchoolId, () => {
 // (Declared before the refit watcher below so the refit sees focusedSchoolId = null.)
 watch(selectedShow, () => {
   focusedSchoolId.value = null
+  limitView()
 })
 // Refit the overview ONLY the first time, or when the admin picks a different show (and never while a school
 // is zoomed in). A background refresh replaces `assignments` too, but must not make the map jump,
@@ -698,10 +770,12 @@ loadData()
             <div class="alloc-actions d-flex flex-wrap align-items-center gap-2">
               <!-- Allocate: matches unassigned volunteers to schools (draft only, nothing is visible to volunteers yet).
                    Disabled while a run is in progress. title = the tooltip shown on hover. -->
+              <!-- E2E: data-testid="alloc-run" lets the Allocation test press this button -->
               <button
                 class="btn btn-brand"
                 :disabled="runningAlloc"
                 title="Match unassigned volunteers; accepted volunteers keep their school"
+                data-testid="alloc-run"
                 @click="runAllocation(false)"
               >
                 Allocate
@@ -715,7 +789,8 @@ loadData()
                 <!-- Publish: makes the selected show visible to volunteers. Disabled while publishing, or when there are
                      no drafts to publish. The number on the badge is draftCount (unpublished rows in this show). -->
                 Publish
-                <span class="badge text-bg-light ms-1" title="Unpublished drafts">{{
+                <!-- E2E: data-testid="alloc-draft-count" lets the test read how many drafts are waiting -->
+                <span class="badge text-bg-light ms-1" title="Unpublished drafts" data-testid="alloc-draft-count">{{
                   draftCount
                 }}</span>
               </button>
@@ -1048,6 +1123,13 @@ loadData()
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
   gap: 8px;
+}
+/* Tablets and larger: always exactly 2 columns (roomier cards, names are not cut off).
+   Phones (under 768px) keep the rule above, so the phone layout is unchanged */
+@media (min-width: 768px) {
+  .alloc-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)); /* minmax(0, ...) lets long names shrink and truncate instead of stretching the card */
+  }
 }
 .school-card {
   cursor: pointer;

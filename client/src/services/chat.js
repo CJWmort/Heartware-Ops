@@ -6,7 +6,6 @@ import { defineStore } from 'pinia'
 import { useAuthStore } from '@/services/auth'
 import { connectSocket, disconnectSocket } from '@/services/socket'
 import {
-  closeThread,
   getReadState,
   getUnreadCount,
   listMessages,
@@ -207,21 +206,6 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  // Admin only: closes the open chat and deletes its whole history
-  async function closeChat() {
-    if (!activeId.value) return false
-    const id = activeId.value
-    try {
-      await closeThread(id)
-      onThreadClosed({ volunteerId: id })
-      backToList()
-      return true
-    } catch (e) {
-      error.value = e.friendlyMessage
-      return false
-    }
-  }
-
   // Called on every keystroke; only tells the server about once every 2 seconds
   function notifyTyping() {
     if (!socket || Date.now() - lastTypingSent < 2000) return
@@ -259,27 +243,6 @@ export const useChatStore = defineStore('chat', () => {
     sortThreads()
   }
 
-  function onThreadClosed({ volunteerId }) {
-    const vid = String(volunteerId)
-    delete lastReadSent[vid]
-    if (isAdmin.value) {
-      const thread = threads.value.find((t) => t.volunteerId === vid)
-      if (thread) Object.assign(thread, { lastText: '', lastAt: null, unreadAdmin: 0 })
-      sortThreads()
-      if (activeId.value === vid) {
-        messages.value = []
-        otherReadAt.value = null
-        notice.value = 'This chat was closed. Send a message to start a new one.'
-      }
-    } else {
-      delete lastReadSent.self
-      messages.value = []
-      otherReadAt.value = null
-      unreadVolunteer.value = 0
-      notice.value = 'HQ closed this chat. Send a message to start a new one.'
-    }
-  }
-
   // The other side is typing; hide the indicator again after 3 quiet seconds
   function onTyping({ volunteerId, role }) {
     if (!matchesActive(volunteerId)) return
@@ -308,7 +271,6 @@ export const useChatStore = defineStore('chat', () => {
   const handlers = {
     'message:new': onMessageNew,
     'thread:updated': onThreadUpdated,
-    'thread:closed': onThreadClosed,
     typing: onTyping,
     'read:update': onReadUpdate,
     'presence:update': onPresenceUpdate,
@@ -371,7 +333,6 @@ export const useChatStore = defineStore('chat', () => {
     selectThread,
     backToList,
     send,
-    closeChat,
     notifyTyping,
     start,
     stop,

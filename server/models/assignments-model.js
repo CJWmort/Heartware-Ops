@@ -1,6 +1,6 @@
 const mongoose = require("mongoose");
-const Schools = require('./schools-model');
-const Account = require('./account-model');
+const Schools = require("./schools-model");
+const Account = require("./account-model");
 const CONFIRMED_STATUS = "Accepted"; // The status that counts as volunteer accepted the allocation
 // FIX (security): .populate("volunteer") used to copy the WHOLE account into the response, including the
 // password hash. We now list only the fields the admin board needs (lat/lng are for the map).
@@ -10,6 +10,10 @@ const VOLUNTEER_FIELDS = "name phone email postalCode address lat lng";
 // 0 = nothing clocked yet, 1..8 = the checkpoints (the names live in client/src/utils/constants.js, JOURNEY_STAGES).
 // Each assignment (= one volunteer in one NE Show) has its own run, because the shows are on different dates.
 const MAX_STAGE = 8;
+
+// NEW: how long a volunteer has to answer a Pending offer before it lapses (see utils/expire-pending.js)
+const PENDING_HOURS = 24;
+const pendingDeadline = () => new Date(Date.now() + PENDING_HOURS * 60 * 60 * 1000); // now + 24 hours
 
 // Today's date in Singapore as "YYYY-MM-DD". Stages reset at midnight Singapore time: a stage saved on an earlier
 // day is simply read as 0 (see effectiveStage), so no scheduled job is needed.
@@ -67,6 +71,10 @@ const AssignmentsSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
+  // NEW: when this Pending offer lapses. Rows without it (published before this change, or not Pending) never expire.
+  expiresAt: {
+    type: Date,
+  },
   // why the volunteer declined or pulled out (only set when status is 'Declined' or 'Withdrawn')
   withdrawReason: {
     type: String,
@@ -85,13 +93,23 @@ const AssignmentsSchema = new mongoose.Schema({
     type: String, // "YYYY-MM-DD" in Singapore time
   },
   stageHistory: {
-    type: [{ stage: { type: Number, min: 1, max: MAX_STAGE }, at: { type: Date, default: Date.now }, _id: false }],
+    type: [
+      {
+        stage: { type: Number, min: 1, max: MAX_STAGE },
+        at: { type: Date, default: Date.now },
+        _id: false,
+      },
+    ],
     default: [],
   },
   updatedAt: {
     type: Date,
     required: true,
     default: Date.now,
+  },
+  fromReserve: {
+    type: Boolean,
+    default: false,
   },
 });
 
@@ -103,15 +121,12 @@ AssignmentsSchema.index({ school: 1 });
 // 'assignment' refer to the 'assignments' collection in our database
 const Assignments = mongoose.model("Assignments", AssignmentsSchema, "assignments");
 
-
 // ===== DELETE =====
 
-// Remove every assignment. Run this before createMany() when re-running the
-// allocation, otherwise the unique (volunteer, show) index rejects the new ones.
-exports.deleteAll = function () {
-  return Assignments.deleteMany({});
+// CHANGED: optional show. No show = wipe everything (old behaviour); a show = wipe only that show's rows.
+exports.deleteAll = function (show = null) {
+  return Assignments.deleteMany(show ? { show } : {});
 };
-
 
 // NEW (re-run safety): assignments that must SURVIVE a re-run, because the volunteer already gave a
 // final answer (Accepted, Declined or Withdrawn). The controller keeps these and only fills what is left.
@@ -121,11 +136,10 @@ exports.findKept = function () {
     .lean(); // plain objects: faster, and we never save them back
 };
 
-// NEW (re-run safety): delete ONLY what a re-run recalculates (Pending and Reserve).
-// Accepted / Declined / Withdrawn rows are left alone, so nobody who accepted is ever re-assigned.
-// excludeShows: published shows are locked (see publishedShows), so a re-run never deletes their rows
-exports.deleteReplaceable = function (excludeShows = []) {
-  return Assignments.deleteMany({ status: { $in: ["Pending", "Reserve"] }, show: { $nin: excludeShows } });
+// CHANGED: was "delete Pending/Reserve everywhere EXCEPT these shows".
+// Now "delete Pending/Reserve ONLY in these shows", so running one show can never touch another.
+exports.deleteReplaceable = function (shows) {
+  return Assignments.deleteMany({ status: { $in: ["Pending", "Reserve"] }, show: { $in: shows } });
 };
 
 // Shows that have at least one published row. Run Allocations skips these: re-running would delete the
@@ -133,7 +147,6 @@ exports.deleteReplaceable = function (excludeShows = []) {
 exports.publishedShows = function () {
   return Assignments.distinct("show", { published: true });
 };
-
 
 // ===== CREATE =====
 
@@ -143,7 +156,12 @@ exports.validateMany = function (assignments) {
   const problems = [];
   for (const record of assignments) {
     const error = new Assignments(record).validateSync();
-    if (error) problems.push(Object.values(error.errors).map((e) => e.message).join("; "));
+    if (error)
+      problems.push(
+        Object.values(error.errors)
+          .map((e) => e.message)
+          .join("; "),
+      );
   }
   return problems;
 };
@@ -154,27 +172,38 @@ exports.createMany = function (assignments) {
   return Assignments.insertMany(assignments);
 };
 
-
 // ===== READ =====
 
 // Fetch all assignments, newest first
 exports.retrieveAll = function () {
-  return Assignments.find().populate("school").populate("volunteer", VOLUNTEER_FIELDS).sort({ _id: -1 }); // volunteer limited: no password hash
+  return Assignments.find()
+    .populate("school")
+    .populate("volunteer", VOLUNTEER_FIELDS)
+    .sort({ _id: -1 }); // volunteer limited: no password hash
 };
 
 // Fetch all assignments of a volunteer (across shows)
 exports.findByVolunteer = function (volunteerId) {
-  return Assignments.find({ volunteer: volunteerId }).populate("school").populate("volunteer", VOLUNTEER_FIELDS).sort({ show: 1 }); // volunteer limited: no password hash
+  return Assignments.find({ volunteer: volunteerId })
+    .populate("school")
+    .populate("volunteer", VOLUNTEER_FIELDS)
+    .sort({ show: 1 }); // volunteer limited: no password hash
 };
 
 // Fetch all assignments of a school, optionally only one status
 exports.findBySchool = function (schoolId) {
-  return Assignments.find({ school: schoolId }).populate("school").populate("volunteer", VOLUNTEER_FIELDS).sort({ _id: 1 }); // volunteer limited: no password hash
+  return Assignments.find({ school: schoolId })
+    .populate("school")
+    .populate("volunteer", VOLUNTEER_FIELDS)
+    .sort({ _id: 1 }); // volunteer limited: no password hash
 };
 
 // Fetch all assignments in a show (e.g. 'NE Show 1')
 exports.findByShow = function (show) {
-  return Assignments.find({ show: show.trim() }).populate("school").populate("volunteer", VOLUNTEER_FIELDS).sort({ show: 1 }); // volunteer limited: no password hash
+  return Assignments.find({ show: show.trim() })
+    .populate("school")
+    .populate("volunteer", VOLUNTEER_FIELDS)
+    .sort({ show: 1 }); // volunteer limited: no password hash
 };
 
 // True if the volunteer has at least one "Accepted" assignment (any show) - Jun Wen
@@ -186,9 +215,10 @@ exports.hasConfirmed = async function (volunteerId) {
 // Volunteer is not populated so the account (and password hash) is never sent back.
 exports.findMine = function (volunteerId) {
   // published: true -> a volunteer never sees a draft allocation the admin has not released yet
-  return Assignments.find({ volunteer: volunteerId, published: true }).populate("school").sort({ show: 1 });
+  return Assignments.find({ volunteer: volunteerId, published: true })
+    .populate("school")
+    .sort({ show: 1 });
 };
-
 
 // ===== UPDATE =====
 
@@ -200,7 +230,7 @@ exports.acceptMine = function (assignmentId, volunteerId) {
     // published: true -> cannot accept a draft (e.g. from a stale page or a hand-made request)
     { _id: assignmentId, volunteer: volunteerId, status: "Pending", published: true },
     { status: "Accepted" },
-    { new: true, runValidators: true } // return the updated doc
+    { new: true, runValidators: true }, // return the updated doc
   ).populate("school");
 };
 
@@ -210,16 +240,18 @@ exports.acceptMine = function (assignmentId, volunteerId) {
 exports.declineMine = function (assignmentId, volunteerId) {
   return Assignments.findOneAndDelete(
     // published: true -> same reason as accept: only a released assignment can be answered
-    { _id: assignmentId, volunteer: volunteerId, status: "Pending", published: true }
+    { _id: assignmentId, volunteer: volunteerId, status: "Pending", published: true },
   ).populate("school");
 };
 
 // Volunteer withdraws from a show they had already accepted: the row is DELETED and returned.
 // Only matches if it belongs to this volunteer and is 'Accepted', so returns null otherwise.
 exports.withdrawMine = function (assignmentId, volunteerId) {
-  return Assignments.findOneAndDelete(
-    { _id: assignmentId, volunteer: volunteerId, status: "Accepted" }
-  ).populate("school");
+  return Assignments.findOneAndDelete({
+    _id: assignmentId,
+    volunteer: volunteerId,
+    status: "Accepted",
+  }).populate("school");
 };
 
 // Put back a row that was just deleted (used if logging the decline / withdrawal failed)
@@ -227,11 +259,14 @@ exports.restore = function (assignment) {
   return Assignments.create(assignment);
 };
 
-
 // NEW (availability change): which of these shows has this volunteer ALREADY ACCEPTED? Returns e.g. ["NE Show 2"].
 // Used to block the volunteer from unticking a show they are committed to.
 exports.acceptedShowsAmong = async function (volunteerId, shows) {
-  const rows = await Assignments.find({ volunteer: volunteerId, show: { $in: shows }, status: CONFIRMED_STATUS }).select("show");
+  const rows = await Assignments.find({
+    volunteer: volunteerId,
+    show: { $in: shows },
+    status: CONFIRMED_STATUS,
+  }).select("show");
   return rows.map((r) => r.show);
 };
 
@@ -239,7 +274,11 @@ exports.acceptedShowsAmong = async function (volunteerId, shows) {
 // waiting for an answer (Pending) or on the reserve list. That frees the school place for the next allocation run.
 // Declined / Withdrawn rows are kept on purpose: they are the history of what the volunteer answered.
 exports.deleteOpenForShows = function (volunteerId, shows) {
-  return Assignments.deleteMany({ volunteer: volunteerId, show: { $in: shows }, status: { $in: ["Pending", "Reserve"] } });
+  return Assignments.deleteMany({
+    volunteer: volunteerId,
+    show: { $in: shows },
+    status: { $in: ["Pending", "Reserve"] },
+  });
 };
 
 // NEW (availability change): the volunteer ticked shows that are already PUBLISHED, so put them on those shows'
@@ -271,10 +310,31 @@ exports.addToReserve = function (volunteerId, name, shows, publishedShows = []) 
 
 // NEW (publish step): release the draft to volunteers. show = "NE Show 1" publishes that show only,
 // null publishes every show. $ne: true also catches old rows that have no "published" field at all.
-exports.publish = function (show) {
+// CHANGED: Pending rows also get a deadline (24h from now) at the moment they are released. Reserve rows have none.
+exports.publish = async function (show) {
   const filter = { published: { $ne: true } };
   if (show) filter.show = show;
-  return Assignments.updateMany(filter, { $set: { published: true } });
+  const pending = await Assignments.updateMany(
+    { ...filter, status: "Pending" },
+    { $set: { published: true, expiresAt: pendingDeadline() } }, // released + the 24h clock starts
+  );
+  const rest = await Assignments.updateMany(filter, { $set: { published: true } }); // everything else is just released
+  return { modifiedCount: pending.modifiedCount + rest.modifiedCount }; // same shape the controller already reads
+};
+
+// NEW: offers that ran out of time = Pending, released, deadline already in the past
+exports.findOverduePending = function () {
+  return Assignments.find({ status: "Pending", published: true, expiresAt: { $lt: new Date() } }).select("_id");
+};
+
+// NEW: delete ONE overdue offer and return it (school filled in). The filter re-checks "still Pending and still
+// overdue", so if the volunteer accepts at the same moment, accept wins and nothing is deleted (returns null).
+exports.deleteIfOverdue = function (rowId) {
+  return Assignments.findOneAndDelete({
+    _id: rowId,
+    status: "Pending",
+    expiresAt: { $lt: new Date() },
+  }).populate("school");
 };
 
 // How many rows of a show (or all shows) are still drafts - lets the board show "N unpublished".
@@ -283,7 +343,6 @@ exports.countDrafts = function (show) {
   if (show) filter.show = show;
   return Assignments.countDocuments(filter);
 };
-
 
 // ===== JOURNEY STAGES =====
 
@@ -310,7 +369,8 @@ exports.advanceStage = async function (volunteerId, show, expected) {
   if (!row) return { problem: "none" };
 
   const current = effectiveStage(row);
-  if (expected !== current + 1 || expected > MAX_STAGE) return { problem: "conflict", stage: current };
+  if (expected !== current + 1 || expected > MAX_STAGE)
+    return { problem: "conflict", stage: current };
 
   const today = todaySG();
   const entry = { stage: expected, at: new Date() };
@@ -320,17 +380,21 @@ exports.advanceStage = async function (volunteerId, show, expected) {
     updated = await Assignments.findOneAndUpdate(
       { _id: row._id, $or: [{ stageDate: { $ne: today } }, { stage: 0 }] },
       { $set: { stage: 1, stageDate: today, stageHistory: [entry] } },
-      { new: true }
+      { new: true },
     );
   } else {
     // The filter pins the stage we just read, so two taps at the same moment cannot both succeed
     updated = await Assignments.findOneAndUpdate(
       { _id: row._id, stageDate: today, stage: current },
       { $set: { stage: expected }, $push: { stageHistory: entry } },
-      { new: true }
+      { new: true },
     );
   }
-  if (!updated) return { problem: "conflict", stage: effectiveStage((await Assignments.findById(row._id)) || row) };
+  if (!updated)
+    return {
+      problem: "conflict",
+      stage: effectiveStage((await Assignments.findById(row._id)) || row),
+    };
   return { assignment: updated };
 };
 
@@ -347,14 +411,44 @@ exports.undoStage = async function (volunteerId, show, from) {
   const updated = await Assignments.findOneAndUpdate(
     { _id: row._id, stageDate: todaySG(), stage: current },
     { $set: { stage: current - 1 }, $pop: { stageHistory: 1 } },
-    { new: true }
+    { new: true },
   );
-  if (!updated) return { problem: "conflict", stage: effectiveStage((await Assignments.findById(row._id)) || row) };
+  if (!updated)
+    return {
+      problem: "conflict",
+      stage: effectiveStage((await Assignments.findById(row._id)) || row),
+    };
   return { assignment: updated };
 };
 
 exports.MAX_STAGE = MAX_STAGE;
+exports.PENDING_HOURS = PENDING_HOURS; // NEW
 
+// Full Route badge - Hanafi
+exports.findFullRoute = function (show) {
+  return Assignments.find({ show: show, status: CONFIRMED_STATUS, stage: MAX_STAGE }).select(
+    "volunteer",
+  );
+};
+
+// Early Bird badge - Hanafi
+exports.findArrivals = function (show) {
+  return Assignments.find({ show: show, status: CONFIRMED_STATUS, stage: { $gte: 1 } })
+    .select("volunteer school stageHistory")
+    .populate("school", "reportingTime");
+};
+
+//Super Sub badge - Hanafi
+exports.findSuperSubs = function (show) {
+  return Assignments.find({
+    show: show,
+    status: CONFIRMED_STATUS,
+    fromReserve: true,
+    stage: { $gte: 1 },
+  })
+    .select("volunteer school stageHistory")
+    .populate("school", "reportingTime");
+};
 
 // ===== LIVE BOARD ===== - Jun Wen
 
@@ -372,7 +466,9 @@ exports.findBoard = function (show) {
     { $unwind: "$account" },
     { $lookup: { from: "schools", localField: "school", foreignField: "_id", as: "sch" } },
     { $unwind: { path: "$sch", preserveNullAndEmptyArrays: true } }, // keep the volunteer even if the school is missing
-    { $lookup: { from: "locations", localField: "volunteer", foreignField: "volunteer", as: "loc" } },
+    {
+      $lookup: { from: "locations", localField: "volunteer", foreignField: "volunteer", as: "loc" },
+    },
     { $unwind: { path: "$loc", preserveNullAndEmptyArrays: true } }, // keep volunteers with no location
     {
       $project: {
@@ -390,13 +486,20 @@ exports.findBoard = function (show) {
         accuracy: "$loc.accuracy",
         updatedAt: "$loc.updatedAt",
         stage: { $cond: [{ $eq: ["$stageDate", today] }, { $ifNull: ["$stage", 0] }, 0] },
-        stageHistory: { $cond: [{ $eq: ["$stageDate", today] }, { $ifNull: ["$stageHistory", []] }, []] },
+        stageHistory: {
+          $cond: [{ $eq: ["$stageDate", today] }, { $ifNull: ["$stageHistory", []] }, []],
+        },
       },
     },
     { $sort: { name: 1 } },
   ]);
-}
+};
 
+// NEW: ids of every volunteer who already has ANY row (Pending/Accepted/Reserve) in this show.
+// Used to tell who is a "late newcomer" (signed up after the allocation was made).
+exports.volunteerIdsWithRow = function (show) {
+  return Assignments.distinct("volunteer", { show }); // distinct = list each volunteer id once
+};
 
 // ===== AUTOMATIC REPLACEMENTS (used by utils/reserve-replacement.js) =====
 
@@ -443,15 +546,33 @@ exports.findReserves = async function (show) {
 exports.fillFromReserve = async function (rowId, schoolId, distanceKm) {
   const row = await Assignments.findOneAndUpdate(
     { _id: rowId, status: "Reserve" },
-    { $set: { school: schoolId, status: "Pending", published: true, distance: distanceKm } },
-    { new: true, runValidators: true }
+    {
+      $set: {
+        school: schoolId,
+        status: "Pending",
+        published: true,
+        distance: distanceKm,
+        fromReserve: true,
+        expiresAt: pendingDeadline(), // NEW: a replacement from Reserve also gets a fresh 24 hours to answer
+      },
+    },
+    { new: true, runValidators: true },
   );
   if (!row) return { problem: "taken" };
 
-  const school = (await Schools.findByShow(row.show).lean()).find((s) => String(s._id) === String(schoolId));
-  const holding = await Assignments.countDocuments({ show: row.show, school: schoolId, status: { $in: ["Pending", CONFIRMED_STATUS] } });
+  const school = (await Schools.findByShow(row.show).lean()).find(
+    (s) => String(s._id) === String(schoolId),
+  );
+  const holding = await Assignments.countDocuments({
+    show: row.show,
+    school: schoolId,
+    status: { $in: ["Pending", CONFIRMED_STATUS] },
+  });
   if (!school || holding > school.p5Classes) {
-    await Assignments.updateOne({ _id: row._id }, { $set: { status: "Reserve", school: null, distance: null } });
+    await Assignments.updateOne(
+      { _id: row._id },
+      { $set: { status: "Reserve", school: null, distance: null, fromReserve: false } },
+    );
     return { problem: "full" };
   }
   return { assignment: row };

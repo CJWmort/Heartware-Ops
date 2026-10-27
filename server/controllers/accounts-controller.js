@@ -7,6 +7,7 @@ const { replaceFromReserve } = require("../utils/reserve-replacement"); // ADDED
 const bcrypt = require("bcrypt");
 const otp = require("../utils/otp"); // email verification codes (Brevo)
 const Assignments = require("../models/assignments-model"); // NEW: needed to tidy allocations when availability changes
+const { disconnectUser } = require("../sockets"); // NEW: close live connections on logout
 
 // NEW (availability change): FIX for "stale allocations". Before, a volunteer could untick a show AFTER being allocated
 // to it, and the allocation stayed, so the school place was held by someone who said they could not come.
@@ -54,14 +55,32 @@ exports.userCreate = async (req, res) => {
       return res.status(400).json({ message: "Please agree to location sharing to sign up." });
     }
     // Volunteers must have verified their email with the 6-digit code first
-    if (!otp.useVerifiedEmail(email)) {
+    // FIX: only CHECK here; the code is used up after the account is really saved (see below)
+    if (!otp.isVerifiedEmail(email)) {
       return res
         .status(400)
         .json({ message: "Please verify your email with the 6-digit code first." });
     }
+    // NEW: enforce the same password rules as the sign-up form on the server too (the browser check can be bypassed,
+    // and a missing password would make bcrypt crash with a vague 500)
+    const strong =
+      typeof password === "string" && password.length >= 8 && /[A-Z]/.test(password) &&
+      /[a-z]/.test(password) && /\d/.test(password) && /[^A-Za-z0-9\s]/.test(password);
+    if (!strong) {
+      return res.status(400).json({
+        message: "Password must be 8+ characters with an uppercase letter, lowercase letter, number and special character.",
+      });
+    }
     // Hash before saving, never store the plain password
     const hashedPassword = await bcrypt.hash(password, 10);
-    const coordinates = await onemap.geocodePostal(postalCode);
+    // FIX: if OneMap itself is down this used to throw and the volunteer saw a vague "Could not create account."
+    let coordinates;
+    try {
+      coordinates = await onemap.geocodePostal(postalCode);
+    } catch (oneMapError) {
+      console.error("Postal geocode failed:", oneMapError.message);
+      return res.status(502).json({ message: "Could not reach OneMap. Please try again in a few minutes." });
+    }
     // FIX: OneMap can find nothing for a postal code; before, `coordinates.lat` below crashed and the user saw a vague 500
     if (!coordinates) {
       return res
@@ -81,6 +100,8 @@ exports.userCreate = async (req, res) => {
       lat: coordinates.lat,
       lng: coordinates.lng,
     });
+
+    otp.useVerifiedEmail(email); // NOW use up the verification: the account exists, so the code cannot be reused
 
     // Send back only safe fields, never the password hash
     res.status(201).json({
@@ -133,7 +154,9 @@ exports.login = async (req, res) => {
 };
 
 exports.logout = (req, res) => {
+  const userId = req.session?.userId; // NEW: read it BEFORE the session is destroyed
   req.session.destroy(() => {
+    if (userId) disconnectUser(userId); // NEW: close their live connections as well
     res.clearCookie("connect.sid");
     res.json({ message: "Logged out" });
   });
@@ -272,7 +295,7 @@ exports.postalLookup = async (req, res) => {
     res.json(place);
   } catch (error) {
     console.error("Postal lookup failed:", error.message);
-    res.status(502).json({ message: "Could not reach OneMap. Please type your address." });
+    res.status(502).json({ message: "Could not reach OneMap. Please try again in a few minutes." });
   }
 };
 
@@ -287,7 +310,7 @@ exports.addressSearch = async (req, res) => {
     res.json(await onemap.searchAddress(q));
   } catch (error) {
     console.error("Address search failed:", error.message);
-    res.status(502).json({ message: "Could not reach OneMap. Please type your address." });
+    res.status(502).json({ message: "Could not reach OneMap. Please try again in a few minutes." });
   }
 };
 

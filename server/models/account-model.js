@@ -6,7 +6,6 @@ const AccountSchema = new mongoose.Schema(
     name: {
       type: String,
       required: true,
-      unique: true,
       trim: true,
     },
     email: {
@@ -50,19 +49,21 @@ const AccountSchema = new mongoose.Schema(
     // Log of shows the volunteer declined or withdrew from. Their assignment is deleted,
     // so this is the only record of where they were going and why they left.
     withdrawnShows: {
-        // one entry per show they declined or withdrew from (written by logWithdrawnShow)
-        type: [{
-            _id: false,                                                      // entries need no id of their own
-            showId: { type: mongoose.Schema.Types.ObjectId, ref: 'Shows' }, // _id in the shows collection
-            show: { type: String, required: true },                          // e.g. "NE Show 2"
-            reportingDate: { type: String },                                 // show date, e.g. "2027-07-03"
-            reportingTime: { type: String },                                 // school's reporting time, e.g. "1:30pm"
-            reportingLocation: { type: String },                             // school name, e.g. "Xingnan Primary School"
-            status: { type: String, enum: ['Declined', 'Withdrawn'], required: true },
-            reason: { type: String, trim: true, maxlength: 300 },
-            at: { type: Date, default: Date.now }                            // when they declined / withdrew
-        }],
-        default: []
+      // one entry per show they declined or withdrew from (written by logWithdrawnShow)
+      type: [
+        {
+          _id: false, // entries need no id of their own
+          showId: { type: mongoose.Schema.Types.ObjectId, ref: "Shows" }, // _id in the shows collection
+          show: { type: String, required: true }, // e.g. "NE Show 2"
+          reportingDate: { type: String }, // show date, e.g. "2027-07-03"
+          reportingTime: { type: String }, // school's reporting time, e.g. "1:30pm"
+          reportingLocation: { type: String }, // school name, e.g. "Xingnan Primary School"
+          status: { type: String, enum: ["Declined", "Withdrawn"], required: true },
+          reason: { type: String, trim: true, maxlength: 300 },
+          at: { type: Date, default: Date.now }, // when they declined / withdrew
+        },
+      ],
+      default: [],
     },
     // NEW: when the volunteer ticked the location-sharing consent box at sign up (not required, so old accounts still load)
     locationConsentAt: {
@@ -127,14 +128,14 @@ exports.removeAvailableShows = function (id, shows) {
 // Volunteer declined / withdrew from a show: add the log entry AND stop them being available
 // for that show, in one update (so the two can never disagree)
 exports.logWithdrawnShow = function (id, entry) {
-    return Account.findByIdAndUpdate(
-        id,
-        {
-            $push: { withdrawnShows: entry },
-            $pull: { availableShows: entry.show }
-        },
-        { new: true, runValidators: true } // return the updated doc
-    ).select('-password');
+  return Account.findByIdAndUpdate(
+    id,
+    {
+      $push: { withdrawnShows: entry },
+      $pull: { availableShows: entry.show },
+    },
+    { new: true, runValidators: true }, // return the updated doc
+  ).select("-password");
 };
 
 // in account-model.js
@@ -146,3 +147,10 @@ exports.findVolunteersByShow = function (show) {
 exports.findByPhone = function (phone) {
   return Account.findOne({ phone: String(phone).replace(/\s+/g, "") });
 };
+
+// .collation() from AI
+exports.retrieveVolunteerNames = () =>
+  Account.find({ role: "volunteer" })
+    .select("name email")
+    .sort({ name: 1 })
+    .collation({ locale: "en" });

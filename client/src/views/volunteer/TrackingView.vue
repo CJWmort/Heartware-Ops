@@ -296,7 +296,6 @@ let routeLine = null // the drawn route polyline
 let routeRenderer = null // shared canvas renderer for route lines
 let routeLabel = null // "xx min" pill sitting on the route
 let schoolMarker = null // badge for the allocated school of the selected show
-let schoolLine = null // dashed line from the volunteer to that school
 
 let firstFix = true // true until the first GPS position arrives
 let lastRouteLoc = null // where the route was last fetched from
@@ -387,15 +386,12 @@ function placeRouteLabel(coords, minutes) {
 /* Map setup                                                           */
 /* ------------------------------------------------------------------ */
 
-// Shows the allocated school of the selected show, with a dashed line from the
-// volunteer. The camera is never moved.
+// Shows the allocated school of the selected show. The camera is never moved.
 function drawSchool() {
   if (!map) return
 
   if (schoolMarker) volunteerLayer.removeLayer(schoolMarker)
-  if (schoolLine) volunteerLayer.removeLayer(schoolLine)
   schoolMarker = null
-  schoolLine = null
 
   const s = currentAssignment.value?.school
   if (s?.lat == null || s?.lng == null) return
@@ -407,25 +403,6 @@ function drawSchool() {
     schoolMarker,
     tipCard({ icon: 'bi-mortarboard-fill', tone: 'school', title: s.name || 'School' }),
   )
-
-  // The line needs the volunteer's marker; drawMyMarker calls this again once it exists
-  if (myMarker) {
-    schoolLine = L.polyline([myMarker.getLatLng(), [s.lat, s.lng]], {
-      color: '#4f46e5',
-      weight: 3,
-      dashArray: '6 8',
-      opacity: 0.85,
-      interactive: false,
-      renderer: routeRenderer, // canvas, so the line stays visible while zooming
-    }).addTo(volunteerLayer)
-  }
-}
-
-// Keeps the dashed line's volunteer end on the marker while it glides
-function updateSchoolLine() {
-  const s = currentAssignment.value?.school
-  if (!schoolLine || !myMarker || s?.lat == null) return
-  schoolLine.setLatLngs([myMarker.getLatLng(), [s.lat, s.lng]])
 }
 
 // Runs once BaseMap has created the map: sets up layers, the destination
@@ -484,7 +461,6 @@ function moveMarkerSmooth(lat, lng, duration = GLIDE_MS) {
   // Big jump (e.g. first fix or GPS recovery): snap instead of gliding
   if (from.distanceTo(to) > BIG_JUMP_M) {
     myMarker.setLatLng(to)
-    updateSchoolLine()
     if (following.value && !recentering) map.panTo(to, { animate: false })
     return
   }
@@ -494,7 +470,6 @@ function moveMarkerSmooth(lat, lng, duration = GLIDE_MS) {
     const t = Math.min((now - start) / duration, 1) // progress from 0 to 1
     const cur = [from.lat + (to.lat - from.lat) * t, from.lng + (to.lng - from.lng) * t]
     myMarker.setLatLng(cur)
-    updateSchoolLine()
     if (following.value && !recentering) map.panTo(cur, { animate: false })
     if (t < 1) animFrame = requestAnimationFrame(step)
   }
@@ -920,11 +895,13 @@ onUnmounted(() => {
       />
 
       <!-- Sharing status pill -->
+      <!-- E2E: data-testid="share-status" (on the pill below) lets Playwright read "Sharing location" (see e2e/f4-tracking-live.spec.js) -->
       <Transition name="fade" mode="out-in">
         <div
           v-if="shareStatus"
           :key="shareStatus"
           class="share-pill"
+          data-testid="share-status"
           :class="shareStatus"
           role="status"
           :title="shareHint"
@@ -952,21 +929,25 @@ onUnmounted(() => {
       <MapNotice :notice="notice" @close="dismissNotice" />
 
       <!-- F4: the report card floats over the map; it reuses this page's GPS through the location prop -->
+      <!-- FIX: pass the volunteer's current school (:school) so the incident is saved with it -->
       <IncidentReportForm
         v-if="showIncidentReport"
         :location="location"
+        :school="currentAssignment?.school?.name"
         @close="showIncidentReport = false"
       />
 
       <!-- Bottom sheet: Drive/Walk always visible, route details when expanded. Hidden while the report card is open (F4). -->
       <div v-show="!showIncidentReport" ref="sheetEl" class="sheet" :style="sheetStyle">
         <div ref="peekEl" class="sheet-peek">
+          <!-- E2E: data-testid="sheet-toggle" lets Playwright find this element (see e2e/f4-tracking-live.spec.js) -->
           <div
             class="sheet-handle"
             role="button"
             tabindex="0"
             :aria-expanded="expanded"
             aria-label="Toggle route details"
+            data-testid="sheet-toggle"
             @pointerdown="onSheetPointerDown"
             @pointermove="onSheetPointerMove"
             @pointerup="onSheetPointerUp"
@@ -1029,7 +1010,8 @@ onUnmounted(() => {
                   <div class="info-label">
                     <i class="bi bi-mortarboard-fill" aria-hidden="true"></i>Allocated school
                   </div>
-                  <div class="info-value">{{ currentAssignment?.school?.name || '—' }}</div>
+                  <!-- E2E: data-testid="track-school" lets Playwright find this element (see e2e/f4-tracking-live.spec.js) -->
+                  <div class="info-value" data-testid="track-school">{{ currentAssignment?.school?.name || '—' }}</div>
                 </div>
                 <div class="info-card">
                   <div class="info-label">
@@ -1048,7 +1030,8 @@ onUnmounted(() => {
                     ><i class="bi" :class="journeyLeg.icon" aria-hidden="true"></i
                     >{{ journeyLeg.text }}</span
                   >
-                  <span class="journey-count">{{ currentStage }}/{{ JOURNEY_STAGES.length }}</span>
+                  <!-- E2E: data-testid="journey-count" lets Playwright find this element (see e2e/f4-tracking-live.spec.js) -->
+                  <span class="journey-count" data-testid="journey-count">{{ currentStage }}/{{ JOURNEY_STAGES.length }}</span>
                 </div>
 
                 <ol class="journey-dots" aria-label="Journey progress">
@@ -1086,7 +1069,8 @@ onUnmounted(() => {
                 >
                   <i class="bi bi-check2-circle" aria-hidden="true"></i> {{ nextStage.label }}
                 </button>
-                <div v-else class="journey-complete">
+                <div v-else class="journey-complete" data-testid="journey-complete">
+                  <!-- E2E: data-testid="journey-complete" lets Playwright check the "Day complete" message (see e2e/f4-tracking-live.spec.js) -->
                   <i class="bi bi-check-circle-fill" aria-hidden="true"></i> Day complete
                 </div>
               </div>

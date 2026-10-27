@@ -1,8 +1,7 @@
 // axios calls + page logic for Fanny (F1b, volunteer side). API functions return the response data
 // (or throw – show error.friendlyMessage). useMyAssignment() holds the state for MyAssignmentView.vue.
 // Contract: docs/API.md
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import { connectSocket } from '@/services/socket' // live updates when the admin publishes / resets
+import { ref, computed, onMounted, onUnmounted } from 'vue' // CHANGED: lifecycle hooks added for the auto-refresh
 import axios from 'axios'
 
 const volunteerDataURL = '/api/users/me'
@@ -106,6 +105,14 @@ export function formatDate(date) {
   return new Date(date).toLocaleDateString('en-SG', { day: 'numeric', month: 'long', year: 'numeric' })
 }
 
+// NEW: "27 Oct, 11:14 am" in Singapore time, for the "Respond by" line on a Pending offer
+export function formatDeadline(date) {
+  return new Date(date).toLocaleString('en-SG', {
+    day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit',
+    timeZone: 'Asia/Singapore', // always Singapore time, whatever the volunteer's device is set to
+  })
+}
+
 // Work out a show's status from assignment + withdrawal log + availability
 export function showStatus(show, availableShows) {
   if (show.assignment) return show.assignment.status // 'Pending' | 'Accepted'
@@ -138,8 +145,10 @@ export function useMyAssignment() {
   const hasNoAvailability = computed(() => loaded.value && volAvailableShows.value.length === 0)
 
   // Load volunteer, shows and assignments together
-  async function loadData() {
-    errorMessage.value = ''
+  // CHANGED: loadData(silent). A silent refresh (used by the timer and after Accept) keeps any error message the
+  // volunteer is reading and ignores a failed refresh, so a brief network blip does not flash an error at them.
+  async function loadData(silent = false) {
+    if (!silent) errorMessage.value = ''
 
     try {
       const [profile, showList, assignments] = await Promise.all([getMyProfile(), getShows(), getMyAssignments()])
@@ -158,7 +167,7 @@ export function useMyAssignment() {
       }))
       loaded.value = true
     } catch (error) {
-      errorMessage.value = error.friendlyMessage
+      if (!silent) errorMessage.value = error.friendlyMessage // a silent refresh just tries again next time
     }
   }
 
@@ -171,6 +180,7 @@ export function useMyAssignment() {
 
     try {
       show.assignment = await acceptAssignment(show.assignment._id) // updated status comes back
+      await loadData(true) // NEW: other shows may have changed too, so refresh every card (quietly)
     } catch (error) {
       errorMessage.value = error.friendlyMessage
     }
@@ -246,6 +256,7 @@ export function useMyAssignment() {
       await setAvailableShows(selectedShows.value)
       await loadData() // reload: a newly ticked published show now shows "On reserve list" (or a school, if a place was open)
       closeAvailabilityModal()
+      await loadData() // FIX: reload, because the server deletes Pending rows of unticked shows (and may fill reserves); the page showed stale Accept buttons
     } catch (error) {
       // NEW: show the server's reason when it has one (e.g. "You have accepted a place in NE Show 2. Press Withdraw first..."),
       // otherwise the generic text
@@ -256,40 +267,23 @@ export function useMyAssignment() {
   }
 
   // ===== Auto-refresh =====
-  // Keeps the page fresh: right away when the admin presses Publish / Reset / Allocate (server sends
-  // "assignments:updated", with no volunteer data in it), when the volunteer comes back to the tab, and every 60 seconds.
-  // It never swaps the cards underneath an open popup or a click in progress: that refresh waits until they are done.
+  // NEW: keep the page fresh. Another show being published, a replacement from Reserve, or an offer lapsing after
+  // 24h all happen on the server; without this the page only showed them after a manual reload.
+  // (placed here, after the refs above are declared, because the checks below read them)
   let timer = null
-  let socket = null
-  let pending = false // a refresh that had to wait (popup open / tab hidden); done as soon as possible
-
-  // True while the volunteer is in the middle of something: a popup is open or a click is in progress
-  const busy = computed(() => !!(withdrawShow.value || showAvailabilityModal.value || acceptingId.value || withdrawing.value || saving.value))
-
   function refreshIfIdle() {
-    if (document.visibilityState !== 'visible' || busy.value) {
-      pending = true // do it later, not underneath what they are doing
-      return
-    }
-    pending = false
+    if (document.visibilityState !== 'visible') return // tab in the background: skip
+    // do not swap the cards underneath a popup or a click that is in progress
+    if (withdrawShow.value || showAvailabilityModal.value || acceptingId.value || withdrawing.value || saving.value) return
     loadData(true)
   }
-
-  // A refresh that waited for a popup to close runs as soon as it closes
-  watch(busy, (isBusy) => {
-    if (!isBusy && pending) refreshIfIdle()
-  })
-
   onMounted(() => {
     document.addEventListener('visibilitychange', refreshIfIdle) // volunteer comes back to this tab
     timer = setInterval(refreshIfIdle, 60000) // and every 60 seconds while it stays open
-    socket = connectSocket() // live: Publish / Reset / Allocate by the admin
-    socket.on('assignments:updated', refreshIfIdle)
   })
-  onUnmounted(() => { // stop when they leave the page, otherwise it would keep polling / listening
+  onUnmounted(() => { // stop when they leave the page, otherwise it would keep polling
     document.removeEventListener('visibilitychange', refreshIfIdle)
     clearInterval(timer)
-    socket?.off('assignments:updated', refreshIfIdle)
   })
 
   return {

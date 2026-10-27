@@ -446,10 +446,12 @@ onUnmounted(() => {
 
             <!-- Search box. v-model keeps it in sync with searchbar in the script (see visibleIncidents). -->
             <div class="d-flex flex-wrap align-items-center gap-2 mb-0">
+              <!-- E2E: data-testid="inc-search" lets the Feature 5 test type a note into this box -->
               <input
                 type="search"
                 class="form-control search-box"
                 placeholder="Search school, name, type or note"
+                data-testid="inc-search"
                 v-model="searchbar"
               />
             </div>
@@ -523,6 +525,13 @@ onUnmounted(() => {
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
   gap: 8px;
   padding: 5px;
+}
+/* Tablets and larger: always exactly 2 columns (roomier cards, names are not cut off).
+   Phones (under 768px) keep the rule above, so the phone layout is unchanged */
+@media (min-width: 768px) {
+  .inc-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)); /* minmax(0, ...) lets long names shrink and truncate instead of stretching the card */
+  }
 }
 
 /* THE MENU (incident list): covers the whole map area under the navbar, like the chat window on phones.

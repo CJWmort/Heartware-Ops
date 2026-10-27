@@ -12,10 +12,13 @@ defineEmits(['close'])
 
 <template>
   <div class="notice-wrap">
+    <!-- E2E: data-testid="notice" below lets Playwright find this popup (Login + Register error tests use it).
+         This comment sits outside <Transition> on purpose: Transition wants exactly ONE element inside it. -->
     <Transition name="notice">
       <div
         v-if="notice"
         :key="notice.type + notice.text"
+        data-testid="notice"
         class="notice"
         :class="notice.type"
         :role="notice.type === 'error' ? 'alert' : 'status'"

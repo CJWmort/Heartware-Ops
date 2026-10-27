@@ -48,16 +48,6 @@ export async function getUnreadCount() {
   }
 }
 
-// HQ only: closes the chat and permanently deletes its whole history
-export async function closeThread(volunteerId) {
-  try {
-    const { data } = await axios.delete(`${BASE_URL}/threads/${volunteerId}`, { timeout: 15000 })
-    return data
-  } catch (error) {
-    throw addFriendlyMessage(error)
-  }
-}
-
 // When each side last read the chat: { volunteerLastReadAt, adminLastReadAt } (used for "Seen")
 export async function getReadState(volunteerId) {
   try {

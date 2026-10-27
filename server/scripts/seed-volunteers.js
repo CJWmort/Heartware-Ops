@@ -235,7 +235,15 @@ async function main() {
   for (const v of volunteers) {
     try {
       // upsert by email: create if new, refresh if it already exists -> running twice never duplicates anybody
-      const result = await Account.updateOne({ email: v.email }, { $set: { ...v, password: hashed } }, { upsert: true })
+      // CHANGED: besides refreshing the demo account, also set withdrawnShows back to an empty list.
+      // WHY: expired/declined offers are logged there, so without this the old "No response within 24 hours"
+      // entries pile up and each demo volunteer never gets a clean slate. This only touches accounts that match
+      // the demo email (the filter below), so a real volunteer's history can never be cleared by this script.
+      const result = await Account.updateOne(
+        { email: v.email }, // only the demo account with this email
+        { $set: { ...v, password: hashed, withdrawnShows: [] } }, // refresh details AND wipe the decline/withdraw history
+        { upsert: true }, // create it if it doesn't exist yet
+      )
       if (result.upsertedCount) created++
       else updated++
     } catch (error) {

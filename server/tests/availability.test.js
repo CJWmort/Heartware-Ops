@@ -10,6 +10,7 @@ const stubs = {
     publishedShows: async () => published, addToReserve: async (id, name, shows, published) => { reserved = { id, name, shows, published }; } },
   '../utils/reserve-replacement': { replaceFromReserve: async (show) => { refilled.push(show); return []; } },
   '../services/onemap': {}, bcrypt: {}, '../utils/otp': {},
+  '../sockets': { disconnectUser() {} }, // NEW: accounts-controller now imports sockets (logout closes live connections); a test must not load real socket.io
 };
 const orig = Module._load; Module._load = function (req, ...r) { return stubs[req] || orig(req, ...r); };
 const ctl = require(path.join(S, 'controllers/accounts-controller.js'));

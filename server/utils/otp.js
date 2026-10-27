@@ -129,4 +129,11 @@ function useVerifiedEmail(rawEmail) {
   return Boolean(expiresAt && Date.now() <= expiresAt)
 }
 
-module.exports = { requestCode, checkCode, useVerifiedEmail, CODE_LENGTH }
+// NEW: look only - true if the email was verified and has not expired. Does NOT use it up, so a failed sign-up
+// (duplicate phone, bad postal code...) lets the volunteer press the button again without a new code.
+function isVerifiedEmail(rawEmail) {
+  const expiresAt = verified.get(clean(rawEmail))
+  return Boolean(expiresAt && Date.now() <= expiresAt)
+}
+
+module.exports = { requestCode, checkCode, useVerifiedEmail, isVerifiedEmail, CODE_LENGTH }

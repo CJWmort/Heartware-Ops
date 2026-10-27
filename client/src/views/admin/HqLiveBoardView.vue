@@ -18,6 +18,7 @@ const TICK_MS = 30000 // how often "x min ago" text is recalculated
 const LIVE_MS = 2 * 60 * 1000 // updated within 2 min = live
 const STALE_MS = 10 * 60 * 1000 // within 2-10 min = stale, older = not reporting
 const FOCUS_ZOOM = 17 // max zoom when focusing a volunteer
+const SOLO_ZOOM = 15
 const GLIDE_MS = 2000 // how long a marker takes to glide to its new position
 const BIG_JUMP_M = 500 // jumps larger than this snap instead of gliding
 
@@ -74,6 +75,8 @@ const showEl = ref(null) // the dropdown wrapper (for outside-click detection)
 const selectedId = ref(null) // volunteer currently selected
 const now = ref(Date.now()) // ticks so "x min ago" stays current
 const cardEl = ref(null)
+const barEl = ref(null)
+const following = ref(false) // map keeps the selected volunteer centred
 const cardH = ref(0) // height of the bottom card on mobile (moves map controls up)
 
 let clockOffset = 0 // server time minus browser time, so a wrong phone clock can't skew freshness
@@ -201,10 +204,9 @@ let map = null
 let L = null // Leaflet library, passed in by BaseMap
 let zoneLayer = null
 let volunteerLayer = null
+let baseBounds = null
 let schoolMarker = null // marker for the selected volunteer's school
-let linkLine = null // dashed line from the selected volunteer to their school
 let pinnedId = null // volunteer whose tooltip is pinned open while selected
-let lineRenderer = null // canvas renderer so the line stays visible while zooming
 const markers = new Map() // volunteerId -> { marker, status, frame }
 
 let needFit = false // fit the map to all volunteers once the next board arrives
@@ -226,10 +228,15 @@ function onMapReady(m, leaflet) {
   L = leaflet
   zoneLayer = L.layerGroup().addTo(map)
   volunteerLayer = L.layerGroup().addTo(map)
-  lineRenderer = L.canvas() // reused for the dashed line
+
+  baseBounds = map.options.maxBounds
+  map.options.zoomSnap = 0.25
+  map.on('zoomend resize', () => limitView())
 
   map.zoomControl?.setPosition('bottomright') // move +/- buttons to the bottom right
+  map.on('dragstart', () => (following.value = false)) // dragging the map takes control back
   map.on('click', () => {
+    following.value = false
     bellOpen.value = false // tapping the map closes the panel
     if (selectedId.value) clearSelection() // and deselects, zooming back out to show everyone (same as the card's X button)
   })
@@ -306,7 +313,6 @@ function drawMarkers() {
     markers.delete(id)
   })
 
-  updateLink()
   applyFocus() // new or recoloured markers get the right shade
 }
 
@@ -323,6 +329,54 @@ function applyFocus() {
   })
 }
 
+let followFlying = false // true while the zoom-in animation of follow mode is running
+
+// Map centre that puts a point in the middle of the uncovered part of the map (clear of the top bar and bottom card)
+function followTarget(latlng, zoom) {
+  let dy = 0
+  if (!isDesktop() && cardEl.value) {
+    const { top, bottom } = coveredInsets()
+    dy = (bottom - top) / 2
+  }
+  const pt = map.project(latlng, zoom).add(L.point(0, dy))
+  return map.unproject(pt, zoom)
+}
+
+// Keeps the selected volunteer centred while follow mode is on
+function followIfSelected(entry) {
+  if (!following.value || followFlying || !map || markers.get(selectedId.value) !== entry) return
+  const zoom = map.getZoom()
+  map.setView(followTarget(entry.marker.getLatLng(), zoom), zoom, { animate: false })
+}
+
+// Zooms all the way in on the selected volunteer, centred in the visible area
+function followZoomIn() {
+  const entry = markers.get(selectedId.value)
+  if (!entry || !map) return
+  const max = map.getMaxZoom()
+  const zoom = Number.isFinite(max) ? max : 19
+  limitView(zoom)
+  followFlying = true
+  map.once('moveend', () => (followFlying = false))
+  setTimeout(() => (followFlying = false), 1500) // fallback in case moveend never fires
+  map.flyTo(followTarget(entry.marker.getLatLng(), zoom), zoom, { duration: 0.6 })
+}
+
+function toggleFollow() {
+  following.value = !following.value
+  if (following.value) followZoomIn()
+}
+
+watch(cardH, async () => {
+  if (!following.value || !map) return
+  await nextTick()
+  const entry = markers.get(selectedId.value)
+  if (!entry || followFlying) return
+  limitView()
+  const zoom = map.getZoom()
+  map.setView(followTarget(entry.marker.getLatLng(), zoom), zoom, { animate: false })
+})
+
 // Animates a marker to a new position so it glides instead of jumping
 function glideTo(entry, lat, lng) {
   const from = entry.marker.getLatLng()
@@ -333,6 +387,7 @@ function glideTo(entry, lat, lng) {
   if (dist < 1) return
   if (dist > BIG_JUMP_M) {
     entry.marker.setLatLng(to)
+    followIfSelected(entry)
     return
   }
 
@@ -340,7 +395,7 @@ function glideTo(entry, lat, lng) {
   const step = (t) => {
     const p = Math.min((t - start) / GLIDE_MS, 1) // progress from 0 to 1
     entry.marker.setLatLng([from.lat + (to.lat - from.lat) * p, from.lng + (to.lng - from.lng) * p])
-    updateLink() // keep the dashed line attached to the moving marker
+    followIfSelected(entry)
     if (p < 1) entry.frame = requestAnimationFrame(step)
   }
   entry.frame = requestAnimationFrame(step)
@@ -379,6 +434,62 @@ function applyFit() {
   hasFitted = true
 }
 
+function coveredInsets() {
+  const box = map.getContainer().getBoundingClientRect()
+  const top = barEl.value ? barEl.value.getBoundingClientRect().bottom - box.top : 0
+  const cardTop = cardEl.value ? cardEl.value.getBoundingClientRect().top - box.top : box.height
+  return { top, bottom: box.height - cardTop, free: cardTop - top }
+}
+
+function mobileInsets(maxRoom = 90) {
+  const { top, bottom, free } = coveredInsets()
+  const room = Math.max(20, Math.min(maxRoom, (free - 100) / 2))
+  return { top: top + room, bottom: bottom + room }
+}
+
+function limitView(zoom) {
+  if (!map || !baseBounds) return
+  if (!selectedId.value || isDesktop()) {
+    map.setMinZoom(Math.max(11, map.getBoundsZoom(baseBounds, true)))
+    map.setMaxBounds(baseBounds)
+    return
+  }
+  const covered = coveredInsets()
+  const pad = L.point(0, covered.top + covered.bottom)
+  map.setMinZoom(Math.max(11, map.getBoundsZoom(baseBounds, true, pad)))
+  const z = zoom ?? map.getZoom()
+  const sw = map.project(baseBounds.getSouthWest(), z).add(L.point(0, covered.bottom))
+  const ne = map.project(baseBounds.getNorthEast(), z).subtract(L.point(0, covered.top))
+  map.setMaxBounds(L.latLngBounds(map.unproject(sw, z), map.unproject(ne, z)))
+}
+
+function cameraFor(pts, padTL, padBR, maxZoom) {
+  const bounds = L.latLngBounds(pts)
+  const zoom = Math.min(map.getBoundsZoom(bounds, false, padTL.add(padBR)), maxZoom)
+  const offset = padBR.subtract(padTL).divideBy(2)
+  const sw = map.project(bounds.getSouthWest(), zoom)
+  const ne = map.project(bounds.getNorthEast(), zoom)
+  const target = map.unproject(sw.add(ne).divideBy(2).add(offset), zoom)
+  return { zoom, target }
+}
+
+function isClear(pt, camera, padTL, padBR) {
+  const size = map.getSize()
+  const p = map
+    .project(pt, camera.zoom)
+    .subtract(map.project(camera.target, camera.zoom))
+    .add(size.divideBy(2))
+  return p.x >= padTL.x && p.x <= size.x - padBR.x && p.y >= padTL.y && p.y <= size.y - padBR.y
+}
+
+function flyIfMoved(camera, duration) {
+  const closeEnough =
+    map.getZoom() === camera.zoom &&
+    map.project(map.getCenter(), camera.zoom).distanceTo(map.project(camera.target, camera.zoom)) < 10
+  if (closeEnough) return
+  map.flyTo(camera.target, camera.zoom, { duration })
+}
+
 // Zoom so the volunteer and their school are both in view
 function focusOn(v) {
   if (!map) return
@@ -387,58 +498,37 @@ function focusOn(v) {
   if (v.school?.lat != null) pts.push([v.school.lat, v.school.lng])
   if (!pts.length) return
 
-  const bottom = isDesktop() ? 70 : cardH.value + 70 // room for the tooltip and the bottom card
+  limitView()
+  const inset = isDesktop() ? { top: 150, bottom: 70 } : mobileInsets()
   const left = isDesktop() ? 440 : 60 // on desktop, stay clear of the top-left cards
+  const padTL = L.point(left, inset.top)
+  const padBR = L.point(60, inset.bottom)
 
-  // Work out where the camera should end up (the same maths flyToBounds does internally)
-  const bounds = L.latLngBounds(pts)
-  const padTL = L.point(left, 150)
-  const padBR = L.point(60, bottom)
-  const zoom = Math.min(map.getBoundsZoom(bounds, false, padTL.add(padBR)), FOCUS_ZOOM)
-  const offset = padBR.subtract(padTL).divideBy(2)
-  const sw = map.project(bounds.getSouthWest(), zoom)
-  const ne = map.project(bounds.getNorthEast(), zoom)
-  const target = map.unproject(sw.add(ne).divideBy(2).add(offset), zoom)
-
-  // Already there? Do nothing.
-  const closeEnough =
-    map.getZoom() === zoom &&
-    map.project(map.getCenter(), zoom).distanceTo(map.project(target, zoom)) < 10 // pixels
-  if (closeEnough) return
-
-  map.flyTo(target, zoom, { duration: 0.5 })
+  let camera = cameraFor(pts, padTL, padBR, FOCUS_ZOOM)
+  if (v.lat != null && !isClear([v.lat, v.lng], camera, padTL, padBR)) {
+    camera = cameraFor([[v.lat, v.lng]], padTL, padBR, SOLO_ZOOM)
+  }
+  limitView(camera.zoom)
+  flyIfMoved(camera, 0.5)
 }
 
 // Quick view: fly the map so one whole ring fits on screen.
 // A ring is already a list of [lat, lng] points, so Leaflet can use it directly as the area to fit.
 function viewRing(ring) {
   if (!map) return // map not ready yet
-  // same side/top padding idea as focusOn(): keep the ring clear of the top-left cards on desktop and the bottom card on phones
-  const padTL = L.point(isDesktop() ? 300 : 20, 70)
-  const padBR = L.point(20, cardH.value + 20)
-
-  // Work out where the camera should end up (same maths as focusOn / flyToBounds)
-  const bounds = L.latLngBounds(ring)
-  const zoom = map.getBoundsZoom(bounds, false, padTL.add(padBR))
-  const offset = padBR.subtract(padTL).divideBy(2)
-  const sw = map.project(bounds.getSouthWest(), zoom)
-  const ne = map.project(bounds.getNorthEast(), zoom)
-  const target = map.unproject(sw.add(ne).divideBy(2).add(offset), zoom)
-
-  // Already there? Do nothing, so pressing the button again doesn't make the map twitch.
-  const closeEnough =
-    map.getZoom() === zoom &&
-    map.project(map.getCenter(), zoom).distanceTo(map.project(target, zoom)) < 10 // pixels
-  if (closeEnough) return
-
-  map.flyTo(target, zoom, { duration: 0.6 }) // seconds for the fly animation
+  const inset = isDesktop() ? { top: 70, bottom: cardH.value + 20 } : mobileInsets(20)
+  const padTL = L.point(isDesktop() ? 300 : 20, inset.top)
+  const padBR = L.point(20, inset.bottom)
+  const camera = cameraFor(ring, padTL, padBR, map.getMaxZoom())
+  limitView(camera.zoom)
+  flyIfMoved(camera, 0.6)
 }
 
 /* ------------------------------------------------------------------ */
 /* Selecting a volunteer                                               */
 /* ------------------------------------------------------------------ */
 
-// Pins tooltips on the selected volunteer and their school, with a dashed line between them
+// Pins tooltips on the selected volunteer and their school
 function showSchool(v) {
   clearSchool()
   const s = v.school
@@ -457,39 +547,12 @@ function showSchool(v) {
 
   schoolMarker = L.marker([s.lat, s.lng], { icon: createSchoolIcon() }).addTo(volunteerLayer)
   bindTip(schoolMarker, schoolTip(s), { pinned: true, direction: schoolNorth ? 'top' : 'bottom' })
-
-  if (v.lat != null) {
-    linkLine = L.polyline(
-      [
-        [v.lat, v.lng],
-        [s.lat, s.lng],
-      ],
-      {
-        color: '#4f46e5',
-        weight: 3,
-        dashArray: '6 8',
-        opacity: 0.85,
-        interactive: false,
-        renderer: lineRenderer,
-      },
-    ).addTo(volunteerLayer)
-  }
 }
 
-// Moves the line's volunteer end to the marker's current position
-function updateLink() {
-  const v = selected.value
-  const entry = v && markers.get(v.volunteerId)
-  if (!linkLine || !entry || v.school?.lat == null) return
-  linkLine.setLatLngs([entry.marker.getLatLng(), [v.school.lat, v.school.lng]])
-}
-
-// Removes the school marker and line, and turns the volunteer's tooltip back into hover-only
+// Removes the school marker, and turns the volunteer's tooltip back into hover-only
 function clearSchool() {
   if (schoolMarker) volunteerLayer.removeLayer(schoolMarker)
-  if (linkLine) volunteerLayer.removeLayer(linkLine)
   schoolMarker = null
-  linkLine = null
 
   const entry = markers.get(pinnedId)
   const v = rows.value.find((r) => r.volunteerId === pinnedId)
@@ -536,12 +599,14 @@ async function measureCard() {
   if (selectedId.value && cardEl.value) cardH.value = cardEl.value.offsetHeight + 12
 }
 watch(timesOpen, measureCard)
+watch(cardH, () => limitView())
 watch(() => selected.value?.stage, measureCard)
 
 async function selectVolunteer(id) {
   const v = rows.value.find((r) => r.volunteerId === id)
   if (!v) return
 
+  inputEl.value?.blur() // closes the on-screen keyboard on mobile
   const alreadySelected = selectedId.value === id
   if (!alreadySelected) timesOpen.value = false // a different volunteer: start with the list closed
   selectedId.value = id
@@ -563,7 +628,9 @@ async function selectVolunteer(id) {
 
 // Deselects: hides the card and school marker. fit = true also zooms back out.
 function clearSelection(fit = true) {
+  following.value = false
   selectedId.value = null
+  limitView()
   timesOpen.value = false
   query.value = ''
   cardH.value = 0
@@ -668,6 +735,8 @@ function toggleBell() {
   if (bellOpen.value) {
     zoneEvents.markRead(selectedShow.value)
     searchOpen.value = false // only one dropdown at a time
+    clearSelection(false) // close the volunteer card so it can't cover the panel
+    clearToasts()
   }
 }
 
@@ -817,6 +886,7 @@ function onVisibilityChange() {
   if (document.visibilityState === 'visible') loadBoard()
 }
 
+let disposed = false // FIX: true once the admin left the page, so timers are never started after the awaits below
 onMounted(async () => {
   document.addEventListener('pointerdown', onDocPointerDown, true)
   try {
@@ -832,8 +902,10 @@ onMounted(async () => {
     return
   }
 
+  if (disposed) return // left the page while the show list was loading
   needFit = true
   await loadBoard()
+  if (disposed) return // left the page while the board was loading: do not start polling
 
   // Poll for new positions while the tab is visible
   pollTimer = setInterval(() => {
@@ -844,6 +916,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  disposed = true
   document.removeEventListener('pointerdown', onDocPointerDown, true)
   clearInterval(pollTimer)
   clearInterval(tickTimer)
@@ -869,15 +942,17 @@ onUnmounted(() => {
       </div>
 
       <!-- Top bar: show dropdown + name search -->
-      <div class="board-bar">
+      <div ref="barEl" class="board-bar">
         <div class="bar-row">
           <div ref="showEl" class="show-select" @keydown.esc="showMenuOpen = false">
+            <!-- E2E: data-testid="hq-show-select" lets Playwright find this element (see e2e/f4-tracking-live.spec.js) -->
             <button
               type="button"
               class="show-btn"
               aria-haspopup="listbox"
               :aria-expanded="showMenuOpen"
               aria-label="Show"
+              data-testid="hq-show-select"
               @click="toggleShowMenu"
             >
               <i class="bi bi-calendar-event" aria-hidden="true"></i>
@@ -911,6 +986,7 @@ onUnmounted(() => {
 
           <div class="search-box">
             <i class="bi bi-search" aria-hidden="true"></i>
+            <!-- E2E: data-testid="hq-search" lets Playwright find this element (see e2e/f4-tracking-live.spec.js) -->
             <input
               ref="inputEl"
               v-model="query"
@@ -918,6 +994,7 @@ onUnmounted(() => {
               placeholder="Find by name"
               autocomplete="off"
               aria-label="Find by name"
+              data-testid="hq-search"
               @focus="onSearchFocus"
               @blur="searchOpen = false"
               @keydown.enter.prevent="pickFirst"
@@ -935,11 +1012,13 @@ onUnmounted(() => {
             </button>
           </div>
 
+          <!-- E2E: data-testid="hq-bell" lets Playwright find this element (see e2e/f4-tracking-live.spec.js) -->
           <button
             type="button"
             class="bell-btn"
             :class="{ active: bellOpen }"
             aria-label="Zone activity"
+            data-testid="hq-bell"
             :aria-expanded="bellOpen"
             @click="toggleBell"
           >
@@ -952,18 +1031,21 @@ onUnmounted(() => {
         <div v-if="rows.length" class="zone-row" aria-label="Volunteers by zone">
           <span v-for="z in ZONES" :key="z.key" class="zone-chip" :title="z.hint">
             <span class="zone-dot" :class="z.key"></span>{{ z.label }}
-            <strong>{{ zoneCounts[z.key] }}</strong>
+            <!-- E2E: hq-zone-count-<inner|outer|outside|none> lets Playwright read how many volunteers are in each zone -->
+            <strong :data-testid="'hq-zone-count-' + z.key">{{ zoneCounts[z.key] }}</strong>
           </span>
         </div>
 
         <div v-if="searchOpen" class="results" role="listbox">
           <div class="results-head">{{ liveCount }} live · {{ rows.length }} volunteers</div>
+          <!-- E2E: data-testid="hq-result" lets Playwright find this element (see e2e/f4-tracking-live.spec.js) -->
           <button
             v-for="v in results"
             :key="v.volunteerId"
             type="button"
             class="result"
             role="option"
+            data-testid="hq-result"
             @mousedown.prevent="selectVolunteer(v.volunteerId)"
           >
             <span class="status-dot" :class="v.status"></span>
@@ -1001,11 +1083,13 @@ onUnmounted(() => {
           </div>
 
           <div class="activity-list">
+            <!-- E2E: data-testid="hq-event" lets Playwright find this element (see e2e/f4-tracking-live.spec.js) -->
             <button
               v-for="e in eventRows"
               :key="e.id"
               type="button"
               class="event"
+              data-testid="hq-event"
               @click="openEvent(e)"
             >
               <span class="event-icon" :class="e.enter ? 'enter' : 'leave'" aria-hidden="true">
@@ -1035,12 +1119,25 @@ onUnmounted(() => {
             </div>
             <div class="vol-card-title">
               <div class="vol-name">{{ selected.name }}</div>
-              <div class="vol-status">
+              <!-- E2E: vol-card-status lets Playwright read Live / Stale / Not reporting -->
+              <div class="vol-status" data-testid="vol-card-status">
                 <span class="status-dot" :class="selected.status"></span>
                 {{ STATUS[selected.status].label
                 }}<template v-if="selected.ago"> · {{ selected.ago }}</template>
               </div>
             </div>
+            <button
+              type="button"
+              class="icon-btn follow-btn"
+              :class="{ active: following }"
+              :aria-pressed="following"
+              :aria-label="following ? 'Stop following volunteer' : 'Follow volunteer'"
+              :title="following ? 'Stop following' : 'Follow volunteer'"
+              data-testid="vol-card-follow"
+              @click="toggleFollow"
+            >
+              <i class="bi" :class="following ? 'bi-crosshair2' : 'bi-crosshair'"></i>
+            </button>
             <button type="button" class="icon-btn" aria-label="Close" @click="clearSelection()">
               <i class="bi bi-x-lg"></i>
             </button>
@@ -1212,6 +1309,11 @@ onUnmounted(() => {
 
 .icon-btn:hover {
   background: #f1f3f6;
+}
+
+.icon-btn.follow-btn.active {
+  background: #2563eb;
+  color: #fff;
 }
 
 .search-box .icon-btn {

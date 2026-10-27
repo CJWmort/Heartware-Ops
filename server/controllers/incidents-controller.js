@@ -1,3 +1,4 @@
+const mongoose = require("mongoose"); // NEW: to check ids
 const Incident = require("../models/incidents-model"); //access the database
 const TEMPLATES = require("../data/incident-templates.json"); //gets the templates declared inside data
 
@@ -24,6 +25,11 @@ exports.createIncident = async (req, res) => {
       lng,
       address: typedAddress,
     } = req.body;
+    // NEW: the note is required. The form already enforces it; this stops hand-made requests with an empty note.
+    const cleanNote = typeof note === "string" ? note.trim() : "";
+    if (!cleanNote) {
+      return res.status(400).json({ message: "Please describe the incident." });
+    }
     // handle address retreival using geocoding by onemap
     let address = typedAddress?.trim() || null;
     try {
@@ -40,7 +46,7 @@ exports.createIncident = async (req, res) => {
       busNo,
       type,
       severity,
-      note,
+      note: cleanNote, // CHANGED: the trimmed text (was the raw value)
       location: lat != null ? { lat, lng } : undefined,
       address: address,
       // FIX: the session stores the id as req.session.userId (see accounts-controller login). The old
@@ -80,6 +86,8 @@ exports.listIncidents = async (req, res) => {
 exports.updateIncidentStatus = async (req, res) => {
   try {
     const { status, note } = req.body;
+    // FIX: a malformed id made MongoDB throw and answered 500; now it is a clear 400
+    if (!mongoose.isValidObjectId(req.params.id)) return res.status(400).json({ message: "Invalid incident id" });
     const incident = await Incident.retrieveById(req.params.id);
     if (!incident) return res.status(404).json({ message: "Incident not found" });
     if (NEXT_STATUS[incident.status] !== status)

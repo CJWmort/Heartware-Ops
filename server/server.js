@@ -2,6 +2,8 @@ const express = require("express");
 const dotenv = require("dotenv");
 const mongoose = require("mongoose");
 const session = require("express-session");
+const jwt = require("jsonwebtoken");
+const MongoStore = require("connect-mongo"); // NEW: keeps logins in MongoDB instead of the server's memory
 const http = require("http"); // added for sockets to work by weiming
 const { initSockets } = require("./sockets"); // added for sockets to work by weiming
 const ThreadState = require("./models/thread-state-model");
@@ -23,6 +25,10 @@ server.use(express.json());
 
 // Specify the path to the environment variablef file 'config.env'
 dotenv.config({ path: "./config.env" });
+// Safety net: log unexpected errors instead of letting one stray error stop the whole server
+// (which made Render return 502 until it restarted).
+process.on("uncaughtException", (err) => console.error("Uncaught exception:", err));
+process.on("unhandledRejection", (err) => console.error("Unhandled rejection:", err));
 
 // Must come AFTER dotenv.config, so NODE_ENV written in config.env is also seen
 const isProduction = process.env.NODE_ENV === "production";
@@ -36,6 +42,9 @@ const sessionMiddleware = session({
   secret: process.env.SECRET,
   resave: false,
   saveUninitialized: false,
+  // NEW: sessions are saved in the database, so a restart or a sleeping server no longer logs everyone out
+  // (and the "MemoryStore is not designed for production" warning goes away). ttl = 8 hours, same as the cookie.
+  store: MongoStore.create({ mongoUrl: process.env.DB, ttl: 8 * 60 * 60 }),
   cookie: {
     httpOnly: true, // JS can't read it
     sameSite: "lax", // fine while the browser talks to ONE origin (see client/vercel.json rewrite)
@@ -44,6 +53,19 @@ const sessionMiddleware = session({
   },
 });
 server.use(sessionMiddleware);
+
+// NEW: health check. Answers { ok: true } without touching the database or the login session, so it is cheap.
+// Used by an uptime pinger (e.g. UptimeRobot, every 5 min) to stop Render's free server falling asleep, and
+// can be set as Render's "Health Check Path". saveUninitialized is false, so a ping never creates a session row.
+server.get("/api/health", (req, res) => res.json({ ok: true }));
+
+server.get("/api/socket-token", (req, res) => {
+  if (!req.session?.userId) return res.status(401).json({ message: "Please log in." });
+  const token = jwt.sign({ userId: req.session.userId, role: req.session.role }, process.env.SECRET, {
+    expiresIn: 60,
+  });
+  res.json({ token });
+});
 
 // Routing
 server.use("/api/users", require("./routes/accounts-routes"));

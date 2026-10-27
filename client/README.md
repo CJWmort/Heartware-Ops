@@ -25,5 +25,6 @@ Where things go:
 | `src/utils/constants.js` | Checkpoints, venues, shapes – shared values |
 | `e2e/` | One Playwright spec per feature. Tests marked `test.fixme` are waiting for the feature. |
 
-Deploying to Vercel: root directory `client`, build command `npm run build`, output `dist`,
-environment variable `VITE_API_BASE_URL=https://<render-app>.onrender.com/api`.
+Deploying to Vercel: root directory `client`, build command `npm run build`, output `dist`. No environment
+variables are needed. The browser reaches the backend through the rewrites in `vercel.json`
+(`/api/*` and `/socket.io/*` are forwarded to the Render server), so put the Render address there instead.

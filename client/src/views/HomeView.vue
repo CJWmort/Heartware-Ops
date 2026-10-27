@@ -3,7 +3,7 @@ import { computed, ref } from 'vue'
 import { useAuthStore } from '@/services/auth'
 import { NAV_LINKS } from '@/router/nav-links'
 import FireworksBackground from '@/components/landing/FireworksBackground.vue' // NEW: animated fireworks behind the landing page
-import FeatureSpotlight from '@/components/landing/FeatureSpotlight.vue' // NEW: auto-rotating feature panel
+import VideoShowcase from '@/components/landing/VideoShowcase.vue' // NEW: video player panel (replaces the rotating feature panel)
 
 const auth = useAuthStore()
 
@@ -83,9 +83,9 @@ const flipped = ref(false)
           </button>
         </div>
 
-        <!-- Right: rotating feature panel -->
+        <!-- Right: video panel -->
         <div class="col-lg-6">
-          <FeatureSpotlight />
+          <VideoShowcase />
         </div>
       </div>
     </div>
