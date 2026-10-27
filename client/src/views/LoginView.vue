@@ -292,7 +292,7 @@ const VIDEO_SRC = '/videos/Heartware.mp4'
   isolation: isolate;
   overflow: hidden; /* clips the waves at the card edges */
   width: 100%;
-  max-width: 980px;
+  max-width: var(--hw-content-w); /* was 980px: now the same width as the navbar */
   margin-inline: auto;
   border-radius: 1.25rem;
   box-shadow: 0 30px 70px -30px rgb(0 0 0 / 0.75);
