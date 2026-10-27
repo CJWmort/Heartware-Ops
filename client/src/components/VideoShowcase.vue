@@ -20,7 +20,12 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 const props = defineProps({
   videos: {
     type: Array,
-    default: () => [{ src: '/videos/Heartware.mp4' }, { src: '/videos/Heartware2.mp4' }],
+    default: () => [
+      { src: '/videos/Heartware.mp4' },
+      { src: '/videos/Heartware2.mp4' },
+      { src: '/videos/Heartware3.mp4' },
+      { src: '/videos/Heartware4.mp4' },
+    ],
   },
   fill: { type: Boolean, default: false },
   // 0 = move on when each video ends; any other number = move on after that many seconds
