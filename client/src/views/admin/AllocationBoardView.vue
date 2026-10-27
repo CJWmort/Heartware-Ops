@@ -1397,6 +1397,7 @@ loadData()
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
+  
 }
 .alloc-map-btn {
   margin-left: auto;
@@ -1585,6 +1586,11 @@ loadData()
   flex: 0 0 auto;
   z-index: 20; /* keeps the open menu above the chips and cards underneath */
 }
+
+/* The dropdown that is open sits above its siblings, so its menu isn't hidden behind the zone/time buttons */
+.show-select:has(.show-menu) {
+  z-index: 30;
+}
 .show-btn {
   display: flex;
   align-items: center;
@@ -1622,6 +1628,7 @@ loadData()
   border: 1px solid var(--bs-border-color);
   border-radius: 14px;
   box-shadow: 0 4px 16px rgb(0 0 0 / 0.22);
+  z-index: 99;
 }
 .show-option {
   width: 100%;
