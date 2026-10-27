@@ -58,9 +58,27 @@ function chooseShow(show) {
   showMenuOpen.value = false
   selectedShow.value = show
 }
+// Open/closed state + wrapper element for the two filter dropdowns (same pattern as the show dropdown)
+const zoneMenuOpen = ref(false)
+const timeMenuOpen = ref(false)
+const zoneEl = ref(null)
+const timeEl = ref(null)
+function chooseZone(z) {
+  zoneMenuOpen.value = false
+  zoneFilter.value = z
+}
+function chooseTime(t) {
+  timeMenuOpen.value = false
+  timeFilter.value = t
+}
 // Close the menu when the admin taps anywhere outside it
 function onDocPointerDown(e) {
-  if (showMenuOpen.value && showEl.value && !showEl.value.contains(e.target)) showMenuOpen.value = false
+  if (showMenuOpen.value && showEl.value && !showEl.value.contains(e.target))
+    showMenuOpen.value = false
+  if (zoneMenuOpen.value && zoneEl.value && !zoneEl.value.contains(e.target))
+    zoneMenuOpen.value = false
+  if (timeMenuOpen.value && timeEl.value && !timeEl.value.contains(e.target))
+    timeMenuOpen.value = false
 }
 const searchbar = ref('')
 const runningAlloc = ref(false)
@@ -102,10 +120,20 @@ function answerConfirm(ok) {
 // What the popup shows: a running request wins over any finished message.
 const popupNotice = computed(() => {
   if (runningAlloc.value) {
-    return { type: 'info', icon: 'bi-hourglass-split', title: 'Allocating...', text: 'Matching volunteers to schools.' }
+    return {
+      type: 'info',
+      icon: 'bi-hourglass-split',
+      title: 'Allocating...',
+      text: 'Matching volunteers to schools.',
+    }
   }
   if (publishing.value) {
-    return { type: 'info', icon: 'bi-hourglass-split', title: 'Publishing...', text: `Publishing ${selectedShow.value}.` }
+    return {
+      type: 'info',
+      icon: 'bi-hourglass-split',
+      title: 'Publishing...',
+      text: `Publishing ${selectedShow.value}.`,
+    }
   }
   return popup.value
 })
@@ -203,7 +231,7 @@ const stats = computed(() => {
 const statChips = computed(() => [
   { label: 'Schools', value: stats.value.schools },
   { label: 'Accepted', value: stats.value.Accepted },
-  { label: 'Pending', value: stats.value.Pending }
+  { label: 'Pending', value: stats.value.Pending },
 ])
 
 // ---------------------------------------------------------------------------------------------------
@@ -215,6 +243,45 @@ const statChips = computed(() => [
 
 // "Only schools that still need volunteers" switch (true = hide schools that are full)
 const needsOnly = ref(false)
+
+// Zone and reporting-time filters ('' = no filter)
+const zoneFilter = ref('')
+const timeFilter = ref('')
+
+// Turn "7:30 AM", "07:30" or "1:15 PM" into minutes so times sort properly (unparseable values sort last)
+function timeToMinutes(t) {
+  const m = String(t || '')
+    .trim()
+    .match(/^(\d{1,2})[:.]?(\d{2})?\s*(AM|PM)?$/i)
+  if (!m) return Infinity
+  let h = Number(m[1])
+  const min = Number(m[2] || 0)
+  const ap = (m[3] || '').toUpperCase()
+  if (ap === 'PM' && h < 12) h += 12
+  if (ap === 'AM' && h === 12) h = 0
+  return h * 60 + min
+}
+
+// Dropdown options come from the selected show's schools, so only values that exist are offered
+const zoneOptions = computed(() => {
+  const schools = groupedAssignments.value[selectedShow.value]?.schools || []
+  return [...new Set(schools.map((s) => s.zone).filter(Boolean))].sort((a, b) =>
+    String(a).localeCompare(String(b), undefined, { numeric: true }),
+  )
+})
+const timeOptions = computed(() => {
+  const schools = groupedAssignments.value[selectedShow.value]?.schools || []
+  return [...new Set(schools.map((s) => s.reportingTime).filter(Boolean))].sort(
+    (a, b) => timeToMinutes(a) - timeToMinutes(b),
+  )
+})
+
+const filtersActive = computed(() => !!(zoneFilter.value || timeFilter.value))
+function clearSchoolFilters() {
+  zoneFilter.value = ''
+  timeFilter.value = ''
+}
+
 // The schools whose cards are listed: a school stays if it matches the search AND (when the switch is on) has a free place.
 const visibleSchools = computed(() => {
   const data = groupedAssignments.value[selectedShow.value]
@@ -229,8 +296,16 @@ const visibleSchools = computed(() => {
           (v) => (v.name || '').toUpperCase().includes(q) || String(v.phone || '').includes(q),
         )) &&
       // Switch on: keep only schools with a free place (filled < capacity). p5Classes = places needed.
-      (!needsOnly.value || filledCount(s) < s.p5Classes),
+
+      (!needsOnly.value || filledCount(s) < s.p5Classes) &&
+      (!zoneFilter.value || s.zone === zoneFilter.value) &&
+      (!timeFilter.value || s.reportingTime === timeFilter.value),
   )
+})
+
+watch(selectedShow, () => {
+  focusedSchoolId.value = null
+  clearSchoolFilters()
 })
 
 // Capacity bar under each school's name: width in %, and colour (green = full, red = empty, amber = in between).
@@ -348,12 +423,8 @@ function limitView(zoom) {
   const pad = L.point(covered.left + covered.right, covered.top + covered.bottom)
   map.setMinZoom(Math.max(11, map.getBoundsZoom(baseBounds, true, pad)))
   const z = zoom ?? map.getZoom()
-  const sw = map
-    .project(baseBounds.getSouthWest(), z)
-    .add(L.point(-covered.left, covered.bottom))
-  const ne = map
-    .project(baseBounds.getNorthEast(), z)
-    .add(L.point(covered.right, -covered.top))
+  const sw = map.project(baseBounds.getSouthWest(), z).add(L.point(-covered.left, covered.bottom))
+  const ne = map.project(baseBounds.getNorthEast(), z).add(L.point(covered.right, -covered.top))
   map.setMaxBounds(L.latLngBounds(map.unproject(sw, z), map.unproject(ne, z)))
 }
 
@@ -422,10 +493,15 @@ async function loadData(quiet = false) {
   try {
     const response = await axios.get(API_URL + 'assignments')
     // FIX: only replace the data when it really changed. A new array every 5 s redrew every map pin and closed open tooltips.
-    if (JSON.stringify(response.data) !== JSON.stringify(assignments.value)) assignments.value = response.data
+    if (JSON.stringify(response.data) !== JSON.stringify(assignments.value))
+      assignments.value = response.data
   } catch (error) {
     if (!quiet)
-      showPopup('error', 'Could not load', error.response?.data?.message || 'Could not load assignments.')
+      showPopup(
+        'error',
+        'Could not load',
+        error.response?.data?.message || 'Could not load assignments.',
+      )
   }
 }
 
@@ -455,7 +531,10 @@ async function runAllocation(reset = false) {
   runningAlloc.value = true
   dismissPopup()
   try {
-    const response = await axios.post(API_URL + 'assignments/run', { reset, show: selectedShow.value }) // CHANGED: send the selected show so only that one is touched
+    const response = await axios.post(API_URL + 'assignments/run', {
+      reset,
+      show: selectedShow.value,
+    }) // CHANGED: send the selected show so only that one is touched
     // The run answers { assignments, skippedShows }: published shows are locked and not re-run
     assignments.value = response.data.assignments
     const skipped = response.data.skippedShows || []
@@ -464,7 +543,10 @@ async function runAllocation(reset = false) {
     // One short sentence per show, e.g. "NE Show 1: 2 late volunteers added (1 placed, 1 on reserve)"
     const lateNotes = Object.entries(toppedUp)
       .filter(([, t]) => t.added > 0) // skip shows where nobody was late
-      .map(([show, t]) => `${show}: ${t.added} late volunteer${t.added === 1 ? '' : 's'} added (${t.placed} placed, ${t.added - t.placed} on reserve)`)
+      .map(
+        ([show, t]) =>
+          `${show}: ${t.added} late volunteer${t.added === 1 ? '' : 's'} added (${t.placed} placed, ${t.added - t.placed} on reserve)`,
+      )
     const lateText = lateNotes.length > 0 ? ' ' + lateNotes.join('. ') + '.' : '' // empty when nobody was late
     if (skipped.length > 0) {
       showPopup(
@@ -474,10 +556,20 @@ async function runAllocation(reset = false) {
         9000,
       )
     } else {
-      showPopup('info', reset ? 'Reset done' : 'Allocation done', reset ? `All assignments for ${selectedShow.value} were erased.` : 'The allocation is a draft until you publish it.')
+      showPopup(
+        'info',
+        reset ? 'Reset done' : 'Allocation done',
+        reset
+          ? `All assignments for ${selectedShow.value} were erased.`
+          : 'The allocation is a draft until you publish it.',
+      )
     }
   } catch (error) {
-    showPopup('error', 'Allocation failed', error.response?.data?.message || 'Could not run the allocation.')
+    showPopup(
+      'error',
+      'Allocation failed',
+      error.response?.data?.message || 'Could not run the allocation.',
+    )
   } finally {
     runningAlloc.value = false // finally: the button is re-enabled even when the request fails
   }
@@ -719,277 +811,382 @@ loadData()
       <!-- The floating panel. v-show (not v-if) only hides it with CSS, so the open cards, the scroll position and the
            search text are all kept while it is hidden. -->
       <Transition name="alloc-panel-fade">
-      <aside v-show="panelOpen" class="alloc-panel">
-        <!-- TOP PART of the panel. It never scrolls (flex: 0 0 auto in the CSS); only .alloc-panel-scroll below scrolls. -->
-        <div class="alloc-panel-head">
-          <!-- Header row: title + show selector on the left, action buttons on the right.
+        <aside v-show="panelOpen" class="alloc-panel">
+          <!-- TOP PART of the panel. It never scrolls (flex: 0 0 auto in the CSS); only .alloc-panel-scroll below scrolls. -->
+          <div class="alloc-panel-head">
+            <!-- Header row: title + show selector on the left, action buttons on the right.
                v-model="selectedShow" links the dropdown to the script: choosing a show changes selectedShow, and every
                chip, card and pin then switches to that show. The data-testid attributes are used by the e2e tests. -->
-          <!-- On phones (CSS at the bottom) the row is: [title + show selector ... Map] then [Allocate | Publish | Reset]
+            <!-- On phones (CSS at the bottom) the row is: [title + show selector ... Map] then [Allocate | Publish | Reset]
                sharing one line equally, so nothing wraps onto a third line. -->
-          <div class="alloc-head-row mb-2">
-            <div class="alloc-title-group d-flex flex-wrap align-items-center gap-3">
-              
-              <!-- Custom show dropdown (same look and animation as the HQ Live Board) -->
-              <div ref="showEl" class="show-select" @keydown.esc="showMenuOpen = false">
-                <button
-                  type="button"
-                  class="show-btn"
-                  aria-haspopup="listbox"
-                  :aria-expanded="showMenuOpen"
-                  aria-label="Show"
-                  data-testid="alloc-event-select"
-                  @click="showMenuOpen = !showMenuOpen"
-                >
-                  <i class="bi bi-calendar-event" aria-hidden="true"></i>
-                  <span class="show-name">{{ selectedShow }}</span>
-                  <i class="bi bi-chevron-down show-chevron" :class="{ open: showMenuOpen }" aria-hidden="true"></i>
-                </button>
-
-                <Transition name="menu">
-                  <div v-if="showMenuOpen" class="show-menu" role="listbox">
-                    <button
-                      v-for="(show, i) in shows"
-                      :key="show"
-                      type="button"
-                      class="show-option"
-                      :class="{ active: show === selectedShow }"
-                      :style="{ '--i': i }"
-                      role="option"
-                      :aria-selected="show === selectedShow"
-                      :data-testid="'alloc-show-option-' + (i + 1)"
-                      @click="chooseShow(show)"
-                    >
-                      <span>{{ show }}</span>
-                      <i v-if="show === selectedShow" class="bi bi-check-lg" aria-hidden="true"></i>
-                    </button>
-                  </div>
-                </Transition>
-              </div>
-            </div>
-            <div class="alloc-actions d-flex flex-wrap align-items-center gap-2">
-              <!-- Allocate: matches unassigned volunteers to schools (draft only, nothing is visible to volunteers yet).
-                   Disabled while a run is in progress. title = the tooltip shown on hover. -->
-              <!-- E2E: data-testid="alloc-run" lets the Allocation test press this button -->
-              <button
-                class="btn btn-brand"
-                :disabled="runningAlloc"
-                title="Match unassigned volunteers; accepted volunteers keep their school"
-                data-testid="alloc-run"
-                @click="runAllocation(false)"
-              >
-                Allocate
-              </button>
-              <button
-                class="btn btn-success"
-                :disabled="publishing || draftCount === 0"
-                data-testid="alloc-publish"
-                @click="publishShow"
-              >
-                <!-- Publish: makes the selected show visible to volunteers. Disabled while publishing, or when there are
-                     no drafts to publish. The number on the badge is draftCount (unpublished rows in this show). -->
-                Publish
-                <!-- E2E: data-testid="alloc-draft-count" lets the test read how many drafts are waiting -->
-                <span class="badge text-bg-light ms-1" title="Unpublished drafts" data-testid="alloc-draft-count">{{
-                  draftCount
-                }}</span>
-              </button>
-              <!-- Reset: erases EVERYTHING (it still asks for confirmation first). Replaces the old ... menu. -->
-              <button
-                class="btn btn-outline-danger"
-                type="button"
-                :disabled="runningAlloc || publishing"
-                data-testid="alloc-reset"
-                @click="runAllocation(true)"
-              >
-                <i class="bi bi-arrow-counterclockwise me-1"></i>Reset
-              </button>
-            </div>
-            <!-- Collapse the menu to see the map (sits beside the show selector on phones) -->
-            <button
-              type="button"
-              class="btn btn-outline-primary alloc-map-btn"
-              title="Hide the list and show the map"
-              data-testid="alloc-show-map"
-              @click="panelOpen = false"
-            >
-              <i class="bi bi-map me-1"></i>Map
-            </button>
-          </div>
-
-          <!-- Stat chips: Schools, Accepted, Pending, Declined, Withdrawn, Unassigned (counts for the selected show).
-               Drawn with one v-for over statChips. Bootstrap columns: col-4 = 3 per row on phones, col-md-2 = all 6 on
-               one row from tablet up (a row is 12 columns wide). -->
-          <div v-if="groupedAssignments[selectedShow]" class="row g-1 mb-2 alloc-chips">
-            <div v-for="chip in statChips" :key="chip.label" class="col-4">
-              <div class="card-hw py-1 px-0 text-center">
-                <div class="fs-6 fw-semibold">{{ chip.value }}</div>
-                <div class="chip-label text-muted-hw">{{ chip.label }}</div>
-              </div>
-            </div>
-          </div>
-
-          <!-- Search box + "Needs Volunteers" switch.
-               v-model keeps each control in sync with searchbar / needsOnly in the script, and the card list filters
-               itself (see visibleSchools). -->
-          <div class="alloc-search-row d-flex flex-wrap align-items-center gap-2 mb-0">
-            <input
-              type="search"
-              class="form-control search-box"
-              placeholder="Search school or volunteer"
-              v-model="searchbar"
-            />
-            <div class="form-check form-switch mb-0">
-              <input
-                class="form-check-input"
-                type="checkbox"
-                role="switch"
-                id="needsOnly"
-                v-model="needsOnly"
-              />
-              <label class="form-check-label" for="needsOnly">Needs Volunteers</label>
-            </div>
-          </div>
-        </div>
-
-        <!-- BOTTOM PART of the panel: the only part that scrolls. -->
-        <div class="alloc-panel-scroll">
-          <div v-if="groupedAssignments[selectedShow]" class="card-hw p-3 mb-3">
-            <!-- UNASSIGNED CARD: volunteers who do not have a school yet. Same accordion pattern as the school cards
-                 (a heading that contains a button, with aria-expanded so screen readers know if it is open). -->
-            <h2 class="h5 mb-0">
-              <button
-                type="button"
-                class="school-head align-items-center"
-                :aria-expanded="showUnassigned"
-                @click="showUnassigned = !showUnassigned"
-              >
-                <span>Unassigned volunteers</span>
-                <span class="d-flex align-items-center gap-2">
-                  <!-- amber while someone is waiting, green when everyone has a school -->
-                  <span
-                    class="badge"
-                    :class="stats.unassigned ? 'text-bg-warning' : 'text-bg-success'"
-                  >
-                    {{ stats.unassigned }}
-                  </span>
-                  <i class="bi bi-chevron-down chevron"></i>
-                </span>
-              </button>
-            </h2>
-
-            <!-- Collapsing area: the class "open" is added when showUnassigned is true; the CSS animates the height. -->
-            <div class="vol-collapse" :class="{ open: showUnassigned }">
-              <div class="vol-collapse-inner">
-                <p v-if="!stats.unassigned" class="small text-muted-hw mb-0">
-                  <i class="bi bi-check-circle-fill text-success me-1"></i>Everyone has a school.
-                </p>
-                <div v-else class="unassigned-list">
-                  <div
-                    v-for="volunteer in sortedUnassigned"
-                    :key="volunteer.assignmentId"
-                    class="d-flex align-items-center gap-2 py-2 border-top"
-                  >
-                    <!-- Round avatar with the volunteer's first letter (or ? when there is no name) -->
-                    <span class="avatar">{{
-                      (volunteer.name || '?').charAt(0).toUpperCase()
-                    }}</span>
-                    <span class="flex-grow-1 text-truncate">
-                      <button
-                        v-if="volunteer._id"
-                        type="button"
-                        class="btn btn-link btn-sm p-0 align-baseline text-truncate mw-100"
-                        @click.stop="openChat(volunteer)"
-                      >
-                        {{ volunteer.name }}
-                        <i class="bi bi-chat-dots-fill ms-1" aria-hidden="true"></i>
-                      </button>
-                      <span v-else>{{ volunteer.name }}</span>
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-          <!-- No data for this show at all: ask the admin to press Allocate. This v-if and the v-else on the
-               template below are a pair: either this message or the list of school cards is shown. -->
-          <p v-if="!groupedAssignments[selectedShow]" class="text-muted-hw">
-            There are no assignments. Press "Allocate" to create them.
-          </p>
-          <template v-else>
-            <!-- Nothing to list: say why (every school is full, or nothing matched the search) -->
-            <p v-if="visibleSchools.length === 0" class="text-muted-hw">
-              {{
-                needsOnly && !searchbar.trim()
-                  ? 'Every school has enough volunteers.'
-                  : 'No schools or volunteers match.'
-              }}
-            </p>
-            <!-- SCHOOL CARDS: one per school in visibleSchools (so the search and the "Needs Volunteers" filter apply),
-                 laid out in a responsive grid. Clicking a card (or pressing Enter on its title button) calls selectSchool():
-                 the menu collapses, the map zooms to that school and the focus card shows its volunteers. -->
-            <div class="alloc-grid">
-              <div
-                v-for="school in visibleSchools"
-                :key="school._id"
-                :id="`school-${school._id}`"
-                class="school-card card-hw px-2 px-md-3 py-2"
-                @click="selectSchool(school)"
-              >
-                <h2 class="h5 mb-0">
+            <div class="alloc-head-row mb-2">
+              <div class="alloc-title-group d-flex flex-wrap align-items-center gap-3">
+                <!-- Custom show dropdown (same look and animation as the HQ Live Board) -->
+                <div ref="showEl" class="show-select" @keydown.esc="showMenuOpen = false">
                   <button
                     type="button"
-                    class="school-head"
-                    :aria-label="`Show ${school.name} on the map`"
+                    class="show-btn"
+                    aria-haspopup="listbox"
+                    :aria-expanded="showMenuOpen"
+                    aria-label="Show"
+                    data-testid="alloc-event-select"
+                    @click="showMenuOpen = !showMenuOpen"
                   >
-                    <span class="text-truncate">
-                      {{ school.name }}
-                      <small class="d-block fw-normal text-muted-hw card-time"
-                        ><i class="bi bi-clock me-1"></i>{{ school.reportingTime }}</small
-                      >
-                    </span>
-                    <span class="d-flex align-items-center gap-2 text-nowrap">
-                      {{ filledCount(school) }}/{{ school.p5Classes }}
-                      <i class="bi bi-chevron-right" aria-hidden="true"></i>
-                    </span>
+                    <i class="bi bi-calendar-event" aria-hidden="true"></i>
+                    <span class="show-name">{{ selectedShow }}</span>
+                    <i
+                      class="bi bi-chevron-down show-chevron"
+                      :class="{ open: showMenuOpen }"
+                      aria-hidden="true"
+                    ></i>
                   </button>
-                </h2>
 
-                <!-- Capacity bar (green = full, amber = partly filled, red = empty) and one badge per status, e.g. "3 Accepted". -->
-                <div
-                  class="progress my-2"
-                  role="progressbar"
-                  aria-label="Places filled"
-                  style="height: 6px"
+                  <Transition name="menu">
+                    <div v-if="showMenuOpen" class="show-menu" role="listbox">
+                      <button
+                        v-for="(show, i) in shows"
+                        :key="show"
+                        type="button"
+                        class="show-option"
+                        :class="{ active: show === selectedShow }"
+                        :style="{ '--i': i }"
+                        role="option"
+                        :aria-selected="show === selectedShow"
+                        :data-testid="'alloc-show-option-' + (i + 1)"
+                        @click="chooseShow(show)"
+                      >
+                        <span>{{ show }}</span>
+                        <i
+                          v-if="show === selectedShow"
+                          class="bi bi-check-lg"
+                          aria-hidden="true"
+                        ></i>
+                      </button>
+                    </div>
+                  </Transition>
+                </div>
+              </div>
+              <div class="alloc-actions d-flex flex-wrap align-items-center gap-2">
+                <!-- Allocate: matches unassigned volunteers to schools (draft only, nothing is visible to volunteers yet).
+                   Disabled while a run is in progress. title = the tooltip shown on hover. -->
+                <!-- E2E: data-testid="alloc-run" lets the Allocation test press this button -->
+                <button
+                  class="btn btn-brand"
+                  :disabled="runningAlloc"
+                  title="Match unassigned volunteers; accepted volunteers keep their school"
+                  data-testid="alloc-run"
+                  @click="runAllocation(false)"
                 >
-                  <div
-                    class="progress-bar"
-                    :class="capacityClass(school)"
-                    :style="{ width: capacityPercent(school) + '%' }"
-                  ></div>
-                </div>
-                <div class="d-flex flex-wrap gap-1 card-meta">
+                  Allocate
+                </button>
+                <button
+                  class="btn btn-success"
+                  :disabled="publishing || draftCount === 0"
+                  data-testid="alloc-publish"
+                  @click="publishShow"
+                >
+                  <!-- Publish: makes the selected show visible to volunteers. Disabled while publishing, or when there are
+                     no drafts to publish. The number on the badge is draftCount (unpublished rows in this show). -->
+                  Publish
+                  <!-- E2E: data-testid="alloc-draft-count" lets the test read how many drafts are waiting -->
                   <span
-                    v-for="s in statusSummary(school)"
-                    :key="s.status"
-                    class="badge rounded-pill"
-                    :class="s.cls"
-                    >{{ s.n }} {{ s.status }}</span
+                    class="badge text-bg-light ms-1"
+                    title="Unpublished drafts"
+                    data-testid="alloc-draft-count"
+                    >{{ draftCount }}</span
                   >
-                  <span v-if="!school.volunteers.length" class="small text-muted-hw"
-                    >No volunteers yet</span
-                  >
-                </div>
-                <!-- Only while searching: which volunteers of this school matched -->
-                <div v-if="matchedVolunteers(school).length" class="small text-muted-hw mt-1">
-                  <i class="bi bi-search me-1"></i
-                  >{{ matchedVolunteers(school).map((v) => v.name).join(', ') }}
+                </button>
+                <!-- Reset: erases EVERYTHING (it still asks for confirmation first). Replaces the old ... menu. -->
+                <button
+                  class="btn btn-outline-danger"
+                  type="button"
+                  :disabled="runningAlloc || publishing"
+                  data-testid="alloc-reset"
+                  @click="runAllocation(true)"
+                >
+                  <i class="bi bi-arrow-counterclockwise me-1"></i>Reset
+                </button>
+              </div>
+              <!-- Collapse the menu to see the map (sits beside the show selector on phones) -->
+              <button
+                type="button"
+                class="btn btn-outline-primary alloc-map-btn"
+                title="Hide the list and show the map"
+                data-testid="alloc-show-map"
+                @click="panelOpen = false"
+              >
+                <i class="bi bi-map me-1"></i>Map
+              </button>
+            </div>
+
+            <!-- Stat chips: Schools, Accepted, Pending, Declined, Withdrawn, Unassigned (counts for the selected show).
+               Drawn with one v-for over statChips. Bootstrap columns: col-4 = 3 per row on phones, col-md-2 = all 6 on
+               one row from tablet up (a row is 12 columns wide). -->
+            <div v-if="groupedAssignments[selectedShow]" class="row g-1 mb-2 alloc-chips">
+              <div v-for="chip in statChips" :key="chip.label" class="col-4">
+                <div class="card-hw py-1 px-0 text-center">
+                  <div class="fs-6 fw-semibold">{{ chip.value }}</div>
+                  <div class="chip-label text-muted-hw">{{ chip.label }}</div>
                 </div>
               </div>
             </div>
-          </template>
-        </div>
-      </aside>
+
+            <!-- Search box + "Needs Volunteers" switch.
+               v-model keeps each control in sync with searchbar / needsOnly in the script, and the card list filters
+               itself (see visibleSchools). -->
+            <div class="alloc-search-row d-flex flex-wrap align-items-center gap-2 mb-0">
+              <!-- Zone + reporting time filters: same custom dropdown as the show selector -->
+              <div class="alloc-filter-row d-flex flex-wrap align-items-center gap-2 mt-2">
+                <div ref="zoneEl" class="show-select" @keydown.esc="zoneMenuOpen = false">
+                  <button
+                    type="button"
+                    class="show-btn"
+                    aria-haspopup="listbox"
+                    :aria-expanded="zoneMenuOpen"
+                    aria-label="Filter by zone"
+                    data-testid="alloc-zone-filter"
+                    @click="
+                      zoneMenuOpen = !zoneMenuOpen
+                    "
+                  >
+                    <i class="bi bi-geo-alt" aria-hidden="true"></i>
+                    <span class="show-name">{{ zoneFilter || 'All zones' }}</span>
+                    <i
+                      class="bi bi-chevron-down show-chevron"
+                      :class="{ open: zoneMenuOpen }"
+                      aria-hidden="true"
+                    ></i>
+                  </button>
+                  <Transition name="menu">
+                    <div v-if="zoneMenuOpen" class="show-menu filter-menu" role="listbox">
+                      <button
+                        v-for="(z, i) in ['', ...zoneOptions]"
+                        :key="z || 'all'"
+                        type="button"
+                        class="show-option"
+                        :class="{ active: z === zoneFilter }"
+                        :style="{ '--i': i }"
+                        role="option"
+                        :aria-selected="z === zoneFilter"
+                        @click="chooseZone(z)"
+                      >
+                        <span>{{ z || 'All zones' }}</span>
+                        <i v-if="z === zoneFilter" class="bi bi-check-lg" aria-hidden="true"></i>
+                      </button>
+                    </div>
+                  </Transition>
+                </div>
+
+                <div ref="timeEl" class="show-select" @keydown.esc="timeMenuOpen = false">
+                  <button
+                    type="button"
+                    class="show-btn"
+                    aria-haspopup="listbox"
+                    :aria-expanded="timeMenuOpen"
+                    aria-label="Filter by reporting time"
+                    data-testid="alloc-time-filter"
+                    @click="
+                      timeMenuOpen = !timeMenuOpen
+                    "
+                  >
+                    <i class="bi bi-clock" aria-hidden="true"></i>
+                    <span class="show-name">{{ timeFilter || 'All times' }}</span>
+                    <i
+                      class="bi bi-chevron-down show-chevron"
+                      :class="{ open: timeMenuOpen }"
+                      aria-hidden="true"
+                    ></i>
+                  </button>
+                  <Transition name="menu">
+                    <div v-if="timeMenuOpen" class="show-menu filter-menu" role="listbox">
+                      <button
+                        v-for="(t, i) in ['', ...timeOptions]"
+                        :key="t || 'all'"
+                        type="button"
+                        class="show-option"
+                        :class="{ active: t === timeFilter }"
+                        :style="{ '--i': i }"
+                        role="option"
+                        :aria-selected="t === timeFilter"
+                        @click="chooseTime(t)"
+                      >
+                        <span>{{ t || 'All times' }}</span>
+                        <i v-if="t === timeFilter" class="bi bi-check-lg" aria-hidden="true"></i>
+                      </button>
+                    </div>
+                  </Transition>
+                </div>
+
+                <button
+                  v-if="filtersActive"
+                  type="button"
+                  class="btn btn-sm btn-link text-nowrap p-0"
+                  @click="clearSchoolFilters"
+                >
+                  Clear
+                </button>
+              </div>
+              <input
+                type="search"
+                class="form-control search-box"
+                placeholder="Search school or volunteer"
+                v-model="searchbar"
+              />
+              <div class="form-check form-switch mb-0">
+                <input
+                  class="form-check-input"
+                  type="checkbox"
+                  role="switch"
+                  id="needsOnly"
+                  v-model="needsOnly"
+                />
+                <label class="form-check-label" for="needsOnly">Needs Volunteers</label>
+              </div>
+            </div>
+          </div>
+
+          <!-- BOTTOM PART of the panel: the only part that scrolls. -->
+          <div class="alloc-panel-scroll">
+            <div v-if="groupedAssignments[selectedShow]" class="card-hw p-3 mb-3">
+              <!-- UNASSIGNED CARD: volunteers who do not have a school yet. Same accordion pattern as the school cards
+                 (a heading that contains a button, with aria-expanded so screen readers know if it is open). -->
+              <h2 class="h5 mb-0">
+                <button
+                  type="button"
+                  class="school-head align-items-center"
+                  :aria-expanded="showUnassigned"
+                  @click="showUnassigned = !showUnassigned"
+                >
+                  <span>Unassigned volunteers</span>
+                  <span class="d-flex align-items-center gap-2">
+                    <!-- amber while someone is waiting, green when everyone has a school -->
+                    <span
+                      class="badge"
+                      :class="stats.unassigned ? 'text-bg-warning' : 'text-bg-success'"
+                    >
+                      {{ stats.unassigned }}
+                    </span>
+                    <i class="bi bi-chevron-down chevron"></i>
+                  </span>
+                </button>
+              </h2>
+
+              <!-- Collapsing area: the class "open" is added when showUnassigned is true; the CSS animates the height. -->
+              <div class="vol-collapse" :class="{ open: showUnassigned }">
+                <div class="vol-collapse-inner">
+                  <p v-if="!stats.unassigned" class="small text-muted-hw mb-0">
+                    <i class="bi bi-check-circle-fill text-success me-1"></i>Everyone has a school.
+                  </p>
+                  <div v-else class="unassigned-list">
+                    <div
+                      v-for="volunteer in sortedUnassigned"
+                      :key="volunteer.assignmentId"
+                      class="d-flex align-items-center gap-2 py-2 border-top"
+                    >
+                      <!-- Round avatar with the volunteer's first letter (or ? when there is no name) -->
+                      <span class="avatar">{{
+                        (volunteer.name || '?').charAt(0).toUpperCase()
+                      }}</span>
+                      <span class="flex-grow-1 text-truncate">
+                        <button
+                          v-if="volunteer._id"
+                          type="button"
+                          class="btn btn-link btn-sm p-0 align-baseline text-truncate mw-100"
+                          @click.stop="openChat(volunteer)"
+                        >
+                          {{ volunteer.name }}
+                          <i class="bi bi-chat-dots-fill ms-1" aria-hidden="true"></i>
+                        </button>
+                        <span v-else>{{ volunteer.name }}</span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <!-- No data for this show at all: ask the admin to press Allocate. This v-if and the v-else on the
+               template below are a pair: either this message or the list of school cards is shown. -->
+            <p v-if="!groupedAssignments[selectedShow]" class="text-muted-hw">
+              There are no assignments. Press "Allocate" to create them.
+            </p>
+            <template v-else>
+              <!-- Nothing to list: say why (every school is full, or nothing matched the search) -->
+              <p v-if="visibleSchools.length === 0" class="text-muted-hw">
+                {{
+                  needsOnly && !searchbar.trim() && !filtersActive
+                    ? 'Every school has enough volunteers.'
+                    : 'No schools or volunteers match.'
+                }}
+              </p>
+              <!-- SCHOOL CARDS: one per school in visibleSchools (so the search and the "Needs Volunteers" filter apply),
+                 laid out in a responsive grid. Clicking a card (or pressing Enter on its title button) calls selectSchool():
+                 the menu collapses, the map zooms to that school and the focus card shows its volunteers. -->
+              <div class="alloc-grid">
+                <div
+                  v-for="school in visibleSchools"
+                  :key="school._id"
+                  :id="`school-${school._id}`"
+                  class="school-card card-hw px-2 px-md-3 py-2"
+                  @click="selectSchool(school)"
+                >
+                  <h2 class="h5 mb-0">
+                    <button
+                      type="button"
+                      class="school-head"
+                      :aria-label="`Show ${school.name} on the map`"
+                    >
+                      <span class="text-truncate">
+                        {{ school.name }}
+                        <small class="d-block fw-normal text-muted-hw card-time"
+                          ><i class="bi bi-clock me-1"></i>{{ school.reportingTime }}</small
+                        >
+                      </span>
+                      <span class="d-flex align-items-center gap-2 text-nowrap">
+                        {{ filledCount(school) }}/{{ school.p5Classes }}
+                        <i class="bi bi-chevron-right" aria-hidden="true"></i>
+                      </span>
+                    </button>
+                  </h2>
+
+                  <!-- Capacity bar (green = full, amber = partly filled, red = empty) and one badge per status, e.g. "3 Accepted". -->
+                  <div
+                    class="progress my-2"
+                    role="progressbar"
+                    aria-label="Places filled"
+                    style="height: 6px"
+                  >
+                    <div
+                      class="progress-bar"
+                      :class="capacityClass(school)"
+                      :style="{ width: capacityPercent(school) + '%' }"
+                    ></div>
+                  </div>
+                  <div class="d-flex flex-wrap gap-1 card-meta">
+                    <span
+                      v-for="s in statusSummary(school)"
+                      :key="s.status"
+                      class="badge rounded-pill"
+                      :class="s.cls"
+                      >{{ s.n }} {{ s.status }}</span
+                    >
+                    <span v-if="!school.volunteers.length" class="small text-muted-hw"
+                      >No volunteers yet</span
+                    >
+                  </div>
+                  <!-- Only while searching: which volunteers of this school matched -->
+                  <div v-if="matchedVolunteers(school).length" class="small text-muted-hw mt-1">
+                    <i class="bi bi-search me-1"></i
+                    >{{
+                      matchedVolunteers(school)
+                        .map((v) => v.name)
+                        .join(', ')
+                    }}
+                  </div>
+                </div>
+              </div>
+            </template>
+          </div>
+        </aside>
       </Transition>
 
       <!-- FOCUS CARD: shown while the menu is collapsed and a school is focused. Left card on tablet/desktop, bottom sheet
@@ -1023,7 +1220,12 @@ loadData()
             <span>Places filled</span>
             <span>{{ filledCount(focusedSchool) }}/{{ focusedSchool.p5Classes }}</span>
           </div>
-          <div class="progress my-1" role="progressbar" aria-label="Places filled" style="height: 6px">
+          <div
+            class="progress my-1"
+            role="progressbar"
+            aria-label="Places filled"
+            style="height: 6px"
+          >
             <div
               class="progress-bar"
               :class="capacityClass(focusedSchool)"
@@ -1049,7 +1251,9 @@ loadData()
               class="d-flex flex-wrap justify-content-between align-items-center gap-2 py-2 border-top"
             >
               <span>
-                <span v-if="!volunteer.published" class="badge text-bg-light border me-1">Draft</span>
+                <span v-if="!volunteer.published" class="badge text-bg-light border me-1"
+                  >Draft</span
+                >
                 <span
                   class="badge rounded-pill"
                   :class="{
@@ -1083,7 +1287,11 @@ loadData()
       <!-- Modal confirmation card (Allocate / Publish / Reset): darkens the page until Cancel or OK is clicked -->
       <ConfirmDialog :dialog="confirmDialog" @answer="answerConfirm" />
       <!-- Temporary status popup (errors, confirmations, "Allocating..."), same component as TrackingView -->
-      <MapNotice :notice="popupNotice" :closable="!runningAlloc && !publishing" @close="dismissPopup" />
+      <MapNotice
+        :notice="popupNotice"
+        :closable="!runningAlloc && !publishing"
+        @close="dismissPopup"
+      />
     </div>
   </div>
 </template>
@@ -1128,7 +1336,10 @@ loadData()
    Phones (under 768px) keep the rule above, so the phone layout is unchanged */
 @media (min-width: 768px) {
   .alloc-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr)); /* minmax(0, ...) lets long names shrink and truncate instead of stretching the card */
+    grid-template-columns: repeat(
+      2,
+      minmax(0, 1fr)
+    ); /* minmax(0, ...) lets long names shrink and truncate instead of stretching the card */
   }
 }
 .school-card {
@@ -1198,7 +1409,7 @@ loadData()
     order: 1;
     flex: 1 1 auto;
     min-width: 0;
-    gap: 0.5rem !important;
+    gap: 0.5rem ;
   }
   .alloc-map-btn {
     order: 2;
@@ -1206,7 +1417,7 @@ loadData()
   .alloc-actions {
     order: 3;
     flex: 1 1 100%;
-    flex-wrap: nowrap !important;
+    flex-wrap: nowrap ;
   }
   .alloc-actions .btn {
     flex: 1 1 0;
@@ -1215,8 +1426,13 @@ loadData()
     white-space: nowrap;
   }
   .alloc-search-row {
-    flex-wrap: nowrap !important;
+    flex-wrap: nowrap ;
   }
+  /* A long list of zones/times scrolls inside the menu instead of running off the screen */
+.filter-menu {
+  max-height: 260px;
+  overflow-y: auto;
+}
   .alloc-search-row .search-box {
     flex: 1 1 0;
     min-width: 0;
@@ -1434,7 +1650,9 @@ loadData()
 /* The menu grows out of the button */
 .menu-enter-active,
 .menu-leave-active {
-  transition: opacity 0.18s ease, transform 0.18s ease;
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
   transform-origin: top left;
 }
 .menu-enter-from,
@@ -1461,6 +1679,5 @@ loadData()
   .menu-leave-active,
   .show-chevron {
     transition: none;
-  }
-}
-</style>
+  }}
+  </style>
