@@ -281,6 +281,22 @@ exports.deleteOpenForShows = function (volunteerId, shows) {
   });
 };
 
+// NEW (availability change): the volunteer ticked shows that are already PUBLISHED, so put them on those shows'
+// reserve list (published, so they see "On reserve list"). Run Allocations skips published shows, so without this
+// they would say "Awaiting allocation" forever. Upsert on (volunteer, show): if they already have a row in a show,
+// it is left exactly as it is.
+exports.addToReserve = function (volunteerId, name, shows) {
+  return Promise.all(
+    shows.map((show) =>
+      Assignments.updateOne(
+        { volunteer: volunteerId, show },
+        { $setOnInsert: { volunteer: volunteerId, name, show, status: "Reserve", school: null, published: true } },
+        { upsert: true }
+      )
+    )
+  );
+};
+
 // NEW (publish step): release the draft to volunteers. show = "NE Show 1" publishes that show only,
 // null publishes every show. $ne: true also catches old rows that have no "published" field at all.
 // CHANGED: Pending rows also get a deadline (24h from now) at the moment they are released. Reserve rows have none.

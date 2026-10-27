@@ -254,7 +254,7 @@ export function useMyAssignment() {
 
     try {
       await setAvailableShows(selectedShows.value)
-      volAvailableShows.value = selectedShows.value
+      await loadData() // reload: a newly ticked published show now shows "On reserve list" (or a school, if a place was open)
       closeAvailabilityModal()
       await loadData() // FIX: reload, because the server deletes Pending rows of unticked shows (and may fill reserves); the page showed stale Accept buttons
     } catch (error) {

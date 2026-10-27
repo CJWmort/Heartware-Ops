@@ -3,9 +3,12 @@
 const Module = require('module'); const path = require('path'); const assert = require('assert');
 const S = path.resolve(__dirname, '..');
 let user = { availableShows: ['NE Show 1', 'NE Show 2'] }; let accepted = []; let deleted = null; let saved = null;
+let published = []; let reserved = null; let refilled = [];
 const stubs = {
-  '../models/account-model': { findById: async () => user, updateAvailableShows: async (id, shows) => { saved = shows; return { availableShows: shows }; }, removeAvailableShows: async (id, shows) => { saved = shows; return {}; } },
-  '../models/assignments-model': { acceptedShowsAmong: async (id, shows) => accepted.filter((s) => shows.includes(s)), deleteOpenForShows: async (id, shows) => { deleted = shows; } },
+  '../models/account-model': { findById: async () => user, updateAvailableShows: async (id, shows) => { saved = shows; return { name: 'Ann', availableShows: shows }; }, removeAvailableShows: async (id, shows) => { saved = shows; return {}; } },
+  '../models/assignments-model': { acceptedShowsAmong: async (id, shows) => accepted.filter((s) => shows.includes(s)), deleteOpenForShows: async (id, shows) => { deleted = shows; },
+    publishedShows: async () => published, addToReserve: async (id, name, shows) => { reserved = { id, name, shows }; } },
+  '../utils/reserve-replacement': { replaceFromReserve: async (show) => { refilled.push(show); return []; } },
   '../services/onemap': {}, bcrypt: {}, '../utils/otp': {},
   '../sockets': { disconnectUser() {} }, // NEW: accounts-controller now imports sockets (logout closes live connections); a test must not load real socket.io
 };
@@ -24,5 +27,14 @@ const res = () => { const o = { code: 200 }; o.status = (c) => { o.code = c; ret
   assert.deepEqual(deleted, ['NE Show 2'], 'NE Show 4 was never ticked, so it is not "removed"'); console.log('4 ok  DELETE /me only treats really-ticked shows as removed');
   accepted = ['NE Show 1']; o = res(); await ctl.removeMyShows({ session: { userId: 'u' }, body: { availableShows: ['NE Show 1'] } }, o); assert.equal(o.code, 409); console.log('5 ok  DELETE /me also refuses accepted shows');
   o = res(); await ctl.updateMe({ session: { userId: 'u' }, body: { availableShows: 'x' } }, o); assert.equal(o.code, 400); console.log('6 ok  bad input -> 400');
+  // 7. ticking a PUBLISHED show puts the volunteer on its reserve list (and tries to fill an open place); draft shows are left alone
+  user = { availableShows: ['NE Show 1'] }; published = ['NE Show 2']; reserved = null; refilled = [];
+  o = res(); await ctl.updateMe({ session: { userId: 'u' }, body: { availableShows: ['NE Show 1', 'NE Show 2', 'NE Show 3'] } }, o);
+  assert.equal(o.code, 200); assert.deepEqual(reserved, { id: 'u', name: 'Ann', shows: ['NE Show 2'] }); assert.ok(refilled.includes('NE Show 2'));
+  assert.ok(!refilled.includes('NE Show 3'));
+  console.log('7 ok  newly ticked published show -> reserve list + refill; draft show untouched');
+  reserved = null; o = res(); await ctl.updateMe({ session: { userId: 'u' }, body: { availableShows: ['NE Show 1'] } }, o);
+  assert.equal(o.code, 200); assert.equal(reserved, null);
+  console.log('8 ok  no newly ticked show -> nobody added to a reserve list');
   console.log('ALL AVAILABILITY CHECKS PASSED');
 })().catch((e) => { console.error('FAIL', e); process.exit(1); });
