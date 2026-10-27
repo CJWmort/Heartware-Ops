@@ -2,7 +2,7 @@
 // Popup card for info + error messages. Put it inside .map-stage.
 //   <MapNotice :notice="notice" @close="dismissNotice" />
 //   notice = { type: 'error' | 'info', icon: 'bi-...', title, text } or null
-// Per-view position: set --notice-top on .map-stage (default 56px).
+// Per-view position: set --notice-top on .map-stage (default 56px). Always centred sideways (top-centre).
 defineProps({
   notice: { type: Object, default: null },
   closable: { type: Boolean, default: true },
@@ -39,7 +39,7 @@ defineEmits(['close'])
 <style scoped>
 .notice-wrap {
   position: absolute;
-  top: var(--notice-top, 56px);
+  top: var(--notice-top, 56px); /* top-centre: this distance from the top keeps it clear of the navbar */
   left: 12px;
   right: 12px;
   z-index: 1150; /* above the loading overlay so errors stay visible */
@@ -96,8 +96,12 @@ defineEmits(['close'])
 .notice-enter-from,
 .notice-leave-to { transform: translateY(-12px); opacity: 0; }
 
-/* Desktop: side panel sits top-left, so the popup moves top-right */
-@media (min-width: 992px) {
-  .notice-wrap { left: 424px; justify-content: flex-end; }
-}
+/* CHANGED: take the leaving notice out of the row while it fades out.
+   Before, "Allocating..." (leaving) and "Allocation done" (entering) sat side by side in the centred row,
+   so the new card started right of centre and slid left when the old one vanished.
+   With position: absolute the old card fades out in place (still centred) and the new card appears centred straight away. */
+.notice-leave-active { position: absolute; }
+
+/* CHANGED: removed the old desktop (min-width: 992px) rule that moved this popup to the top-right.
+   .notice-wrap above already centres it sideways (left/right 12px + justify-content: center), so it is top-centre on every screen size. */
 </style>
