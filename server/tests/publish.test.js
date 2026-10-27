@@ -1,7 +1,7 @@
 const Module = require('module'); const path = require('path'); const assert = require('assert'); const fs = require('fs');
 const S = path.resolve(__dirname, '..'); const calls = [];
 const fake = { SHOWS: ['NE Show 1','NE Show 2','NE Show 3','NE Show 4'], publish: async (show) => { calls.push(show); return { modifiedCount: show ? 3 : 12 }; } };
-const stubs = { 'mongoose': { Types: { ObjectId: { isValid: () => true } } }, '../models/shows-model': {}, /* FIX: shows-model was added later and crashed on the stubbed mongoose */ '../models/assignments-model': fake, '../models/account-model': {}, '../models/schools-model': {}, 'dotenv': { config() {} }, '../utils/greedy': {} };
+const stubs = { 'mongoose': { Types: { ObjectId: { isValid: () => true } } }, '../sockets': { emit() {} }, /* live updates: not needed in a test */ '../models/shows-model': {}, /* FIX: shows-model was added later and crashed on the stubbed mongoose */ '../models/assignments-model': fake, '../models/account-model': {}, '../models/schools-model': {}, 'dotenv': { config() {} }, '../utils/greedy': {} };
 const orig = Module._load;
 Module._load = function (req, parent, ...r) { if (stubs[req]) return stubs[req]; if (req === '../utils/scarcityFirst') return () => {}; return orig(req, parent, ...r); };
 const ctl = require(path.join(S, 'controllers/assignments-controller.js'));
