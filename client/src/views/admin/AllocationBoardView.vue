@@ -32,6 +32,7 @@ import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import axios from 'axios'
 import BaseMap from '@/components/map/BaseMap.vue'
 import MapNotice from '@/components/map/MapNotice.vue'
+import MapLoading from '@/components/map/MapLoading.vue' // NEW: dimmed overlay + spinner shown over the map while data is fetched
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import { getSavedShow, saveShow } from '@/services/selected-show'
 import { useChatStore } from '@/services/chat'
@@ -418,6 +419,10 @@ function statusSummary(school) {
 //                             Allocate / Publish is not wiped, and a failed refresh does not nag the admin.
 // The try/catch matters: before it was added, any failure (e.g. 403 when not an admin) left the page saying
 // "There are no assignments." Now the real reason appears in the red box.
+// NEW: true until the FIRST load finishes (success or error). It drives the "Fetching..." overlay on the map.
+// The 5-second refreshes never set it back to true, so the overlay does not flash every 5 seconds.
+const loading = ref(true)
+
 async function loadData(quiet = false) {
   try {
     const response = await axios.get(API_URL + 'assignments')
@@ -426,6 +431,8 @@ async function loadData(quiet = false) {
   } catch (error) {
     if (!quiet)
       showPopup('error', 'Could not load', error.response?.data?.message || 'Could not load assignments.')
+  } finally {
+    loading.value = false // NEW: runs after success AND failure, so the overlay can never get stuck on screen
   }
 }
 
@@ -705,6 +712,9 @@ loadData()
       <!-- The map. BaseMap builds the Leaflet map and calls onMapReady(map, L) in the script when it is ready;
            every pin is drawn from the script, not from this template. -->
       <BaseMap :zoom="12" @ready="onMapReady" />
+
+      <!-- NEW: overlay on top of the map until the first assignments arrive (MapLoading is position:absolute, so it covers .map-stage) -->
+      <MapLoading v-if="loading" class="alloc-loading" text="Fetching Allocation Data..." />
 
       <!-- Button to bring the panel back after it was hidden (only exists while the panel is hidden) -->
       <button
@@ -1172,6 +1182,11 @@ loadData()
   .alloc-chips .chip-label {
     font-size: 0.75rem; /* tablet and desktop */
   }
+}
+/* NEW: the loading overlay must sit ABOVE the menu (.alloc-panel is z-index 1100 and open by default), otherwise the menu
+   hides it. 1105 is still below MapNotice (1150), so error popups stay visible. The longer selector beats MapLoading's own style. */
+.alloc-stage .alloc-loading {
+  z-index: 1105;
 }
 /* Button that brings the menu back (only shown when the menu is hidden and no school is focused) */
 .alloc-reopen {
