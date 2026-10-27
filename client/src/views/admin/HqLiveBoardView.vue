@@ -329,17 +329,53 @@ function applyFocus() {
   })
 }
 
+let followFlying = false // true while the zoom-in animation of follow mode is running
+
+// Map centre that puts a point in the middle of the uncovered part of the map (clear of the top bar and bottom card)
+function followTarget(latlng, zoom) {
+  let dy = 0
+  if (!isDesktop() && cardEl.value) {
+    const { top, bottom } = coveredInsets()
+    dy = (bottom - top) / 2
+  }
+  const pt = map.project(latlng, zoom).add(L.point(0, dy))
+  return map.unproject(pt, zoom)
+}
+
 // Keeps the selected volunteer centred while follow mode is on
 function followIfSelected(entry) {
-  if (!following.value || !map || markers.get(selectedId.value) !== entry) return
-  map.setView(entry.marker.getLatLng(), map.getZoom(), { animate: false })
+  if (!following.value || followFlying || !map || markers.get(selectedId.value) !== entry) return
+  const zoom = map.getZoom()
+  map.setView(followTarget(entry.marker.getLatLng(), zoom), zoom, { animate: false })
+}
+
+// Zooms all the way in on the selected volunteer, centred in the visible area
+function followZoomIn() {
+  const entry = markers.get(selectedId.value)
+  if (!entry || !map) return
+  const max = map.getMaxZoom()
+  const zoom = Number.isFinite(max) ? max : 19
+  limitView(zoom)
+  followFlying = true
+  map.once('moveend', () => (followFlying = false))
+  setTimeout(() => (followFlying = false), 1500) // fallback in case moveend never fires
+  map.flyTo(followTarget(entry.marker.getLatLng(), zoom), zoom, { duration: 0.6 })
 }
 
 function toggleFollow() {
   following.value = !following.value
-  const entry = markers.get(selectedId.value)
-  if (following.value && entry && map) map.panTo(entry.marker.getLatLng(), { animate: true })
+  if (following.value) followZoomIn()
 }
+
+watch(cardH, async () => {
+  if (!following.value || !map) return
+  await nextTick()
+  const entry = markers.get(selectedId.value)
+  if (!entry || followFlying) return
+  limitView()
+  const zoom = map.getZoom()
+  map.setView(followTarget(entry.marker.getLatLng(), zoom), zoom, { animate: false })
+})
 
 // Animates a marker to a new position so it glides instead of jumping
 function glideTo(entry, lat, lng) {
