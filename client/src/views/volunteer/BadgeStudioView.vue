@@ -57,6 +57,8 @@ const statusSteps = ['placed', 'in_production', 'shipped', 'delivered']
 const postalCodeOk = computed(() => postalCode.value.match(/^\d{6}$/) ? true : false)
 const hasActiveOrder = computed (() => orders.value.some(order => order.status === 'placed' || order.status === 'in_production'  || order.status === 'shipped' ))
 
+const orderInfoMissing = computed(() => !postalCodeOk.value || !addressLine1.value.trim())
+
 function stepIndex(status) {
   return statusSteps.indexOf(status)
 }
@@ -297,30 +299,33 @@ onMounted(async () => {
               <div class="mb-3">
                 <label for="order-line1" class="form-label small fw-semibold">Address</label>
                 <input id="order-line1" class="form-control" type="text" v-model="addressLine1"
-                       placeholder="Blk 201 Tampines St 21" autocomplete="address-line1" data-testid="order-address" />
+                       placeholder="e.g. Blk 201 Tampines St 21" autocomplete="address-line1" data-testid="order-address" />
               </div>
               <div class="row g-3 mb-4">
                 <div class="col-6">
                   <label for="order-unit" class="form-label small fw-semibold">Unit <span class="fw-normal text-muted-hw">(optional)</span></label>
                   <input id="order-unit" class="form-control" type="text" v-model="unit"
-                         placeholder="#05-123" autocomplete="address-line2" data-testid="order-unit" />
+                         placeholder="e.g. #05-123" autocomplete="address-line2" data-testid="order-unit" />
                 </div>
                 <div class="col-6">
                   <label for="order-postal" class="form-label small fw-semibold">Postal code</label>
                   <input id="order-postal" class="form-control" :class="{ 'is-invalid': postalCode && !postalCodeOk }"
-                         type="text" v-model="postalCode" inputmode="numeric" maxlength="6" placeholder="520201"
+                         type="text" v-model="postalCode" inputmode="numeric" maxlength="6" placeholder="e.g. 520201"
                          autocomplete="postal-code" aria-describedby="order-postal-help" data-testid="order-postal" />
                   <div id="order-postal-help" class="invalid-feedback">Postal codes have 6 digits.</div>
                 </div>
               </div>
  
               <div class="d-flex flex-wrap gap-2">
-                <button type="button" class="btn btn-brand px-4" :disabled="submitting || !postalCodeOk || !addressLine1.trim()"
-                        @click="placeMyOrder" data-testid="order-submit">
+                <button type="button" class="btn btn-brand px-4" :disabled="submitting || orderInfoMissing"
+                        @click="placeMyOrder" data-testid="order-submit" aria-describedby="order-submit-hint">
                   <span v-if="submitting" class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>
                   {{ submitting ? 'Placing order...' : 'Place order' }}
                 </button>
                 <button type="button" class="btn btn-outline-secondary" :disabled="submitting" @click="showOrderForm = false" data-testid="order-cancel">Cancel</button>
+                <div v-if="!submitting && orderInfoMissing" id="order-submit-hint" class="order-hint w-100" data-testid="order-hint">
+                  <i class="bi bi-info-circle me-1" aria-hidden="true"></i>Add your address and a 6-digit postal code to place your order.
+                </div>
               </div>
             </div>
           </template>
@@ -454,9 +459,14 @@ onMounted(async () => {
 }
  
 .studio .btn-brand {
-  --bs-btn-disabled-bg: var(--hw-red);
-  --bs-btn-disabled-border-color: var(--hw-red);
-  --bs-btn-disabled-color: #fff;
+  --bs-btn-disabled-bg: transparent;
+  --bs-btn-disabled-border-color: var(--bs-border-color);
+  --bs-btn-disabled-color: var(--hw-muted);
+  --bs-btn-disabled-opacity: 1;
+}
+.order-hint {
+  font-size: 0.85rem;
+  color: var(--hw-muted);
 }
  
 /* ---------- Option groups ---------- */

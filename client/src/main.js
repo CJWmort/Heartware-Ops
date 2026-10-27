@@ -40,4 +40,6 @@ axios.interceptors.response.use(
   },
 )
 
+window.addEventListener('vite:preloadError', () => window.location.reload())
+
 app.mount('#app')
