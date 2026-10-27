@@ -1124,6 +1124,13 @@ loadData()
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
   gap: 8px;
 }
+/* Tablets and larger: always exactly 2 columns (roomier cards, names are not cut off).
+   Phones (under 768px) keep the rule above, so the phone layout is unchanged */
+@media (min-width: 768px) {
+  .alloc-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)); /* minmax(0, ...) lets long names shrink and truncate instead of stretching the card */
+  }
+}
 .school-card {
   cursor: pointer;
   transition: box-shadow 0.15s;

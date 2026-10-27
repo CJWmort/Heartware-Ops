@@ -526,6 +526,13 @@ onUnmounted(() => {
   gap: 8px;
   padding: 5px;
 }
+/* Tablets and larger: always exactly 2 columns (roomier cards, names are not cut off).
+   Phones (under 768px) keep the rule above, so the phone layout is unchanged */
+@media (min-width: 768px) {
+  .inc-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)); /* minmax(0, ...) lets long names shrink and truncate instead of stretching the card */
+  }
+}
 
 /* THE MENU (incident list): covers the whole map area under the navbar, like the chat window on phones.
    It is a flex column: the header stays put and only the list inside (.inc-panel-scroll) scrolls.
