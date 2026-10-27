@@ -17,6 +17,7 @@
   --hw-radius: 0.75rem;
   --hw-shadow: 0 1px 2px rgb(0 0 0 / 0.06), 0 4px 12px rgb(0 0 0 / 0.06);
   --hw-sea: #bcd8f2;
+  --hw-content-w: 1296px; /* widest the page content gets (= Bootstrap's biggest container 1320px minus its 24px side padding). Navbar, pages and panels all read this one value so they stay aligned */
 }
 
 /* ---- Landing page "night sky" tokens: change the landing look HERE, not in the page ---- */
@@ -62,6 +63,13 @@ body {
 
 .app-main {
   flex: 1;
+}
+
+/* Smooth resizing: Bootstrap's .container normally jumps between fixed widths (540/720/960/1140/1320px).
+   This replaces those jumps with "full width, up to --hw-content-w", so the navbar (which also uses .container)
+   and every page stretch and shrink together as you drag the window. This file loads after Bootstrap, so it wins. */
+.container {
+  max-width: calc(var(--hw-content-w) + 24px); /* +24px = Bootstrap's 12px side padding on each side */
 }
 
 .app-footer {
