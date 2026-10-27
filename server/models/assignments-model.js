@@ -246,12 +246,23 @@ exports.deleteOpenForShows = function (volunteerId, shows) {
 // reserve list (published, so they see "On reserve list"). Run Allocations skips published shows, so without this
 // they would say "Awaiting allocation" forever. Upsert on (volunteer, show): if they already have a row in a show,
 // it is left exactly as it is.
-exports.addToReserve = function (volunteerId, name, shows) {
+// publishedShows: the row is published only in shows that are already published (the volunteer sees "On reserve list");
+// in a draft show it stays a draft like the rest of that show (the admin sees them under Unassigned, and Publish releases it).
+exports.addToReserve = function (volunteerId, name, shows, publishedShows = []) {
   return Promise.all(
     shows.map((show) =>
       Assignments.updateOne(
         { volunteer: volunteerId, show },
-        { $setOnInsert: { volunteer: volunteerId, name, show, status: "Reserve", school: null, published: true } },
+        {
+          $setOnInsert: {
+            volunteer: volunteerId,
+            name,
+            show,
+            status: "Reserve",
+            school: null,
+            published: publishedShows.includes(show),
+          },
+        },
         { upsert: true }
       )
     )
