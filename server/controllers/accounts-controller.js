@@ -202,16 +202,16 @@ exports.updateMe = async (req, res) => {
     const user = await Account.updateAvailableShows(req.session.userId, availableShows);
     if (!user) return res.status(401).json({ message: "Not logged in" });
 
-    // NEW: newly ticked shows that are already published -> straight onto that show's reserve list, then try to
-    // give them an open place (reserve replacement). Draft shows are left for the next Allocate.
+    // NEW: every newly ticked show -> straight onto that show's reserve list.
+    //  - published show: the volunteer sees "On reserve list", and reserve replacement may give them an open place now
+    //  - draft show: the reserve row is a draft too (admin sees them under Unassigned; Publish or Allocate takes it from there)
     // The availability is already saved, so a problem here is only logged, never sent to the volunteer.
     const added = availableShows.filter((s) => !(current.availableShows || []).includes(s));
     if (added.length > 0) {
       try {
         const published = await Assignments.publishedShows();
-        const joinable = added.filter((s) => published.includes(s));
-        await Assignments.addToReserve(req.session.userId, user.name, joinable);
-        for (const show of joinable) await replaceFromReserve(show);
+        await Assignments.addToReserve(req.session.userId, user.name, added, published);
+        for (const show of added.filter((s) => published.includes(s))) await replaceFromReserve(show);
       } catch (reserveError) {
         console.error("Adding to the reserve list failed:", reserveError.message);
       }
