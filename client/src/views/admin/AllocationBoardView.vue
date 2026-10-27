@@ -1059,7 +1059,7 @@ loadData()
 
 /* THE MENU (school list): covers the whole map area under the navbar, like the chat window on phones.
    It is a flex column: the header stays put and only the list inside (.alloc-panel-scroll) scrolls.
-   The side padding keeps the content in a readable column (max 1100px) on wide screens. */
+   The side padding keeps the content in a readable column (same width as the navbar's .container) on wide screens. */
 .alloc-panel {
   position: absolute;
   inset: 0;
@@ -1069,17 +1069,16 @@ loadData()
   background: var(--hw-surface);
   color: var(--hw-text);
 }
-/* Top part of the menu (header, chips, filters) */
 .alloc-panel-head {
   flex: 0 0 auto; /* header and filters never shrink or scroll away */
-  padding: 12px max(12px, calc((100% - 1100px) / 2)) 8px;
+  padding: 12px max(12px, calc((100% - var(--hw-content-w)) / 2)) 8px; /* was a fixed 1100px: uses the shared --hw-content-w, same as the navbar */
 }
 /* Bottom part of the menu: the list of cards */
 .alloc-panel-scroll {
   flex: 1 1 auto;
   min-height: 0; /* lets the flex child scroll instead of growing */
   overflow-y: auto;
-  padding: 0 max(12px, calc((100% - 1100px) / 2)) 12px;
+  padding: 0 max(12px, calc((100% - var(--hw-content-w)) / 2)) 12px; /* was a fixed 1100px: uses the shared --hw-content-w, same as the navbar */
 }
 /* Chip captions are tiny on phones so all the chips fit */
 .alloc-chips .chip-label {

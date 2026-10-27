@@ -527,7 +527,7 @@ onUnmounted(() => {
 
 /* THE MENU (incident list): covers the whole map area under the navbar, like the chat window on phones.
    It is a flex column: the header stays put and only the list inside (.inc-panel-scroll) scrolls.
-   The side padding keeps the content in a readable column (max 1100px) on wide screens. */
+   The side padding keeps the content in a readable column (same width as the navbar's .container) on wide screens. */
 .inc-panel {
   position: absolute;
   inset: 0;
@@ -539,13 +539,13 @@ onUnmounted(() => {
 }
 .inc-panel-head {
   flex: 0 0 auto; /* title and filters never shrink or scroll away */
-  padding: 12px max(12px, calc((100% - 1100px) / 2)) 8px;
+  padding: 12px max(12px, calc((100% - var(--hw-content-w)) / 2)) 8px; /* was a fixed 1100px: uses the shared --hw-content-w, same as the navbar */
 }
 .inc-panel-scroll {
   flex: 1 1 auto;
   min-height: 0; /* lets the flex child scroll instead of growing */
   overflow-y: auto;
-  padding: 0 max(12px, calc((100% - 1100px) / 2)) 12px;
+  padding: 0 max(12px, calc((100% - var(--hw-content-w)) / 2)) 12px; /* was a fixed 1100px: uses the shared --hw-content-w, same as the navbar */
 }
 
 /* Chip captions are small so the three chips stay tidy on phones */

@@ -1094,7 +1094,7 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
   isolation: isolate;
   overflow: hidden;
   overflow: clip; /* "clip" (not "hidden") so the pass can stay sticky while you scroll */
-  max-width: 1080px;
+  max-width: var(--hw-content-w); /* was 1080px: now the same width as the navbar */
   margin-inline: auto;
   border-radius: 1.25rem;
   box-shadow: 0 30px 70px -30px rgb(0 0 0 / 0.75);
