@@ -1,7 +1,8 @@
 // axios calls + page logic for Fanny (F1b, volunteer side). API functions return the response data
 // (or throw – show error.friendlyMessage). useMyAssignment() holds the state for MyAssignmentView.vue.
 // Contract: docs/API.md
-import { ref, computed } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { connectSocket } from '@/services/socket' // live updates when the admin publishes / resets
 import axios from 'axios'
 
 const volunteerDataURL = '/api/users/me'
@@ -253,6 +254,43 @@ export function useMyAssignment() {
 
     saving.value = false
   }
+
+  // ===== Auto-refresh =====
+  // Keeps the page fresh: right away when the admin presses Publish / Reset / Allocate (server sends
+  // "assignments:updated", with no volunteer data in it), when the volunteer comes back to the tab, and every 60 seconds.
+  // It never swaps the cards underneath an open popup or a click in progress: that refresh waits until they are done.
+  let timer = null
+  let socket = null
+  let pending = false // a refresh that had to wait (popup open / tab hidden); done as soon as possible
+
+  // True while the volunteer is in the middle of something: a popup is open or a click is in progress
+  const busy = computed(() => !!(withdrawShow.value || showAvailabilityModal.value || acceptingId.value || withdrawing.value || saving.value))
+
+  function refreshIfIdle() {
+    if (document.visibilityState !== 'visible' || busy.value) {
+      pending = true // do it later, not underneath what they are doing
+      return
+    }
+    pending = false
+    loadData(true)
+  }
+
+  // A refresh that waited for a popup to close runs as soon as it closes
+  watch(busy, (isBusy) => {
+    if (!isBusy && pending) refreshIfIdle()
+  })
+
+  onMounted(() => {
+    document.addEventListener('visibilitychange', refreshIfIdle) // volunteer comes back to this tab
+    timer = setInterval(refreshIfIdle, 60000) // and every 60 seconds while it stays open
+    socket = connectSocket() // live: Publish / Reset / Allocate by the admin
+    socket.on('assignments:updated', refreshIfIdle)
+  })
+  onUnmounted(() => { // stop when they leave the page, otherwise it would keep polling / listening
+    document.removeEventListener('visibilitychange', refreshIfIdle)
+    clearInterval(timer)
+    socket?.off('assignments:updated', refreshIfIdle)
+  })
 
   return {
     volData, volAvailableShows, shows, errorMessage, loaded, hasNoAvailability, loadData,
