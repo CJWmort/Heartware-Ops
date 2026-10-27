@@ -199,6 +199,8 @@ exports.publishAssignments = async (req, res) => {
 
     const result = await Assignments.publish(show || null);
     // modifiedCount = how many rows were released (0 means everything was already published)
+    // Live update: volunteers in the published show(s) see their school straight away (only if something was released)
+    if (result.modifiedCount > 0) emit("assignments:updated", { reason: "publish", shows: show ? [show] : Assignments.SHOWS });
     res.json({ published: result.modifiedCount, show: show || "all" });
   } catch (error) {
     res.status(500).json({ message: error.message });
