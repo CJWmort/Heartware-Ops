@@ -1,7 +1,8 @@
 // axios calls + page logic for Fanny (F1b, volunteer side). API functions return the response data
 // (or throw – show error.friendlyMessage). useMyAssignment() holds the state for MyAssignmentView.vue.
 // Contract: docs/API.md
-import { ref, computed, onMounted, onUnmounted } from 'vue' // CHANGED: lifecycle hooks added for the auto-refresh
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue' // CHANGED: lifecycle hooks added for the auto-refresh
+import { connectSocket } from '@/services/socket' // live updates when the admin publishes / resets
 import axios from 'axios'
 
 const volunteerDataURL = '/api/users/me'
@@ -270,20 +271,40 @@ export function useMyAssignment() {
   // NEW: keep the page fresh. Another show being published, a replacement from Reserve, or an offer lapsing after
   // 24h all happen on the server; without this the page only showed them after a manual reload.
   // (placed here, after the refs above are declared, because the checks below read them)
+  // NEW: also refreshes straight away when the admin presses Publish / Reset / Allocate (the server sends
+  // "assignments:updated", with no volunteer data in it).
   let timer = null
+  let socket = null
+  let pending = false // a refresh that had to wait (popup open / tab hidden); done as soon as possible
+
+  // True while the volunteer is in the middle of something: a popup is open or a click is in progress
+  const busy = computed(() => !!(withdrawShow.value || showAvailabilityModal.value || acceptingId.value || withdrawing.value || saving.value))
+
   function refreshIfIdle() {
-    if (document.visibilityState !== 'visible') return // tab in the background: skip
-    // do not swap the cards underneath a popup or a click that is in progress
-    if (withdrawShow.value || showAvailabilityModal.value || acceptingId.value || withdrawing.value || saving.value) return
+    // tab in the background, or a popup / click in progress: do not swap the cards now, remember to do it later
+    if (document.visibilityState !== 'visible' || busy.value) {
+      pending = true
+      return
+    }
+    pending = false
     loadData(true)
   }
+
+  // A refresh that waited for a popup to close runs as soon as it closes
+  watch(busy, (isBusy) => {
+    if (!isBusy && pending) refreshIfIdle()
+  })
+
   onMounted(() => {
     document.addEventListener('visibilitychange', refreshIfIdle) // volunteer comes back to this tab
     timer = setInterval(refreshIfIdle, 60000) // and every 60 seconds while it stays open
+    socket = connectSocket() // live: Publish / Reset / Allocate by the admin
+    socket.on('assignments:updated', refreshIfIdle)
   })
-  onUnmounted(() => { // stop when they leave the page, otherwise it would keep polling
+  onUnmounted(() => { // stop when they leave the page, otherwise it would keep polling / listening
     document.removeEventListener('visibilitychange', refreshIfIdle)
     clearInterval(timer)
+    socket?.off('assignments:updated', refreshIfIdle)
   })
 
   return {

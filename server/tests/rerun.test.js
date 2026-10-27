@@ -17,7 +17,7 @@ const fake = {
   },
   retrieveAll: async () => store,
 };
-const stubs = { 'mongoose': { Types: { ObjectId: { isValid: () => true } } }, '../models/shows-model': {}, /* FIX: shows-model was added later and crashed on the stubbed mongoose */ '../models/assignments-model': fake,
+const stubs = { 'mongoose': { Types: { ObjectId: { isValid: () => true } } }, '../sockets': { emit() {} }, /* live updates: not needed in a test */ '../models/shows-model': {}, /* FIX: shows-model was added later and crashed on the stubbed mongoose */ '../models/assignments-model': fake,
   '../models/account-model': { findVolunteersByShow: async (s) => vols[s] || [] }, '../models/schools-model': { findByShow: async (s) => schools[s] || [] },
   'dotenv': { config() {} }, '../utils/greedy': { greedyByPair() {} } };
 const orig = Module._load;
