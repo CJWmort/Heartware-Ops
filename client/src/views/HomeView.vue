@@ -17,7 +17,7 @@ import { ref, onMounted, onUnmounted } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import FireworksSky from '@/components/FireworksSky.vue'
 import VideoShowcase from '@/components/VideoShowcase.vue'
-import CheckpointDrill from '@/components/CheckpointDrill.vue'
+import FeatureFlipCard from '@/components/landing/FeatureFlipCard.vue' // click-to-flip card that cycles through our features
 
 // ---- Where the "Sign up to volunteer" and "Log in" buttons go ----
 // Looks through the routes in src/router/index.js for your log-in and sign-up pages
@@ -140,8 +140,9 @@ onUnmounted(() => {
           </p>
 
           <div class="d-flex flex-wrap align-items-center gap-3 hw-fade" style="--d: 1050ms">
-            <RouterLink :to="signupPath" class="btn btn-hw btn-lg btn-shine px-4">Sign up to volunteer</RouterLink>
-            <RouterLink :to="loginPath" class="btn btn-ghost btn-lg px-4">Log in</RouterLink>
+            <!-- E2E: data-testid="cta-register" / "cta-login" let Playwright find these two buttons (see e2e/f1-home-login-register.spec.js, test 1) -->
+            <RouterLink :to="signupPath" data-testid="cta-register" class="btn btn-hw btn-lg btn-shine px-4">Sign up to volunteer</RouterLink>
+            <RouterLink :to="loginPath" data-testid="cta-login" class="btn btn-ghost btn-lg px-4">Log in</RouterLink>
           </div>
         </div>
 
@@ -151,8 +152,8 @@ onUnmounted(() => {
 
         <!-- Live drill -->
         <div id="drill" class="hw-drill">
-          <h2 class="hw-drill-title">What happens when a group misses a checkpoint</h2>
-          <CheckpointDrill />
+          <h2 class="hw-drill-title">What Heartware Ops does</h2>
+          <FeatureFlipCard /> <!-- replaces the old checkpoint drill card -->
         </div>
       </div>
 
@@ -434,17 +435,6 @@ onUnmounted(() => {
 .hw-top-grid {
   display: grid;
   gap: 2rem;
-}
-
-/* ---------- Video ---------- */
-/* make the video's switcher a bit slimmer */
-.hw-video :deep(.switcher) {
-  margin-top: 0.6rem;
-}
-
-.hw-video :deep(.switcher button) {
-  padding: 0.45rem 0.75rem;
-  font-size: 0.92rem;
 }
 
 /* ---------- Live drill ---------- */

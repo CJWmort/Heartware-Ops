@@ -1242,7 +1242,10 @@ onUnmounted(() => {
 
       <div v-if="emptyMsg" class="empty-pill bg-danger text-white">{{ emptyMsg }}</div>
 
-      <MapLoading v-if="loading" text="Loading volunteers..." />
+      <!-- NEW: <Transition> makes the overlay fade in/out instead of popping -->
+      <Transition name="loading-fade">
+        <MapLoading v-if="loading" text="Fetching Volunteer Data..." />
+      </Transition>
 
       <MapNotice :notice="errorNotice" @close="error = ''" />
     </div>

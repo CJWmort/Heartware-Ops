@@ -115,7 +115,10 @@ onBeforeUnmount(() => {
 
     <div class="map-stage">
       <BaseMap :zoom="13" testid="school-route-map" @ready="onMapReady" />
-      <MapLoading v-if="loading" text="Finding the route..." />
+      <!-- NEW: <Transition> makes the overlay fade in/out instead of popping -->
+      <Transition name="loading-fade">
+        <MapLoading v-if="loading" text="Finding the route..." />
+      </Transition>
     </div>
     <p v-if="error" class="text-danger small mt-2 mb-0" role="alert">{{ error }}</p>
 

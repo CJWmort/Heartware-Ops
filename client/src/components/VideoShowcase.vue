@@ -2,8 +2,7 @@
   VideoShowcase.vue — autoplaying video carousel
   - Plays muted on its own (browsers only allow muted autoplay)
   - When a video ends, slides to the next one, then loops back to the first
-  - Arrows on the video, tabs underneath (the red tab fills up as the video plays),
-    pause and sound buttons in the corner, click the video to pause
+  - Arrows on the video, pause and sound buttons in the corner, click the video to pause
   - Always shows the whole picture (no cropping)
   - Pauses while scrolled off screen; respects "reduce motion"
 
@@ -21,10 +20,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 const props = defineProps({
   videos: {
     type: Array,
-    default: () => [
-      { label: 'Heartware Video 1', src: '/videos/Heartware.mp4' },
-      { label: 'Heartware Video 2', src: '/videos/Heartware2.mp4' },
-    ],
+    default: () => [{ src: '/videos/Heartware.mp4' }, { src: '/videos/Heartware2.mp4' }],
   },
   fill: { type: Boolean, default: false },
   // 0 = move on when each video ends; any other number = move on after that many seconds
@@ -56,11 +52,6 @@ const frameStyle = computed(() => ({
   transform: `perspective(1100px) rotateX(${tilt.value.x}deg) rotateY(${tilt.value.y}deg)`,
 }))
 
-const indicatorStyle = computed(() => ({
-  width: `calc((100% - 8px) / ${props.videos.length})`,
-  transform: `translateX(${active.value * 100}%)`,
-}))
-
 // ---- Moving between videos ----
 function go(index, dir) {
   if (!hasMany.value) return
@@ -78,10 +69,6 @@ function next() {
 
 function prev() {
   go(active.value - 1, 'prev')
-}
-
-function select(i) {
-  if (i !== active.value) go(i, i > active.value ? 'next' : 'prev')
 }
 
 // ---- Playing ----
@@ -127,7 +114,8 @@ function onCanPlay(event) {
 function onTime(event) {
   if (!isCurrent(event)) return
   const v = event.target
-  const length = props.advanceAfter > 0 ? Math.min(props.advanceAfter, v.duration || Infinity) : v.duration
+  const length =
+    props.advanceAfter > 0 ? Math.min(props.advanceAfter, v.duration || Infinity) : v.duration
   progress.value = length ? Math.min(v.currentTime / length, 1) : 0
   if (props.advanceAfter > 0 && v.currentTime >= props.advanceAfter) next()
 }
@@ -188,7 +176,12 @@ onUnmounted(() => {
       @pointermove="onTilt"
       @pointerleave="resetTilt"
     >
-      <div class="ratio ratio-16x9 screen" role="region" aria-roledescription="carousel" aria-label="Heartware videos">
+      <div
+        class="ratio ratio-16x9 screen"
+        role="region"
+        aria-roledescription="carousel"
+        aria-label="Heartware videos"
+      >
         <div class="stage">
           <Transition :name="slideName" @before-leave="(el) => el.pause()">
             <video
@@ -199,7 +192,7 @@ onUnmounted(() => {
               :muted="muted"
               :autoplay="!paused"
               :loop="!hasMany"
-              :aria-label="current.label"
+              :aria-label="`Heartware video ${active + 1}`"
               playsinline
               preload="auto"
               @canplay="onCanPlay"
@@ -221,32 +214,55 @@ onUnmounted(() => {
           </template>
 
           <!-- shown when paused, when autoplay is blocked, or when a video can't load -->
+          <!-- FIX: no visible video title any more; the screen-reader names use the video number (active + 1) instead of a label -->
           <Transition name="cover">
             <button
               v-if="paused || failed"
               type="button"
               class="cover"
               :disabled="failed"
-              :aria-label="`Play ${current.label}`"
+              :aria-label="`Play Heartware video ${active + 1}`"
               @click="togglePause"
             >
               <span v-if="!failed" class="play">
-                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z" fill="currentColor" /></svg>
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M8 5.5v13l10.5-6.5z" fill="currentColor" />
+                </svg>
               </span>
-              <span class="cover-title">{{ current.label }}</span>
               <span v-if="failed" class="cover-meta">This video can't play right now.</span>
             </button>
           </Transition>
 
           <!-- pause and sound -->
           <div class="corner">
-            <button type="button" class="icon-btn" :aria-label="paused ? 'Play video' : 'Pause video'" @click="togglePause">
+            <button
+              type="button"
+              class="icon-btn"
+              :aria-label="paused ? 'Play video' : 'Pause video'"
+              @click="togglePause"
+            >
               <svg v-if="paused" viewBox="0 0 24 24" aria-hidden="true">
                 <path d="M8 5.5v13l10.5-6.5z" fill="currentColor" stroke="none" />
               </svg>
               <svg v-else viewBox="0 0 24 24" aria-hidden="true">
-                <rect x="6.5" y="5" width="4" height="14" rx="1" fill="currentColor" stroke="none" />
-                <rect x="13.5" y="5" width="4" height="14" rx="1" fill="currentColor" stroke="none" />
+                <rect
+                  x="6.5"
+                  y="5"
+                  width="4"
+                  height="14"
+                  rx="1"
+                  fill="currentColor"
+                  stroke="none"
+                />
+                <rect
+                  x="13.5"
+                  y="5"
+                  width="4"
+                  height="14"
+                  rx="1"
+                  fill="currentColor"
+                  stroke="none"
+                />
               </svg>
             </button>
             <button
@@ -270,24 +286,6 @@ onUnmounted(() => {
           </div>
         </div>
       </div>
-    </div>
-
-    <!-- tabs: the red one shows which video is playing and fills up as it plays -->
-    <div class="switcher" role="tablist" aria-label="Choose a video">
-      <span class="indicator" :style="indicatorStyle" aria-hidden="true">
-        <span class="indicator-fill" :style="{ width: progress * 100 + '%' }"></span>
-      </span>
-      <button
-        v-for="(video, i) in videos"
-        :key="video.src"
-        type="button"
-        role="tab"
-        :aria-selected="i === active"
-        :class="{ active: i === active }"
-        @click="select(i)"
-      >
-        {{ video.label }}
-      </button>
     </div>
   </div>
 </template>
@@ -322,7 +320,9 @@ onUnmounted(() => {
   box-shadow:
     0 40px 100px -30px rgba(239, 51, 64, 0.6),
     0 10px 30px -10px rgba(0, 0, 0, 0.6);
-  transition: transform 0.25s ease-out, box-shadow 0.4s ease;
+  transition:
+    transform 0.25s ease-out,
+    box-shadow 0.4s ease;
   animation: hw-spin 6s linear infinite;
   will-change: transform;
 }
@@ -345,8 +345,7 @@ onUnmounted(() => {
   overflow: hidden;
   background:
     radial-gradient(120% 90% at 80% 0%, rgba(239, 51, 64, 0.35), transparent 60%),
-    radial-gradient(90% 80% at 0% 100%, rgba(255, 200, 87, 0.16), transparent 60%),
-    #0b1126;
+    radial-gradient(90% 80% at 0% 100%, rgba(255, 200, 87, 0.16), transparent 60%), #0b1126;
 }
 
 /* everything inside the screen sits on this layer */
@@ -403,7 +402,9 @@ onUnmounted(() => {
 .slide-next-leave-active,
 .slide-prev-leave-active {
   z-index: 1;
-  transition: transform 0.75s cubic-bezier(0.65, 0, 0.35, 1), filter 0.75s ease;
+  transition:
+    transform 0.75s cubic-bezier(0.65, 0, 0.35, 1),
+    filter 0.75s ease;
 }
 
 .slide-next-enter-from {
@@ -451,7 +452,10 @@ onUnmounted(() => {
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   opacity: 0;
-  transition: opacity 0.25s ease, transform 0.25s ease, background-color 0.25s ease;
+  transition:
+    opacity 0.25s ease,
+    transform 0.25s ease,
+    background-color 0.25s ease;
 }
 
 .nav-prev {
@@ -515,7 +519,10 @@ onUnmounted(() => {
   color: #f4f6fb;
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  transition: background-color 0.25s ease, border-color 0.25s ease, transform 0.2s ease;
+  transition:
+    background-color 0.25s ease,
+    border-color 0.25s ease,
+    transform 0.2s ease;
 }
 
 .icon-btn:hover {
@@ -645,74 +652,12 @@ onUnmounted(() => {
   opacity: 0;
 }
 
-/* ---------- Tabs ---------- */
-.switcher {
-  position: relative;
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: 1fr;
-  margin-top: 1rem;
-  padding: 4px;
-  border-radius: 999px;
-  background: rgba(244, 246, 251, 0.06);
-  border: 1px solid rgba(244, 246, 251, 0.1);
-}
-
-.indicator {
-  position: absolute;
-  top: 4px;
-  bottom: 4px;
-  left: 4px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: #ef3340;
-  box-shadow: 0 8px 24px -8px rgba(239, 51, 64, 0.8);
-  transition: transform 0.6s cubic-bezier(0.3, 1.25, 0.5, 1);
-}
-
-/* lighter fill that grows as the video plays */
-.indicator-fill {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  background: rgba(255, 255, 255, 0.28);
-  transition: width 0.3s linear;
-}
-
-.switcher button {
-  position: relative;
-  z-index: 1;
-  border: 0;
-  background: none;
-  color: #a3adc8;
-  font-weight: 600;
-  padding: 0.6rem 0.75rem;
-  border-radius: 999px;
-  transition: color 0.3s ease;
-}
-
-.switcher button:hover {
-  color: #f4f6fb;
-}
-
-.switcher button.active {
-  color: #fff;
-}
-
-.switcher button:focus-visible {
-  outline: 2px solid #ffc857;
-  outline-offset: 2px;
-}
-
 @media (prefers-reduced-motion: reduce) {
   .frame,
   .play::before,
   .play::after {
     animation: none;
   }
-  .indicator,
-  .indicator-fill,
   .nav {
     transition: none;
   }

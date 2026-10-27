@@ -10,7 +10,6 @@ const ThreadState = require("./models/thread-state-model");
 
 const server = express();
 const dns = require("dns");
-dns.setServers(["8.8.8.8", "1.1.1.1"]);
 // make sure u add this line when you are using Express to do form (POST)
 server.use(express.urlencoded({ extended: true }));
 
@@ -25,6 +24,14 @@ server.use(express.json());
 
 // Specify the path to the environment variablef file 'config.env'
 dotenv.config({ path: "./config.env" });
+// DNS servers used to look up the database address. Default is Google + Cloudflare (as before), because some networks'
+// own DNS cannot resolve the MongoDB Atlas "mongodb+srv://" address. This now sits AFTER dotenv.config so config.env can change it:
+//   DNS_SERVERS=8.8.8.8,1.1.1.1   -> use these servers (same as the default)
+//   DNS_SERVERS=off               -> do not override; use the computer's / host's own DNS (for networks that block 8.8.8.8)
+const dnsSetting = (process.env.DNS_SERVERS || "8.8.8.8,1.1.1.1").trim();
+if (dnsSetting.toLowerCase() !== "off") {
+  dns.setServers(dnsSetting.split(",").map((s) => s.trim()).filter(Boolean)); // trim + drop empty entries
+}
 // Safety net: log unexpected errors instead of letting one stray error stop the whole server
 // (which made Render return 502 until it restarted).
 process.on("uncaughtException", (err) => console.error("Uncaught exception:", err));

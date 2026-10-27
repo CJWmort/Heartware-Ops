@@ -141,6 +141,7 @@ export function useMyAssignment() {
   const shows = ref([]) // from the shows collection, each with its assignment (or null)
   const errorMessage = ref('')
   const loaded = ref(false) // true once volunteer data has arrived
+  const loading = ref(true) // NEW: true until the FIRST load finishes (success or error); drives the "Fetching..." overlay
 
   // True when the volunteer has not picked any show yet
   const hasNoAvailability = computed(() => loaded.value && volAvailableShows.value.length === 0)
@@ -169,6 +170,8 @@ export function useMyAssignment() {
       loaded.value = true
     } catch (error) {
       if (!silent) errorMessage.value = error.friendlyMessage // a silent refresh just tries again next time
+    } finally {
+      loading.value = false // NEW: runs after success AND failure, so the overlay can never get stuck
     }
   }
 
@@ -255,9 +258,11 @@ export function useMyAssignment() {
 
     try {
       await setAvailableShows(selectedShows.value)
-      await loadData() // reload: a newly ticked published show now shows "On reserve list" (or a school, if a place was open)
+      // ONE reload after saving (there used to be two). It covers both cases: a newly ticked published show now shows
+      // "On reserve list" (or a school, if a place was open), and the server deletes Pending rows of unticked shows,
+      // so without it the page kept stale Accept buttons. It runs before the modal closes, so the page is already up to date.
+      await loadData()
       closeAvailabilityModal()
-      await loadData() // FIX: reload, because the server deletes Pending rows of unticked shows (and may fill reserves); the page showed stale Accept buttons
     } catch (error) {
       // NEW: show the server's reason when it has one (e.g. "You have accepted a place in NE Show 2. Press Withdraw first..."),
       // otherwise the generic text
@@ -308,7 +313,7 @@ export function useMyAssignment() {
   })
 
   return {
-    volData, volAvailableShows, shows, errorMessage, loaded, hasNoAvailability, loadData,
+    volData, volAvailableShows, shows, errorMessage, loaded, loading, hasNoAvailability, loadData,
     showAvailabilityModal, selectedShows, saving, modalError,
     openAvailabilityModal, closeAvailabilityModal, saveAvailability,
     acceptingId, acceptShow,

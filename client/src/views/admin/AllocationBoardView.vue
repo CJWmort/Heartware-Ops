@@ -949,7 +949,9 @@ loadData()
                 <button
                   type="button"
                   class="stat-btn card-hw py-1 px-0 text-center w-100"
-                  :class="{ 'is-active': !!chip.key && statusFilter === chip.key && !searchbar.trim() }"
+                  :class="{
+                    'is-active': !!chip.key && statusFilter === chip.key && !searchbar.trim(),
+                  }"
                   :aria-pressed="!!chip.key && statusFilter === chip.key && !searchbar.trim()"
                   :data-testid="`alloc-stat-${chip.label.toLowerCase()}`"
                   @click="toggleStatus(chip.key)"
@@ -975,12 +977,10 @@ loadData()
                     :aria-expanded="zoneMenuOpen"
                     aria-label="Filter by zone"
                     data-testid="alloc-zone-filter"
-                    @click="
-                      zoneMenuOpen = !zoneMenuOpen
-                    "
+                    @click="zoneMenuOpen = !zoneMenuOpen"
                   >
                     <i class="bi bi-geo-alt" aria-hidden="true"></i>
-                    <span class="show-name">{{ zoneFilter || 'All zones' }}</span>
+                    <span class="show-name">{{ zoneFilter || 'All Zones' }}</span>
                     <i
                       class="bi bi-chevron-down show-chevron"
                       :class="{ open: zoneMenuOpen }"
@@ -1000,7 +1000,7 @@ loadData()
                         :aria-selected="z === zoneFilter"
                         @click="chooseZone(z)"
                       >
-                        <span>{{ z || 'All zones' }}</span>
+                        <span>{{ z || 'All Zones' }}</span> <!-- FIX: same wording as the button above ('All Zones') -->
                         <i v-if="z === zoneFilter" class="bi bi-check-lg" aria-hidden="true"></i>
                       </button>
                     </div>
@@ -1015,12 +1015,10 @@ loadData()
                     :aria-expanded="timeMenuOpen"
                     aria-label="Filter by reporting time"
                     data-testid="alloc-time-filter"
-                    @click="
-                      timeMenuOpen = !timeMenuOpen
-                    "
+                    @click="timeMenuOpen = !timeMenuOpen"
                   >
                     <i class="bi bi-clock" aria-hidden="true"></i>
-                    <span class="show-name">{{ timeFilter || 'All times' }}</span>
+                    <span class="show-name">{{ timeFilter || 'All Timings' }}</span>
                     <i
                       class="bi bi-chevron-down show-chevron"
                       :class="{ open: timeMenuOpen }"
@@ -1040,7 +1038,7 @@ loadData()
                         :aria-selected="t === timeFilter"
                         @click="chooseTime(t)"
                       >
-                        <span>{{ t || 'All times' }}</span>
+                        <span>{{ t || 'All Timings' }}</span>
                         <i v-if="t === timeFilter" class="bi bi-check-lg" aria-hidden="true"></i>
                       </button>
                     </div>

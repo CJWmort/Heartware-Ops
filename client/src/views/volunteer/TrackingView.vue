@@ -889,10 +889,13 @@ onUnmounted(() => {
         <i class="bi" :class="following ? 'bi-geo-alt-fill' : 'bi-crosshair2'"></i>
       </button>
 
-      <MapLoading
-        v-if="loadingRoute || assignStatus === 'loading'"
-        text="Fetching Location Data..."
-      />
+      <!-- NEW: <Transition> makes the overlay fade in/out instead of popping -->
+      <Transition name="loading-fade">
+        <MapLoading
+          v-if="loadingRoute || assignStatus === 'loading'"
+          text="Fetching Location Data..."
+        />
+      </Transition>
 
       <!-- Sharing status pill -->
       <!-- E2E: data-testid="share-status" (on the pill below) lets Playwright read "Sharing location" (see e2e/f4-tracking-live.spec.js) -->

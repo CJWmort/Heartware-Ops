@@ -2,6 +2,7 @@
 // Feature 5 – Badge Studio — owner: Hanafi
 // Spec: docs/FEATURES.md   ·   API calls: src/services/   ·   Tests: e2e/
 import { ref, computed, onMounted } from 'vue'
+import PageLoading from '@/components/common/PageLoading.vue' // NEW: fading "Fetching..." overlay
 import { getMyDesign, getMyOrders, saveMyDesign, placeOrder } from '@/services/badges.js'
 import { timeAgo } from '@/utils/time.js'
 
@@ -142,12 +143,12 @@ onMounted(async () => {
       <div>{{ errorMessage }}</div>
     </div>
  
-    <div v-if="loading" class="text-center text-muted-hw py-5">
-      <div class="spinner-border" aria-hidden="true"></div>
-      <div class="mt-2">Loading your design...</div>
-    </div>
+    <!-- NEW: overlay fades in/out while data is fetched (content below only shows once loading is false) -->
+    <Transition name="loading-fade">
+      <PageLoading v-if="loading" text="Fetching Your Design..." />
+    </Transition>
  
-    <div v-else class="d-flex flex-column gap-4">
+    <div v-if="!loading" class="d-flex flex-column gap-4"> <!-- NEW: wait for the data (was v-else after the old spinner block) -->
       <div class="row g-4" :class="{ 'align-items-start': !locked }">
         <!-- preview -->
         <div class="col-12 col-md-6 col-lg-5 preview-col">

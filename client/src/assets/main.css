@@ -133,3 +133,20 @@ body {
 .incident-btn.severity-low {
   --severity: var(--bs-primary);
 }
+
+/* NEW: shared fade for the "Fetching..." overlays (MapLoading / PageLoading).
+   Used as <Transition name="loading-fade">: Vue adds these classes while the overlay appears (enter) and disappears (leave),
+   so it eases between opacity 0 and 1 instead of popping. Change 0.5s to make the fade faster or slower. */
+.loading-fade-enter-active,
+.loading-fade-leave-active {
+  transition: opacity 0.5s ease;
+}
+.loading-fade-enter-from,
+.loading-fade-leave-to {
+  opacity: 0;
+}
+/* NEW: placeholder box for a contained PageLoading inside a component (gives the spinner room to show) */
+.loading-area {
+  position: relative;
+  min-height: 160px;
+}

@@ -2,6 +2,7 @@
 // Feature 5 – "Auto-awards" card on the coordinator page — owner: Hanafi
 // Layout and CSS: AI-generated (declared in README.txt). Logic in the TODOs below: Hanafi.
 import { ref, computed, onMounted } from 'vue'
+import PageLoading from '@/components/common/PageLoading.vue' // NEW: fading "Fetching..." overlay
 import { listBadges, autoAward } from '@/services/badges.js'
 import { getShows, formatDate } from '@/services/assignment.js'
 
@@ -81,13 +82,12 @@ onMounted(loadData)
       </div>
     </div>
 
-    <div v-if="loading" class="text-center text-muted-hw py-4">
-      <div class="spinner-border" aria-hidden="true"></div>
-      <div class="mt-2">Loading shows...</div>
-    </div>
+    <!-- NEW: box with a contained overlay. No <Transition> on this box on purpose: if the box faded out while the content
+         appeared, both would take up space for 0.5s and the content would jump. -->
+    <div v-if="loading" class="loading-area"><PageLoading contained text="Fetching Shows..." /></div>
 
     <div
-      v-else-if="loadError"
+      v-if="!loading && loadError"
       class="alert alert-danger d-flex align-items-start gap-2 mb-0"
       role="alert"
     >
@@ -95,7 +95,7 @@ onMounted(loadData)
       <div>{{ loadError }}</div>
     </div>
 
-    <div v-else class="row g-4">
+    <div v-else-if="!loading" class="row g-4">
       <!-- Left: the one decision (which show) and the one action (run), with its result right underneath -->
       <div class="col-md-5 col-lg-4">
         <label for="auto-show" class="form-label field-label">For which show</label>

@@ -2,6 +2,7 @@
 // Feature 5 – Badge wall — owner: Hanafi
 // Spec: docs/FEATURES.md   ·   API calls: src/services/   ·   Tests: e2e/
 import { ref, onMounted, computed } from 'vue'
+import PageLoading from '@/components/common/PageLoading.vue' // NEW: fading "Fetching..." overlay
 import { listBadges, getMyBadges } from '@/services/badges'
 
 const badges = ref([])
@@ -35,17 +36,17 @@ onMounted(async () => {
 
 <template>
   <section class="badges-page" @keydown.esc="selected = null">
+    <!-- NEW: overlay fades in/out while data is fetched (content below only shows once loading is false) -->
+    <Transition name="loading-fade">
+      <PageLoading v-if="loading" text="Fetching Your Badges..." />
+    </Transition>
     <div v-if="error" class="alert alert-danger d-flex align-items-start gap-2" role="alert">
       <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
       <div>{{ error }}</div>
     </div>
 
-    <div v-else-if="loading" class="text-center text-muted-hw py-5">
-      <div class="spinner-border" aria-hidden="true"></div>
-      <div class="mt-2">Loading your badges...</div>
-    </div>
 
-    <template v-else>
+    <template v-else-if="!loading"> <!-- NEW: wait for the data (was v-else after the old spinner block) -->
       <div class="card-hw progress-card p-3 p-lg-4">
         <div class="progress-main">
           <div class="ring" role="img" :aria-label="`${earnedBadges.length} of ${badges.length} badges earned`">

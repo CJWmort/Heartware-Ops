@@ -2,6 +2,7 @@
 // Feature 5 – Awards + orders (coordinator) — owner: Hanafi
 // Layout and CSS: AI-generated (declared in README.txt). Logic in the functions below: Hanafi.
 import { ref, onMounted } from 'vue'
+import PageLoading from '@/components/common/PageLoading.vue' // NEW: fading "Fetching..." overlay
 import { listAllOrders, updateOrderStatus } from '@/services/badges.js'
 import { timeAgo } from '@/utils/time.js'
 import BadgeAwardForm from '@/components/badges/BadgeAwardForm.vue'
@@ -84,17 +85,17 @@ onMounted(loadOrders)
         <button type="button" class="btn-close btn-close-sm" aria-label="Dismiss" @click="actionError = ''"></button>
       </div>
 
-      <div v-if="loading" class="text-center text-muted-hw py-5">
-        <div class="spinner-border" aria-hidden="true"></div>
-        <div class="mt-2">Loading orders...</div>
-      </div>
+      <!-- NEW: overlay fades in/out while data is fetched (content below only shows once loading is false) -->
+      <Transition name="loading-fade">
+        <PageLoading v-if="loading" text="Fetching Orders..." />
+      </Transition>
 
-      <div v-else-if="error" class="alert alert-danger d-flex align-items-start gap-2 mb-0" role="alert">
+      <div v-if="!loading && error" class="alert alert-danger d-flex align-items-start gap-2 mb-0" role="alert">
         <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
         <div>{{ error }}</div>
       </div>
 
-      <div v-else-if="orders.length === 0" class="empty-state">
+      <div v-else-if="!loading && orders.length === 0" class="empty-state">
         <i class="bi bi-inbox" aria-hidden="true"></i>
         <div>
           <div class="fw-semibold">No badge orders yet</div>
@@ -102,7 +103,7 @@ onMounted(loadOrders)
         </div>
       </div>
 
-      <table v-else class="orders-table" data-testid="orders-table">
+      <table v-else-if="!loading" class="orders-table" data-testid="orders-table">
         <thead>
           <tr>
             <th scope="col">Volunteer</th>

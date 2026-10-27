@@ -57,27 +57,3 @@ export async function updateIncidentStatus(incidentId, status, note) {
     throw addFriendlyMessage(error)
   }
 }
-
-export async function listAlerts(status) {
-  try {
-    const { data } = await axios.get(`${BASE_URL}/alerts`, { params: { status }, timeout: 15000 })
-    return data
-  } catch (error) {
-    throw addFriendlyMessage(error)
-  }
-}
-
-export async function acknowledgeAlert(alertId) {
-  try {
-    const { data } = await axios.patch(
-      `${BASE_URL}/alerts/${alertId}/acknowledge`,
-      {},
-      {
-        timeout: 15000,
-      },
-    )
-    return data
-  } catch (error) {
-    throw addFriendlyMessage(error)
-  }
-}

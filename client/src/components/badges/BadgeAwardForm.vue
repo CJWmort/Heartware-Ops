@@ -2,6 +2,7 @@
 // Feature 5 – "Give a badge" form on the coordinator page — owner: Hanafi
 // Layout and CSS: AI-generated (declared in README.txt). Logic in the TODOs below: Hanafi.
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import PageLoading from '@/components/common/PageLoading.vue' // NEW: fading "Fetching..." overlay
 import { listBadges, listVolunteers, awardBadge } from '@/services/badges.js'
 import { getShows } from '@/services/assignment.js'
 
@@ -121,17 +122,16 @@ onMounted(loadData)
       </div>
     </div>
 
-    <div v-if="loading" class="text-center text-muted-hw py-4">
-      <div class="spinner-border" aria-hidden="true"></div>
-      <div class="mt-2">Loading badges and volunteers...</div>
-    </div>
+    <!-- NEW: box with a contained overlay. No <Transition> on this box on purpose: if the box faded out while the content
+         appeared, both would take up space for 0.5s and the content would jump. -->
+    <div v-if="loading" class="loading-area"><PageLoading contained text="Fetching Badges and Volunteers..." /></div>
 
-    <div v-else-if="loadError" class="alert alert-danger d-flex align-items-start gap-2 mb-0" role="alert">
+    <div v-if="!loading && loadError" class="alert alert-danger d-flex align-items-start gap-2 mb-0" role="alert">
       <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
       <div>{{ loadError }}</div>
     </div>
 
-    <form v-else novalidate @submit.prevent="submitAward">
+    <form v-else-if="!loading" novalidate @submit.prevent="submitAward">
       <div class="row g-4">
         <div class="col-lg-5">
           <label for="award-badge" class="form-label field-label">Badge</label>

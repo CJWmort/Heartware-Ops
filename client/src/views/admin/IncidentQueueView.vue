@@ -119,6 +119,82 @@ function toggleStatus(key) {
   statusFilter.value = statusFilter.value === key ? '' : key // same button again -> '' (show all)
 }
 
+// ---------------------------------------------------------------------------------------------------
+// SORTING: which order the card list uses. 'priority' = keep the server's order (status > severity > newest).
+// ---------------------------------------------------------------------------------------------------
+const sortBy = ref('priority')
+
+// The dropdown options. `value` is the key into `sorters` below; `label` is what the admin sees.
+const sortOptions = [
+  { value: 'priority', label: 'Priority (default)' },
+  { value: 'newest', label: 'Newest first' },
+  { value: 'oldest', label: 'Oldest first' },
+  { value: 'severityHigh', label: 'Severity: High → Low' },
+  { value: 'severityLow', label: 'Severity: Low → High' },
+  { value: 'schoolAZ', label: 'School A–Z' },
+  { value: 'schoolZA', label: 'School Z–A' },
+  { value: 'typeAZ', label: 'Incident type A–Z' },
+  { value: 'reporterAZ', label: 'Reporter A–Z' },
+]
+
+// Lower number = more urgent. Same ranking the server uses.
+const SEVERITY_RANK = { high: 0, medium: 1, low: 2 }
+
+// Each sorter is a "compare" function: it returns a negative number if `a` goes first,
+// a positive number if `b` goes first, and 0 if they tie.
+const byNewest = (a, b) => new Date(b.createdAt) - new Date(a.createdAt) // bigger (later) date first
+const sorters = {
+  priority: null, // null = do not re-sort, keep the order the server gave us
+  newest: byNewest,
+  oldest: (a, b) => new Date(a.createdAt) - new Date(b.createdAt), // reverse of newest
+  severityHigh: (a, b) => SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity],
+  severityLow: (a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity],
+  // localeCompare compares text alphabetically; (x || '') guards against a missing value
+  schoolAZ: (a, b) => (a.school || '').localeCompare(b.school || ''),
+  schoolZA: (a, b) => (b.school || '').localeCompare(a.school || ''),
+  typeAZ: (a, b) => labelOf(a).localeCompare(labelOf(b)),
+  reporterAZ: (a, b) => (a.volunteer?.name || '').localeCompare(b.volunteer?.name || ''),
+}
+
+// ---------------------------------------------------------------------------------------------------
+// FILTERS: dropdowns that let the admin narrow the card list. '' (empty) = "All", i.e. no filtering on that field.
+// ---------------------------------------------------------------------------------------------------
+const typeFilter = ref('') // an incident type code, e.g. 'BUS_DELAYED'
+const severityFilter = ref('') // 'high' | 'medium' | 'low'
+const schoolFilter = ref('') // a school name
+
+// Options for the Type dropdown. Built from templatesByType so the names match the cards ("Bus delayed", not "BUS_DELAYED").
+const typeOptions = computed(() =>
+  Object.entries(templatesByType.value).map(([code, t]) => ({ value: code, label: t.label || code })),
+)
+
+// Options for the School dropdown: every distinct school in the incident list, A–Z.
+// A Set keeps each name only once; filter(Boolean) drops empty/missing names.
+const schoolOptions = computed(() =>
+  [...new Set(incidents.value.map((i) => i.school).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
+)
+
+// How many of the three dropdowns are in use (drives the "Clear" button and its badge).
+const activeFilterCount = computed(
+  () => [typeFilter.value, severityFilter.value, schoolFilter.value].filter(Boolean).length,
+)
+
+// Called by the Clear button: put all three dropdowns back to "All".
+function clearFilters() {
+  typeFilter.value = ''
+  severityFilter.value = ''
+  schoolFilter.value = ''
+}
+
+// True when an incident passes all three dropdowns. An empty dropdown always passes.
+function matchesFilters(incident) {
+  return (
+    (!typeFilter.value || incident.type === typeFilter.value) &&
+    (!severityFilter.value || incident.severity === severityFilter.value) &&
+    (!schoolFilter.value || incident.school === schoolFilter.value)
+  )
+}
+
 // The incidents whose cards are listed.
 // - Search box EMPTY: the pressed stat button (if any) keeps only that status.
 // - Search box HAS TEXT: the stat button is ignored, so the search looks through ALL statuses
@@ -126,7 +202,8 @@ function toggleStatus(key) {
 // The search looks at the school name, the incident type name, the reporter's note and the volunteer's name.
 const visibleIncidents = computed(() => {
   const q = searchbar.value.trim().toUpperCase() // upper-case both sides so capitals are ignored
-  return incidents.value.filter((incident) => {
+  const filtered = incidents.value.filter((incident) => {
+    if (!matchesFilters(incident)) return false // NEW: the dropdown filters apply first, whether or not the admin is searching
     if (!q) return !statusFilter.value || incident.status === statusFilter.value // no search: only the pressed button's status (or all)
     return (
       (incident.school || '').toUpperCase().includes(q) ||
@@ -135,6 +212,11 @@ const visibleIncidents = computed(() => {
       (incident.volunteer?.name || '').toUpperCase().includes(q) // NEW: volunteer name; ?. = safe if the volunteer is missing
     )
   })
+  const compare = sorters[sortBy.value]
+  if (!compare) return filtered // default: keep the server's order
+  // [...filtered] makes a copy, because .sort() changes the array it is called on.
+  // `compare(a, b) || byNewest(a, b)`: if the chosen sort ties (returns 0), fall back to newest first
+  return [...filtered].sort((a, b) => compare(a, b) || byNewest(a, b))
 })
 
 // ---------------------------------------------------------------------------------------------------
@@ -388,7 +470,10 @@ onUnmounted(() => {
       <BaseMap testid="incident-map" :zoom="12" @ready="onMapReady" />
 
       <!-- NEW: overlay on top of the map until the first incidents arrive (MapLoading is position:absolute, so it covers .map-stage) -->
-      <MapLoading v-if="loading" class="inc-loading" text="Fetching Incidents..." />
+      <!-- NEW: <Transition> keeps the overlay on screen while it fades out (and fades it in), instead of removing it instantly -->
+      <Transition name="inc-fade">
+        <MapLoading v-if="loading" class="inc-loading" text="Fetching Incidents..." />
+      </Transition>
 
       <!-- Button to bring the menu back after it was hidden (only exists while the menu is hidden and nothing is selected) -->
       <button
@@ -463,6 +548,35 @@ onUnmounted(() => {
                 data-testid="inc-search"
                 v-model="searchbar"
               />
+              <!-- Sort dropdown. v-model keeps `sortBy` in the script in sync with the chosen option. -->
+              <select class="form-select sort-select" v-model="sortBy" data-testid="inc-sort" aria-label="Sort incidents">
+                <option v-for="opt in sortOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+              </select>
+            </div>
+
+            <!-- Filter dropdowns: narrow the list by type, severity and school. "All ..." (value "") means no filter. -->
+            <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
+              <select class="form-select filter-select" v-model="typeFilter" data-testid="filter-type" aria-label="Filter by incident type">
+                <option value="">All types</option>
+                <option v-for="opt in typeOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+              </select>
+
+              <select class="form-select filter-select" v-model="severityFilter" data-testid="filter-severity" aria-label="Filter by severity">
+                <option value="">All severities</option>
+                <option value="high">High</option>
+                <option value="medium">Medium</option>
+                <option value="low">Low</option>
+              </select>
+
+              <select class="form-select filter-select" v-model="schoolFilter" data-testid="filter-school" aria-label="Filter by school">
+                <option value="">All schools</option>
+                <option v-for="school in schoolOptions" :key="school" :value="school">{{ school }}</option>
+              </select>
+
+              <!-- Only shown while at least one dropdown is in use -->
+              <button v-if="activeFilterCount" type="button" class="btn btn-sm btn-outline-secondary" @click="clearFilters">
+                Clear ({{ activeFilterCount }})
+              </button>
             </div>
           </div>
 
@@ -526,6 +640,18 @@ onUnmounted(() => {
 .inc-panel-head .search-box {
   flex: 1 1 140px;
   max-width: none;
+}
+
+/* The sort dropdown only takes the width it needs, and sits on the same row as the search box */
+.sort-select {
+  flex: 0 1 auto;
+  width: auto;
+}
+/* Each filter dropdown shares the row and shrinks on phones instead of overflowing */
+.filter-select {
+  flex: 1 1 120px;
+  width: auto;
+  min-width: 0;
 }
 
 /* Incident cards in the menu: a responsive grid */
@@ -595,6 +721,16 @@ onUnmounted(() => {
    hides it. 1105 is still below MapNotice (1150), so error popups stay visible. The longer selector beats MapLoading's own style. */
 .inc-stage .inc-loading {
   z-index: 1105;
+}
+/* NEW: fade rules used by <Transition name="inc-fade">. Vue adds these classes while the overlay appears (enter) and
+   disappears (leave): it starts / ends at opacity 0 and eases in between, so the map is revealed gradually, not with a jump. */
+.inc-fade-enter-active,
+.inc-fade-leave-active {
+  transition: opacity 0.5s ease; /* 0.5 s fade; change this number to make it faster or slower */
+}
+.inc-fade-enter-from,
+.inc-fade-leave-to {
+  opacity: 0;
 }
 /* Button that brings the menu back (only shown when the menu is hidden and nothing is selected) */
 .inc-reopen {

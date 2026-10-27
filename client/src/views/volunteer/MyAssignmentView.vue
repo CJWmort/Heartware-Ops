@@ -5,6 +5,7 @@
 // which loads the real shows (4 shows, 2027 dates), the volunteer's PUBLISHED assignments, and handles
 // accept / decline / withdraw. Keeping that logic in the service keeps this file about the screen only.
 import { computed, onMounted, ref } from 'vue'
+import PageLoading from '@/components/common/PageLoading.vue' // NEW: fading "Fetching..." overlay
 import SchoolRouteMap from '@/components/map/SchoolRouteMap.vue'
 import {
   useMyAssignment,
@@ -19,6 +20,7 @@ const {
   volAvailableShows,
   shows,
   errorMessage,
+  loading, // NEW: true until the first load finishes
   hasNoAvailability,
   loadData,
   showAvailabilityModal,
@@ -78,6 +80,10 @@ function datePart(date, part) {
 
 <template>
   <section>
+    <!-- NEW: overlay fades in/out while data is fetched. It covers the page (the content below is still in the page, just hidden behind the overlay) -->
+    <Transition name="loading-fade">
+      <PageLoading v-if="loading" text="Fetching Your Shows..." />
+    </Transition>
     <div v-if="errorMessage" class="alert alert-danger" role="alert">{{ errorMessage }}</div>
 
     <div
