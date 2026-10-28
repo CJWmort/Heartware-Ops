@@ -115,7 +115,7 @@ async function logout() {
 
       <!-- NEW: phone-only icon row. d-lg-none = visible below the "lg" breakpoint, hidden on desktop.
      The same links (from nav-links.js) are used, so nothing is duplicated by hand. -->
-      <ul v-if="auth.isLoggedIn" class="navbar-nav flex-row ms-auto me-1 d-lg-none nav-icon-row">
+      <ul v-if="auth.isLoggedIn" class="navbar-nav flex-row ms-auto d-lg-none nav-icon-row">
         <li v-for="link in links" :key="link.to" class="nav-item">
           <!-- aria-label + title: the label is hidden visually, but screen readers and long-press still show it -->
           <RouterLink
@@ -176,7 +176,7 @@ async function logout() {
                d-none d-lg-flex = desktop only; phones keep their own chat button in the bar (nav-chat-mobile). -->
           <li class="nav-item d-none d-lg-flex align-items-center">
             <!-- show-label: prints the word "Chat" next to the icon, like the other links -->
-            <ChatButton show-label data-testid="nav-chat" />
+            <ChatButton show-label class="nav-chat-desktop" data-testid="nav-chat" />
           </li>
         </ul>
 
@@ -282,6 +282,19 @@ async function logout() {
   padding-top: 0.4rem; /* keeps the tap area tall enough for a thumb */
   padding-bottom: 0.4rem;
 }
+/* Phone chat button: same vertical padding as the link icons (.nav-icon-row .nav-link uses 0.4rem) */
+.nav-chat-mobile {
+  --bs-btn-padding-y: 0.4rem;
+}
+
+/* Desktop chat button: copy the look of the other navbar links (size, padding, colour) */
+.nav-chat-desktop {
+  --bs-btn-font-size: 1rem; /* links use 1rem; btn-sm used 0.875rem */
+  --bs-btn-padding-y: 0.5rem; /* same as .nav-link */
+  --bs-btn-padding-x: var(--bs-navbar-nav-link-padding-x); /* same side padding as .nav-link (0.5rem) */
+  color: var(--bs-navbar-color) !important; /* same dimmed white as the links; !important needed to beat the .text-white class */
+}
+
 /* 392px and under: hide the icon row (the links move into the red-circle menu instead) */
 @media (max-width: 392px) {
   .nav-icon-row {
