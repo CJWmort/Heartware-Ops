@@ -385,8 +385,8 @@ onMounted(loadOrders)
   color: var(--green);
 }
 
-/* ---------- Phones: each row becomes a small card, with the column name written beside each value ---------- */
-@media (max-width: 767.98px) {
+/* ---------- Phones & Tablets: each row becomes a small card, with the column name written beside each value ---------- */
+@media (max-width: 991.98px) {
   .orders-table thead {
     position: absolute; /* hidden, but screen readers still get the column names */
     width: 1px;

@@ -354,7 +354,7 @@ onMounted(async () => {
                 </span>
                 <div class="min-w-0">
                   <div class="fw-semibold text-capitalize">{{ order.designSnapshot?.shape }} · {{ order.designSnapshot?.emblem }}</div>
-                  <div class="small text-muted-hw text-truncate">Ordered {{ timeAgo(order.createdAt) }} · {{ order.address.line1 }}</div>
+                  <div class="small text-muted-hw">Ordered {{ timeAgo(order.createdAt) }} · {{ order.address.line1 }}</div>
                 </div>
               </div>
               <span class="status-pill" data-testid="order-status">{{ statusLabels[order.status] || order.status }}</span>
