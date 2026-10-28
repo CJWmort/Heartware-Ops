@@ -97,22 +97,43 @@ async function logout() {
          Pressing it counts as pressing "anywhere else", so onDocumentPointerDown collapses the menu. -->
     <div class="nav-backdrop" :class="{ 'is-open': menuOpen }" aria-hidden="true"></div>
 
-    <div ref="bar" class="container">
+    <!-- flex-nowrap: Bootstrap lets this row wrap below 992px, which pushed the avatar to a second line. Keep everything on one line. -->
+    <div ref="bar" class="container flex-nowrap">
       <!-- CHANGED: the logo link goes to the person's own page (volunteer -> Assignment, admin -> Allocation).
            A guest (not logged in) still goes to the Home page. -->
       <RouterLink
         class="navbar-brand fw-semibold d-flex align-items-center gap-2"
         :to="landingFor(auth.role)"
+        aria-label="Heartware Ops"
         @click="closeMenu"
       >
         <img :src="logoUrl" alt="" class="nav-logo" aria-hidden="true" />
-        Heartware Ops
+        <!-- d-none d-sm-inline: the name is hidden below 576px (phones) to free room for the icons, only the logo shows.
+             aria-label above keeps the link readable for screen readers. -->
+        <span class="d-none d-sm-inline">Heartware Ops</span>
       </RouterLink>
 
+      <!-- NEW: phone-only icon row. d-lg-none = visible below the "lg" breakpoint, hidden on desktop.
+     The same links (from nav-links.js) are used, so nothing is duplicated by hand. -->
+      <ul v-if="auth.isLoggedIn" class="navbar-nav flex-row ms-auto d-lg-none nav-icon-row">
+        <li v-for="link in links" :key="link.to" class="nav-item">
+          <!-- aria-label + title: the label is hidden visually, but screen readers and long-press still show it -->
+          <RouterLink
+            class="nav-link px-2"
+            :to="link.to"
+            :aria-label="link.label"
+            :title="link.label"
+            :data-testid="link.testid + '-mobile'"
+          >
+            <i :class="['bi', link.icon]" aria-hidden="true"></i>
+          </RouterLink>
+        </li>
+      </ul>
       <!-- phone layout. The menu is collapsed there, so the chat button sits beside the burger and stays visible. -->
+      <!-- nav-chat-mobile: lets the CSS push the chat button to the right when the icon row is hidden (392px and under) -->
       <ChatButton
         v-if="auth.isLoggedIn"
-        class="d-lg-none ms-auto me-2"
+        class="d-lg-none me-2 nav-chat-mobile"
         data-testid="nav-chat-mobile"
       />
 
@@ -144,11 +165,18 @@ async function logout() {
         class="collapse navbar-collapse"
         @click="onMenuClick"
       >
-        <ul class="navbar-nav me-auto">
+        <!-- nav-menu-links: hidden by CSS only between 393px and the desktop layout (the icon row shows the links there) -->
+        <ul class="navbar-nav me-auto nav-menu-links">
           <li v-for="link in links" :key="link.to" class="nav-item">
             <RouterLink class="nav-link" :to="link.to" :data-testid="link.testid">
               <i :class="['bi', link.icon, 'me-1']" aria-hidden="true"></i>{{ link.label }}
             </RouterLink>
+          </li>
+          <!-- MOVED: desktop chat button now sits right after the last link (Badges) instead of next to the name.
+               d-none d-lg-flex = desktop only; phones keep their own chat button in the bar (nav-chat-mobile). -->
+          <li class="nav-item d-none d-lg-flex align-items-center">
+            <!-- show-label: prints the word "Chat" next to the icon, like the other links -->
+            <ChatButton show-label class="nav-chat-desktop" data-testid="nav-chat" />
           </li>
         </ul>
 
@@ -158,15 +186,13 @@ async function logout() {
         >
           <template v-if="auth.isLoggedIn">
 
-            <ChatButton class="d-none d-lg-inline-flex" data-testid="nav-chat" />
-
             <span
               class="navbar-text small py-0 d-flex align-items-center gap-2"
               data-testid="nav-user-name"
             >
               {{ auth.user.name }} <span class="badge text-bg-light">{{ auth.role }}</span>
             </span>
-            
+
             <button
               class="btn btn-outline-light btn-sm nav-logout-btn"
               data-testid="nav-logout"
@@ -250,6 +276,42 @@ async function logout() {
   font-size: 0.95rem;
   line-height: 1;
 }
+/* Phone icon row: same size as the chat icon (fs-5 = 1.25rem in ChatButton.vue) so all navbar icons match */
+.nav-icon-row .nav-link {
+  font-size: 1.25rem; /* icon size; the icons are <i> font glyphs, so font-size controls them */
+  padding-top: 0.4rem; /* keeps the tap area tall enough for a thumb */
+  padding-bottom: 0.4rem;
+}
+/* Phone chat button: same vertical padding as the link icons (.nav-icon-row .nav-link uses 0.4rem) */
+.nav-chat-mobile {
+  --bs-btn-padding-y: 0.4rem;
+}
+
+/* Desktop chat button: copy the look of the other navbar links (size, padding, colour) */
+.nav-chat-desktop {
+  --bs-btn-font-size: 1rem; /* links use 1rem; btn-sm used 0.875rem */
+  --bs-btn-padding-y: 0.5rem; /* same as .nav-link */
+  --bs-btn-padding-x: var(--bs-navbar-nav-link-padding-x); /* same side padding as .nav-link (0.5rem) */
+  color: var(--bs-navbar-color) !important; /* same dimmed white as the links; !important needed to beat the .text-white class */
+}
+
+/* 392px and under: hide the icon row (the links move into the red-circle menu instead) */
+@media (max-width: 392px) {
+  .nav-icon-row {
+    display: none;
+  }
+  /* the icon row used to push the chat button to the right (ms-auto), so the chat button does it itself now */
+  .nav-chat-mobile {
+    margin-left: auto;
+  }
+}
+
+/* 393px up to the desktop layout (992px): the icon row shows the links, so hide the duplicate list in the menu */
+@media (min-width: 393px) and (max-width: 991.98px) {
+  .nav-menu-links {
+    display: none;
+  }
+}
 .nav-link.router-link-active {
   color: #fff;
   font-weight: 600;
@@ -259,7 +321,9 @@ async function logout() {
 @media (max-width: 991.98px) {
   .navbar-collapse {
     position: absolute;
-    top: calc(100% - 1px); /* directly under the navbar, overlapping its edge by 1px so no hairline shows between them */
+    top: calc(
+      100% - 1px
+    ); /* directly under the navbar, overlapping its edge by 1px so no hairline shows between them */
     left: 0;
     right: 0;
     padding: calc(0.75rem + 1px) 1rem 1rem;

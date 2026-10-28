@@ -2,6 +2,8 @@
 import { computed } from 'vue'
 import { useChatStore } from '@/services/chat'
 
+defineProps({ showLabel: { type: Boolean, default: false } })
+
 const chat = useChatStore()
 
 const badge = computed(() => (chat.unreadTotal > 99 ? '99+' : String(chat.unreadTotal)))
@@ -9,7 +11,6 @@ const label = computed(() => (chat.unreadTotal > 0 ? `Chat, ${chat.unreadTotal} 
 </script>
 
 <template>
-  <!-- Classes passed in from the navbar (d-lg-none etc.) land on this button -->
   <button
     type="button"
     data-chat-toggle
@@ -19,10 +20,10 @@ const label = computed(() => (chat.unreadTotal > 0 ? `Chat, ${chat.unreadTotal} 
     aria-haspopup="dialog"
     @click="chat.toggle()"
   >
-    <!-- fs-5 = slightly larger icon so it reads as clearly as the text links -->
-    <!-- the badge is positioned against the icon itself (not the padded button), so it sits on the icon's top-right corner -->
     <span class="position-relative d-inline-flex">
-      <i class="bi bi-chat-dots-fill fs-5" aria-hidden="true"></i>
+      <!-- fs-5 (bigger icon) only when there is no label; with a label the icon matches the other links' size -->
+      <i :class="['bi', 'bi-chat-dots', { 'fs-5': !showLabel }]" aria-hidden="true"></i>
+
       <span
         v-if="chat.unreadTotal > 0"
         class="chat-badge position-absolute top-0 start-100 badge rounded-pill bg-danger"
@@ -30,6 +31,9 @@ const label = computed(() => (chat.unreadTotal > 0 ? `Chat, ${chat.unreadTotal} 
         {{ badge }}
       </span>
     </span>
+
+    <!-- the text label, only shown when the parent passes show-label (desktop navbar). Outside the span above so the unread badge stays on the icon -->
+    <span v-if="showLabel" class="ms-1">Chat</span>
   </button>
 </template>
 

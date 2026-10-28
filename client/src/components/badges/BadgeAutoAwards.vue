@@ -1,17 +1,18 @@
 <script setup>
 // Feature 5 – "Auto-awards" card on the coordinator page — owner: Hanafi
 // Layout and CSS: AI-generated (declared in README.txt). Logic in the TODOs below: Hanafi.
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import PageLoading from '@/components/common/PageLoading.vue' // NEW: fading "Fetching..." overlay
 import { listBadges, autoAward } from '@/services/badges.js'
 import { getShows, formatDate } from '@/services/assignment.js'
+import { getSavedFilter, saveFilter } from '@/services/selected-show'
 
 const shows = ref([]) // every show: [{ name: 'NE Show 1', date: '2027-06-27' }, ...]
 const badges = ref([]) // every badge from badges.json
 const loading = ref(true)
 const loadError = ref('')
 
-const event = ref('') // the show picked in the dropdown, e.g. 'NE Show 1'
+const event = ref(getSavedFilter('awards-auto-show')) // the show picked in the dropdown, e.g. 'NE Show 1'
 const sending = ref(false)
 const runError = ref('')
 const result = ref(null) // the server's reply: { given: { FULL_ROUTE: 2, EARLY_BIRD: 0, SUPER_SUB: 1 }, skipped: 3 }
@@ -23,13 +24,39 @@ async function loadData() {
     badges.value = badgeList
     shows.value = showList
 
-    event.value = shows.value[0]?.name
+    if (!shows.value.some((s) => s.name === event.value)) event.value = shows.value[0]?.name || ''
   } catch (e) {
     loadError.value = e.friendlyMessage || 'Something went wrong. Please try again.'
     console.error(e)
   } finally {
     loading.value = false
   }
+}
+
+const showOptions = computed(() =>
+  shows.value.map((s) => ({
+    value: s.name,
+    label: s.date ? `${s.name} · ${formatDate(s.date)}` : s.name,
+  })),
+)
+
+watch(event, (v) => saveFilter('awards-auto-show', v))
+
+const showMenuOpen = ref(false)
+const showEl = ref(null)
+
+function labelFor(options, value) {
+  return options.find((o) => o.value === value)?.label ?? ''
+}
+
+function chooseShow(v) {
+  showMenuOpen.value = false
+  event.value = v
+}
+
+function onDocPointerDown(e) {
+  if (showMenuOpen.value && showEl.value && !showEl.value.contains(e.target))
+    showMenuOpen.value = false
 }
 
 const autoBadges = computed(() => badges.value.filter((badge) => badge.awardType === 'auto'))
@@ -67,7 +94,12 @@ const totalGiven = computed(() => {
   }
 })
 
-onMounted(loadData)
+onMounted(() => {
+  document.addEventListener('pointerdown', onDocPointerDown)
+  loadData()
+})
+
+onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocPointerDown))
 </script>
 
 <template>
@@ -99,11 +131,45 @@ onMounted(loadData)
       <!-- Left: the one decision (which show) and the one action (run), with its result right underneath -->
       <div class="col-md-5 col-lg-4">
         <label for="auto-show" class="form-label field-label">For which show</label>
-        <select id="auto-show" v-model="event" class="form-select" data-testid="awards-auto-show">
-          <option v-for="s in shows" :key="s.name" :value="s.name">
-            {{ s.name }}<template v-if="s.date"> · {{ formatDate(s.date) }}</template>
-          </option>
-        </select>
+        <div
+          ref="showEl"
+          class="show-select"
+          :class="{ open: showMenuOpen }"
+          @keydown.esc="showMenuOpen = false"
+        >
+          <button
+            id="auto-show"
+            type="button"
+            class="show-btn"
+            aria-haspopup="listbox"
+            :aria-expanded="showMenuOpen"
+            aria-label="Choose a show"
+            data-testid="awards-auto-show"
+            @click="showMenuOpen = !showMenuOpen"
+          >
+            <i class="bi bi-calendar-event" aria-hidden="true"></i>
+            <span class="show-name" :class="{ 'is-placeholder': !labelFor(showOptions, event) }">{{ labelFor(showOptions, event) || 'Choose a show' }}</span>
+            <i class="bi bi-chevron-down show-chevron" :class="{ open: showMenuOpen }" aria-hidden="true"></i>
+          </button>
+          <Transition name="menu">
+            <div v-if="showMenuOpen" class="show-menu filter-menu" role="listbox">
+              <button
+                v-for="(opt, i) in showOptions"
+                :key="opt.value"
+                type="button"
+                class="show-option"
+                :class="{ active: opt.value === event }"
+                :style="{ '--i': i }"
+                role="option"
+                :aria-selected="opt.value === event"
+                @click="chooseShow(opt.value)"
+              >
+                <span>{{ opt.label }}</span>
+                <i v-if="opt.value === event" class="bi bi-check-lg" aria-hidden="true"></i>
+              </button>
+            </div>
+          </Transition>
+        </div>
 
         <button
           type="button"
@@ -362,6 +428,141 @@ onMounted(loadData)
     margin-left: calc(
       40px + 0.85rem
     ); /* line the count up under the badge name, not under the medal */
+  }
+}
+
+.show-select {
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  z-index: 20;
+}
+.show-select.open {
+  z-index: 30;
+}
+.show-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 100%;
+  height: 38px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--hw-bg);
+  color: var(--bs-secondary-color);
+  font-weight: 600;
+  text-align: left;
+  transition: background-color 0.15s;
+}
+.show-btn:hover {
+  background: var(--bs-secondary-bg);
+}
+.show-btn:focus-visible {
+  outline: 2px solid var(--bs-primary);
+  outline-offset: 2px;
+}
+.show-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--hw-text);
+}
+.show-name.is-placeholder {
+  color: var(--hw-muted);
+  font-weight: 500;
+}
+.show-chevron {
+  flex: 0 0 auto;
+  font-size: 0.7rem;
+  transition: transform 0.25s ease;
+}
+.show-chevron.open {
+  transform: rotate(180deg);
+}
+.show-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  min-width: 100%;
+  max-width: min(360px, calc(100vw - 24px));
+  padding: 6px;
+  background: var(--hw-surface);
+  color: var(--hw-text);
+  border: 1px solid var(--bs-border-color);
+  border-radius: 14px;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.22);
+}
+.filter-menu {
+  max-height: 260px;
+  overflow-y: auto;
+}
+.show-group {
+  padding: 8px 12px 4px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--hw-muted);
+}
+.show-option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.9rem;
+  text-align: left;
+  overflow-wrap: anywhere;
+  animation: option-in 0.2s ease both;
+  animation-delay: calc(var(--i) * 30ms);
+}
+.show-option:hover {
+  background: var(--hw-bg);
+}
+.show-option.active {
+  background: var(--bs-primary-bg-subtle);
+  color: var(--bs-primary-text-emphasis);
+  font-weight: 600;
+}
+.menu-enter-active,
+.menu-leave-active {
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
+  transform-origin: top left;
+}
+.menu-enter-from,
+.menu-leave-to {
+  opacity: 0;
+  transform: translateY(-6px) scale(0.95);
+}
+@keyframes option-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .show-option {
+    animation: none;
+  }
+  .menu-enter-active,
+  .menu-leave-active,
+  .show-chevron {
+    transition: none;
   }
 }
 </style>

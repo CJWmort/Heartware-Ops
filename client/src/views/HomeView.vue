@@ -120,14 +120,24 @@ onUnmounted(() => {
         <div class="hw-intro">
           <h1 class="hw-title">
             <span class="hw-title-show d-block">
-              <span v-for="(word, i) in titleWords" :key="word" class="w" :class="{ revealed: titleRevealed }">
+              <span
+                v-for="(word, i) in titleWords"
+                :key="word"
+                class="w"
+                :class="{ revealed: titleRevealed }"
+              >
                 <span :ref="(el) => (wordEls[i] = el)" class="w-pulse">
                   <span class="w-in" :style="{ '--d': 150 + i * 120 + 'ms' }">{{ word }}</span>
                 </span>
               </span>
             </span>
             <span class="hw-title-motto d-block">
-              <span v-for="(word, i) in mottoWords" :key="word" class="w" :class="{ revealed: titleRevealed }">
+              <span
+                v-for="(word, i) in mottoWords"
+                :key="word"
+                class="w"
+                :class="{ revealed: titleRevealed }"
+              >
                 <span :ref="(el) => (wordEls[titleWords.length + i] = el)" class="w-pulse">
                   <span class="w-in" :style="{ '--d': 420 + i * 110 + 'ms' }">{{ word }}</span>
                 </span>
@@ -141,8 +151,15 @@ onUnmounted(() => {
 
           <div class="d-flex flex-wrap align-items-center gap-3 hw-fade" style="--d: 1050ms">
             <!-- E2E: data-testid="cta-register" / "cta-login" let Playwright find these two buttons (see e2e/f1-home-login-register.spec.js, test 1) -->
-            <RouterLink :to="signupPath" data-testid="cta-register" class="btn btn-hw btn-lg btn-shine px-4">Sign up to volunteer</RouterLink>
-            <RouterLink :to="loginPath" data-testid="cta-login" class="btn btn-ghost btn-lg px-4">Log in</RouterLink>
+            <RouterLink
+              :to="signupPath"
+              data-testid="cta-register"
+              class="btn btn-hw btn-lg btn-shine px-4"
+              >Sign up to volunteer</RouterLink
+            >
+            <RouterLink :to="loginPath" data-testid="cta-login" class="btn btn-ghost btn-lg px-4"
+              >Log in</RouterLink
+            >
           </div>
         </div>
 
@@ -153,13 +170,15 @@ onUnmounted(() => {
         <!-- Live drill -->
         <div id="drill" class="hw-drill">
           <h2 class="hw-drill-title">What Heartware Ops does</h2>
-          <FeatureFlipCard /> <!-- replaces the old checkpoint drill card -->
+          <FeatureFlipCard />
+          <!-- replaces the old checkpoint drill card -->
         </div>
       </div>
 
       <!-- bottom centre of the screen ("Tap" on phones and tablets) -->
       <p class="hw-sky-hint">
-        <span class="hint-click">Click</span><span class="hint-tap">Tap</span> anywhere to launch a firework
+        <span class="hint-click">Click</span><span class="hint-tap">Tap</span> anywhere to launch a
+        firework
       </p>
     </section>
 
@@ -188,7 +207,7 @@ onUnmounted(() => {
   --hw-nav-h: 72px;
 
   /* design tokens */
-  --hw-night: #070b1a;
+  --hw-night: var(--hw-bg); /* was #070b1a; now reads the app-wide page colour (main.css) so there is one source of truth */
   --hw-navy: #0f1730;
   --hw-line: rgba(244, 246, 251, 0.1);
   --hw-red: #ef3340;
@@ -258,7 +277,12 @@ onUnmounted(() => {
   position: absolute;
   inset: 0;
   z-index: -1;
-  background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.45) 50%, transparent 65%);
+  background: linear-gradient(
+    105deg,
+    transparent 35%,
+    rgba(255, 255, 255, 0.45) 50%,
+    transparent 65%
+  );
   transform: translateX(-120%);
   transition: transform 0.7s ease;
 }
@@ -292,7 +316,7 @@ onUnmounted(() => {
   padding: 2rem 0 2.5rem;
   background:
     radial-gradient(60% 45% at 85% 0%, rgba(42, 58, 120, 0.55), transparent 70%),
-    linear-gradient(180deg, #050816 0%, var(--hw-night) 55%);
+    linear-gradient(180deg, var(--hw-navy) 0%, var(--hw-night) 55%); /* top edge now equals the navbar colour, so there is no seam */
   isolation: isolate;
 }
 
@@ -353,12 +377,14 @@ onUnmounted(() => {
 .w-in {
   display: inline-block;
   animation: hw-rise 0.95s cubic-bezier(0.2, 0.8, 0.2, 1) var(--d, 0ms) both;
+  user-select: none;
 }
 
 /* motto words: red, with a gold light sweep that repeats */
 .hw-title-motto .w-in {
   color: var(--hw-red);
-  background: linear-gradient(100deg, var(--hw-red) 40%, #ffe3a3 50%, var(--hw-red) 60%) 100% 0 / 260% 100% no-repeat;
+  background: linear-gradient(100deg, var(--hw-red) 40%, #ffe3a3 50%, var(--hw-red) 60%) 100% 0 /
+    260% 100% no-repeat;
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -391,6 +417,7 @@ onUnmounted(() => {
   font-size: 1.1rem;
   max-width: 44ch;
   margin-bottom: 1.25rem;
+  user-select: none;
 }
 
 .hw-fade {

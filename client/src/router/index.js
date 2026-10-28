@@ -122,6 +122,10 @@ router.beforeEach(async (to) => {
   // CHANGED: a logged-in person opening /login or /register goes to their own page, not Home
   if (guestOnly) return auth.isLoggedIn ? landingFor(auth.role) : true
 
+  // NEW: a logged-in person never needs the landing page (opening the site, refreshing or tapping the logo
+  // all land on "/"), so send them to their own page. Guests still fall through and see Home.
+  if (to.name === 'home' && auth.isLoggedIn) return landingFor(auth.role)
+
   // Allow everyone to access Home and 'not allowed' view
   if (isPublic) return true
 

@@ -34,7 +34,7 @@ import BaseMap from '@/components/map/BaseMap.vue'
 import MapNotice from '@/components/map/MapNotice.vue'
 import MapLoading from '@/components/map/MapLoading.vue' // NEW: dimmed overlay + spinner shown over the map while data is fetched
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
-import { getSavedShow, saveShow } from '@/services/selected-show'
+import { getSavedShow, saveShow, getSavedFilter, saveFilter } from '@/services/selected-show'
 import { useChatStore } from '@/services/chat'
 import { createSchoolIcon, createVolIcon, volTip, schoolTip, bindTip } from '@/utils/map-icons'
 
@@ -254,8 +254,10 @@ function toggleStatus(key) {
 const needsOnly = ref(false)
 
 // Zone and reporting-time filters ('' = no filter)
-const zoneFilter = ref('')
-const timeFilter = ref('')
+const zoneFilter = ref(getSavedFilter('alloc-zone'))
+const timeFilter = ref(getSavedFilter('alloc-time'))
+watch(zoneFilter, (v) => saveFilter('alloc-zone', v))
+watch(timeFilter, (v) => saveFilter('alloc-time', v))
 
 // Turn "7:30 AM", "07:30" or "1:15 PM" into minutes so times sort properly (unparseable values sort last)
 function timeToMinutes(t) {
@@ -285,7 +287,15 @@ const timeOptions = computed(() => {
   )
 })
 
+watch(zoneOptions, (opts) => {
+  if (opts.length && zoneFilter.value && !opts.includes(zoneFilter.value)) zoneFilter.value = ''
+})
+watch(timeOptions, (opts) => {
+  if (opts.length && timeFilter.value && !opts.includes(timeFilter.value)) timeFilter.value = ''
+})
+
 const filtersActive = computed(() => !!(zoneFilter.value || timeFilter.value))
+const activeFilterCount = computed(() => [zoneFilter.value, timeFilter.value].filter(Boolean).length)
 function clearSchoolFilters() {
   zoneFilter.value = ''
   timeFilter.value = ''
@@ -841,7 +851,12 @@ loadData()
             <div class="alloc-head-row mb-2">
               <div class="alloc-title-group d-flex flex-wrap align-items-center gap-3">
                 <!-- Custom show dropdown (same look and animation as the HQ Live Board) -->
-                <div ref="showEl" class="show-select" @keydown.esc="showMenuOpen = false">
+                <div
+                  ref="showEl"
+                  class="show-select"
+                  :class="{ open: showMenuOpen }"
+                  @keydown.esc="showMenuOpen = false"
+                >
                   <button
                     type="button"
                     class="show-btn"
@@ -969,7 +984,12 @@ loadData()
               <!-- Zone + reporting time filters (these apply to the card list only, like the search box) -->
               <!-- Zone + reporting time filters: same custom dropdown as the show selector -->
               <div class="alloc-filter-row d-flex flex-wrap align-items-center gap-2 mt-2">
-                <div ref="zoneEl" class="show-select" @keydown.esc="zoneMenuOpen = false">
+                <div
+                  ref="zoneEl"
+                  class="show-select"
+                  :class="{ open: zoneMenuOpen }"
+                  @keydown.esc="zoneMenuOpen = false"
+                >
                   <button
                     type="button"
                     class="show-btn"
@@ -1007,7 +1027,12 @@ loadData()
                   </Transition>
                 </div>
 
-                <div ref="timeEl" class="show-select" @keydown.esc="timeMenuOpen = false">
+                <div
+                  ref="timeEl"
+                  class="show-select"
+                  :class="{ open: timeMenuOpen }"
+                  @keydown.esc="timeMenuOpen = false"
+                >
                   <button
                     type="button"
                     class="show-btn"
@@ -1048,10 +1073,10 @@ loadData()
                 <button
                   v-if="filtersActive"
                   type="button"
-                  class="btn btn-sm btn-link text-nowrap p-0"
+                  class="btn btn-sm btn-outline-secondary text-nowrap"
                   @click="clearSchoolFilters"
                 >
-                  Clear
+                  Clear ({{ activeFilterCount }})
                 </button>
               </div>
               <input
@@ -1474,7 +1499,18 @@ loadData()
     white-space: nowrap;
   }
   .alloc-search-row {
+    flex-wrap: wrap !important;
+  }
+  .alloc-filter-row {
+    flex: 0 0 100%;
     flex-wrap: nowrap !important;
+  }
+  .alloc-filter-row .show-select {
+    flex: 0 1 auto;
+    min-width: 0;
+  }
+  .alloc-filter-row .btn {
+    flex: 0 0 auto;
   }
   .alloc-search-row .search-box {
     flex: 1 1 0;
@@ -1628,7 +1664,11 @@ loadData()
   flex: 0 0 auto;
   z-index: 20; /* keeps the open menu above the chips and cards underneath */
 }
+.show-select.open {
+  z-index: 30;
+}
 .show-btn {
+  max-width: 100%;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -1645,6 +1685,10 @@ loadData()
   background: var(--bs-secondary-bg);
 }
 .show-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--hw-text);
 }
 .show-chevron {
