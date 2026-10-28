@@ -133,7 +133,7 @@ onMounted(async () => {
 </script>
 
 <template>
-  <section class="studio" :class="{ 'is-locked': locked }">
+  <section class="studio" :class="{ 'is-locked': locked, 'is-loading': loading }">
     <div class="mb-3">
       <RouterLink to="/volunteer/badges" class="btn btn-outline-secondary" data-testid="studio-back"><i class="bi bi-arrow-left me-1" aria-hidden="true"></i>Back to my badges</RouterLink>
     </div>
@@ -145,7 +145,7 @@ onMounted(async () => {
  
     <!-- NEW: overlay fades in/out while data is fetched (content below only shows once loading is false) -->
     <Transition name="loading-fade">
-      <PageLoading v-if="loading" text="Fetching Your Design..." />
+      <PageLoading v-if="loading" contained text="Fetching Your Design..." />
     </Transition>
  
     <div v-if="!loading" class="d-flex flex-column gap-4"> <!-- NEW: wait for the data (was v-else after the old spinner block) -->
@@ -376,6 +376,7 @@ onMounted(async () => {
  
 <style scoped>
 .studio {
+  position: relative;
   --studio-navbar-h: 56px; 
   --tint: rgb(20 33 61 / 0.08); 
   --dash: #c3c8d2; 
@@ -441,6 +442,9 @@ onMounted(async () => {
   }
 }
  
+.studio.is-loading {
+  min-height: calc(100vh - 128px);
+}
 .studio.is-locked .preview-card {
   height: 100%;
   display: flex;

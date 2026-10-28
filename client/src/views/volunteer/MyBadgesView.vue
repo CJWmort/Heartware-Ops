@@ -35,10 +35,10 @@ onMounted(async () => {
 </script>
 
 <template>
-  <section class="badges-page" @keydown.esc="selected = null">
+  <section class="badges-page" :class="{ 'is-loading': loading }" @keydown.esc="selected = null">
     <!-- NEW: overlay fades in/out while data is fetched (content below only shows once loading is false) -->
     <Transition name="loading-fade">
-      <PageLoading v-if="loading" text="Fetching Your Badges..." />
+      <PageLoading v-if="loading" contained text="Fetching Your Badges..." />
     </Transition>
     <div v-if="error" class="alert alert-danger d-flex align-items-start gap-2" role="alert">
       <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
@@ -120,10 +120,10 @@ onMounted(async () => {
     </template>
 
     <!-- Pop-up -->
-    <div v-if="selected" class="modal d-block" tabindex="-1" role="dialog" aria-modal="true"
+    <Teleport to="body">
+    <div v-if="selected" class="modal d-block hw-modal" tabindex="-1" role="dialog" aria-modal="true"
          aria-labelledby="badge-modal-title" data-testid="badge-modal" @click.self="selected = null">
-      <!-- CHANGED: removed "modal-dialog-centered" so this popup opens at the TOP centre, not the middle of the screen -->
-      <div class="modal-dialog">
+      <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content badge-modal">
           <button type="button" class="btn-close" aria-label="Close" data-testid="badge-modal-close" @click="selected = null"></button>
           <div class="modal-body text-center px-4 pt-4 pb-4">
@@ -150,15 +150,20 @@ onMounted(async () => {
         </div>
       </div>
     </div>
-    <div v-if="selected" class="modal-backdrop show"></div>
+    <div v-if="selected" class="modal-backdrop show hw-backdrop"></div>
+    </Teleport>
   </section>
 </template>
 
 <style scoped>
 /* ---------- Colours that change in dark mode ---------- */
 .badges-page {
+  position: relative;
   --tint: rgb(20 33 61 / 0.08); 
   --dash: #c3c8d2; 
+}
+.badges-page.is-loading {
+  min-height: calc(100vh - 128px);
 }
 [data-bs-theme='dark'] .badges-page {
   --tint: rgb(255 255 255 / 0.08); 
@@ -388,6 +393,19 @@ onMounted(async () => {
 }
 
 /* ---------- Pop-up ---------- */
+.hw-modal {
+  z-index: 1300;
+  overflow-y: auto;
+  --tint: rgb(20 33 61 / 0.08);
+  --dash: #c3c8d2;
+}
+[data-bs-theme='dark'] .hw-modal {
+  --tint: rgb(255 255 255 / 0.08);
+  --dash: #4a5570;
+}
+.hw-backdrop {
+  z-index: 1290;
+}
 .badge-modal {
   position: relative;
   border: 0;
