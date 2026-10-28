@@ -27,7 +27,6 @@ import {
 /* Settings                                                            */
 /* ------------------------------------------------------------------ */
 const DEST = VENUES['Padang'] // destination { lat, lng }
-const FOLLOW_ZOOM = 16 // zoom level used when centering on the user
 const GLIDE_MS = 1000 // how long the marker takes to glide between GPS fixes
 const BIG_JUMP_M = 500 // jumps larger than this snap instead of gliding
 const REROUTE_M = 10 // re-fetch the route after moving this many metres
@@ -60,6 +59,8 @@ const routeInfo = ref(null) // last fetched route summary: { minutes, km }
 const following = ref(true) // true = map camera follows the user's marker
 const travelMode = ref('drive') // 'drive' or 'walk'
 const loadingRoute = ref(false) // shows the "Fetching Routes..." overlay
+const routeBusy = ref(false)
+const toast = ref(null)
 const reporting = ref(true) // turns false if the server says this volunteer isn't tracked
 const showIncidentReport = ref(false) // F4: true = the incident report card is open over the map
 
@@ -81,6 +82,7 @@ watch(currentAssignment, drawSchool) // tapping a pill (or the list loading) red
 const stageBusy = ref(false) // true while a checkpoint request is running (buttons are disabled)
 const stageError = ref('') // set when a checkpoint could not be saved
 const currentStage = computed(() => currentAssignment.value?.stage ?? 0) // 0 = not started, 8 = dismissed
+const dayEnded = computed(() => currentStage.value >= JOURNEY_STAGES.length)
 const nextStage = computed(() => JOURNEY_STAGES[currentStage.value] ?? null) // the checkpoint the big button clocks (null after Dismissal)
 const lastStage = computed(() => JOURNEY_STAGES[currentStage.value - 1] ?? null) // the checkpoint "Undo" would remove
 const journeyLeg = computed(() => {
@@ -104,7 +106,23 @@ const routeTarget = computed(() => {
 
 // The destination changed (stage 4 reached or undone, another show picked, undo back to the outbound leg): fetch the new route
 watch(routeTarget, (now, before) => {
-  if (now.lat !== before.lat || now.lng !== before.lng) drawRoute()
+  if (now.lat !== before.lat || now.lng !== before.lng) drawRoute(false, true)
+})
+
+watch(dayEnded, (ended) => {
+  if (!map) return
+  if (ended) {
+    routeRequestId++
+    flushPreview(false)
+    removeRoute()
+    routeInfo.value = null
+    routeBase = null
+    routeError.value = ''
+    loadingRoute.value = false
+    routeBusy.value = false
+  } else if (!loadingRoute.value && !routeBusy.value) {
+    drawRoute(false, true)
+  }
 })
 
 // The journey row has 4 dots that play twice: left to right on the way to Padang (stages 1-4), then in reverse on the
@@ -147,8 +165,10 @@ async function sendStage(assignment, request) {
   stageError.value = ''
   try {
     const res = await request()
+    const before = assignment.stage
     assignment.stage = res.data.stage
     assignment.stageHistory = res.data.stageHistory
+    onStageChanged(before, res.data.stage)
   } catch (err) {
     if (err.response?.status === 409 && typeof err.response.data?.stage === 'number') {
       assignment.stage = err.response.data.stage
@@ -159,6 +179,40 @@ async function sendStage(assignment, request) {
   } finally {
     stageBusy.value = false
   }
+}
+
+function showToast(text, icon, tone) {
+  toast.value = { text, icon, tone }
+  clearTimeout(toastTimer)
+  toastTimer = setTimeout(() => (toast.value = null), 2600)
+}
+
+function onStageChanged(before, after) {
+  if (after === before) return
+  if (after > before) {
+    const done = JOURNEY_STAGES[after - 1]
+    const finished = after >= JOURNEY_STAGES.length
+    showToast(
+      finished ? 'Day complete' : done.label,
+      finished ? 'bi-check-circle-fill' : 'bi-check2-circle',
+      finished ? 'done' : journeyReturning.value ? 'back' : 'out',
+    )
+    pulseRing()
+    navigator.vibrate?.(40)
+  } else {
+    showToast('Checkpoint removed', 'bi-arrow-counterclockwise', 'neutral')
+  }
+}
+
+function pulseRing() {
+  const el = myMarker?.getElement()
+  if (!el) return
+  const ring = document.createElement('span')
+  ring.className = 'checkpoint-ring' + (journeyReturning.value ? ' back' : '')
+  el.appendChild(ring)
+  const remove = () => ring.remove()
+  ring.addEventListener('animationend', remove, { once: true })
+  setTimeout(remove, 1500)
 }
 
 // Big button: clock the next checkpoint
@@ -293,6 +347,14 @@ let volunteerLayer = null // layer group holding the markers
 let meIcon = null // blue dot icon for the user
 let myMarker = null // the user's marker
 let routeLine = null // the drawn route polyline
+let routeCasing = null
+let revealFrame = null
+let previewing = false
+let previewRun = 0
+let pendingShow = null
+let recenterTimer = null
+let recenterFlying = false
+let toastTimer = null
 let routeRenderer = null // shared canvas renderer for route lines
 let routeLabel = null // "xx min" pill sitting on the route
 let schoolMarker = null // badge for the allocated school of the selected show
@@ -420,10 +482,15 @@ function onMapReady(m, leaflet) {
   bindTip(destMarker, tipCard({ icon: 'bi-flag-fill', tone: 'dest', title: 'Padang' }))
 
   map.zoomControl?.setPosition('bottomright') // move +/- buttons to the bottom right
-  map.on('dragstart', () => (following.value = false)) // user took control of the map
+  map.on('dragstart', () => {
+    following.value = false
+    clearTimeout(recenterTimer)
+    recenterFlying = false
+    flushPreview(true)
+  })
   map.on('click', collapseSheet) // tapping / clicking the map closes the bottom sheet
   drawMyMarker(true)
-  drawRoute()
+  drawRoute(false, false)
   drawSchool()
 }
 
@@ -446,7 +513,7 @@ function drawMyMarker(shouldCenter = false) {
     moveMarkerSmooth(lat, lng)
   }
 
-  if (shouldCenter) map.setView([lat, lng], FOLLOW_ZOOM)
+  if (shouldCenter) map.setView([lat, lng], map.getMaxZoom())
   updateHeadingUI()
 }
 
@@ -461,7 +528,7 @@ function moveMarkerSmooth(lat, lng, duration = GLIDE_MS) {
   // Big jump (e.g. first fix or GPS recovery): snap instead of gliding
   if (from.distanceTo(to) > BIG_JUMP_M) {
     myMarker.setLatLng(to)
-    if (following.value && !recentering) map.panTo(to, { animate: false })
+    if (following.value && !recentering && !previewing) map.panTo(to, { animate: false })
     return
   }
 
@@ -470,20 +537,34 @@ function moveMarkerSmooth(lat, lng, duration = GLIDE_MS) {
     const t = Math.min((now - start) / duration, 1) // progress from 0 to 1
     const cur = [from.lat + (to.lat - from.lat) * t, from.lng + (to.lng - from.lng) * t]
     myMarker.setLatLng(cur)
-    if (following.value && !recentering) map.panTo(cur, { animate: false })
+    if (following.value && !recentering && !previewing) map.panTo(cur, { animate: false })
     if (t < 1) animFrame = requestAnimationFrame(step)
   }
   animFrame = requestAnimationFrame(step)
 }
 
 // Recenter button: turns following back on and pans the map to the volunteer.
+function flyToMe(ms = 900) {
+  clearTimeout(recenterTimer)
+  recentering = true
+  recenterFlying = true
+  map.flyTo(myMarker.getLatLng(), map.getMaxZoom(), { duration: ms / 1000 })
+  recenterTimer = setTimeout(() => {
+    recentering = false
+    recenterFlying = false
+  }, ms + 150)
+}
+
 function recenter() {
   if (!map || !myMarker) return
   following.value = true
-  recentering = true
-  map.once('moveend', () => (recentering = false))
-  map.panTo(myMarker.getLatLng(), { duration: 0.5 })
-  setTimeout(() => (recentering = false), 600) // fallback in case moveend never fires
+  flushPreview(true)
+  if (recenterFlying) return
+  const gap = map
+    .latLngToContainerPoint(myMarker.getLatLng())
+    .distanceTo(map.latLngToContainerPoint(map.getCenter()))
+  if (map.getZoom() === map.getMaxZoom() && gap < 3) return
+  flyToMe()
 }
 
 /* ------------------------------------------------------------------ */
@@ -530,67 +611,200 @@ function updateHeadingUI() {
 // Fetches the route from the user's location to the current destination (Padang, or the school when returning) and draws it.
 // background = true refreshes quietly (no overlay, old line stays until the
 // new one is ready); false is used for first load and travel-mode changes.
-async function drawRoute(background = false) {
-  if (!map || !location.value) return
+function removeRoute() {
+  cancelAnimationFrame(revealFrame)
+  routeLine?.remove()
+  routeCasing?.remove()
+  routeLine = null
+  routeCasing = null
+  if (routeLabel) {
+    volunteerLayer.removeLayer(routeLabel)
+    routeLabel = null
+  }
+}
+
+function routeStyles() {
+  const color = journeyReturning.value ? '#0d9488' : '#1a73e8'
+  const walk = travelMode.value === 'walk'
+  return {
+    casing: {
+      color: '#ffffff',
+      weight: walk ? 11 : 10,
+      opacity: 0.95,
+      lineCap: 'round',
+      lineJoin: 'round',
+      dashArray: walk ? '1 11' : null,
+      renderer: routeRenderer,
+      interactive: false,
+    },
+    line: {
+      color,
+      weight: walk ? 7 : 6,
+      lineCap: 'round',
+      lineJoin: 'round',
+      dashArray: walk ? '1 11' : null,
+      renderer: routeRenderer,
+      interactive: false,
+    },
+  }
+}
+
+function revealRoute(coords, casing, line, ms = 800) {
+  cancelAnimationFrame(revealFrame)
+  const start = performance.now()
+  const step = (now) => {
+    const t = Math.min((now - start) / ms, 1)
+    const eased = 1 - Math.pow(1 - t, 3)
+    const part = coords.slice(0, Math.max(2, Math.ceil(coords.length * eased)))
+    casing.setLatLngs(part)
+    line.setLatLngs(part)
+    if (t < 1) revealFrame = requestAnimationFrame(step)
+  }
+  revealFrame = requestAnimationFrame(step)
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+function fadeRoute(visible) {
+  const el = routeRenderer?._container
+  if (!el) return
+  el.style.transition = 'opacity 0.25s ease'
+  el.style.opacity = visible ? '1' : '0'
+}
+
+function flushPreview(showPending = true) {
+  previewRun++
+  previewing = false
+  if (!recenterFlying) recentering = false
+  const pending = pendingShow
+  pendingShow = null
+  if (showPending && pending) pending()
+  fadeRoute(true)
+}
+
+async function previewRoute(coords, place) {
+  const run = ++previewRun
+  const alive = () => run === previewRun
+  pendingShow = place
+  const narrow = window.matchMedia('(max-width: 991.98px)').matches
+  const bounds = L.latLngBounds(coords).extend(myMarker.getLatLng())
+  fadeRoute(false)
+  previewing = true
+  recentering = true
+  map.flyToBounds(bounds, {
+    paddingTopLeft: [narrow ? 40 : 440, 90],
+    paddingBottomRight: [40, narrow ? 40 : 60],
+    maxZoom: 17,
+    duration: 0.9,
+  })
+  await sleep(1000)
+  if (!alive()) return
+  recentering = false
+  pendingShow = null
+  place()
+  fadeRoute(true)
+  await sleep(2000)
+  if (!alive()) return
+  fadeRoute(false)
+  await sleep(250)
+  if (!alive()) return
+  previewing = false
+  if (following.value) flyToMe()
+  await sleep(1100)
+  if (!alive()) return
+  fadeRoute(true)
+}
+
+async function drawRoute(background = false, preview = false) {
+  if (!map || !location.value || dayEnded.value) return
+
+  if (!background) flushPreview(false)
+
+  const soft = !background && preview && (!!routeLine || !!routeInfo.value)
 
   if (!background) {
-    routeLine?.remove()
-    routeLine = null
-    if (routeLabel) {
-      volunteerLayer.removeLayer(routeLabel)
-      routeLabel = null
+    if (soft) {
+      routeLine?.setStyle({ opacity: 0.3 })
+      routeCasing?.setStyle({ opacity: 0.3 })
+      routeBusy.value = true
+    } else {
+      removeRoute()
+      routeInfo.value = null
+      loadingRoute.value = true
     }
-    routeInfo.value = null
-    loadingRoute.value = true
   }
 
   const requestId = ++routeRequestId
   const { lat, lng } = location.value
 
   try {
-    // Calls the OneMap API for the route
     const res = await axios.get('/api/users/route', {
       params: {
         startLat: lat,
         startLng: lng,
         endLat: routeTarget.value.lat,
         endLng: routeTarget.value.lng,
-        routeType: travelMode.value, // 'walk' or 'drive'
+        routeType: travelMode.value,
       },
     })
 
-    if (requestId !== routeRequestId) return // a newer request replaced this one
+    if (requestId !== routeRequestId || dayEnded.value) return
 
-    routeError.value = '' // route found, clear any old error
+    routeError.value = ''
 
-    // Draw the new line first, then remove the old one so the route never blinks out
     const coords = polyline.decode(res.data.route_geometry)
-    const newLine = L.polyline(coords, {
-      color: '#2563eb',
-      weight: 4,
-      renderer: routeRenderer,
-    }).addTo(map)
-    routeLine?.remove()
-    routeLine = newLine
-
-    const s = res.data.route_summary
+    const sum = res.data.route_summary
+    const minutes = Math.round(sum.total_time / 60)
     routeBase = {
       straight: distanceMeters({ lat, lng }, routeTarget.value),
-      km: s.total_distance / 1000,
-      minutes: s.total_time / 60,
+      km: sum.total_distance / 1000,
+      minutes: sum.total_time / 60,
     }
     routeInfo.value = {
-      minutes: Math.round(s.total_time / 60),
-      km: (s.total_distance / 1000).toFixed(1),
+      minutes,
+      km: (sum.total_distance / 1000).toFixed(1),
     }
-    placeRouteLabel(coords, Math.round(s.total_time / 60))
+
+    const place = () => {
+      const styles = routeStyles()
+      const animate = !background && coords.length > 2
+      const seed = animate ? coords.slice(0, 2) : coords
+      const newCasing = L.polyline(seed, styles.casing).addTo(map)
+      const newLine = L.polyline(seed, styles.line).addTo(map)
+      cancelAnimationFrame(revealFrame)
+      routeLine?.remove()
+      routeCasing?.remove()
+      routeLine = newLine
+      routeCasing = newCasing
+      if (animate) revealRoute(coords, newCasing, newLine)
+      placeRouteLabel(coords, minutes)
+    }
+
+    if (preview && following.value && myMarker) {
+      cancelAnimationFrame(revealFrame)
+      routeLine?.remove()
+      routeCasing?.remove()
+      routeLine = null
+      routeCasing = null
+      if (routeLabel) {
+        volunteerLayer.removeLayer(routeLabel)
+        routeLabel = null
+      }
+      previewRoute(coords, place)
+    } else {
+      place()
+    }
   } catch (err) {
     if (requestId !== routeRequestId) return
+    routeLine?.setStyle({ opacity: 1 })
+    routeCasing?.setStyle({ opacity: 0.95 })
+    fadeRoute(true)
     routeError.value = err.response?.data?.message || 'Could not load route.'
   } finally {
-    // Only hide the overlay if this is still the latest request;
-    // if a newer one is in flight, it keeps the overlay on.
-    if (requestId === routeRequestId) loadingRoute.value = false
+    if (requestId === routeRequestId) {
+      loadingRoute.value = false
+      routeBusy.value = false
+    }
   }
 }
 
@@ -622,7 +836,7 @@ watch(
 function setTravelMode(mode) {
   if (mode === travelMode.value) return
   travelMode.value = mode
-  drawRoute()
+  drawRoute(false, true)
 }
 
 /* ------------------------------------------------------------------ */
@@ -713,7 +927,7 @@ function onPosition(pos) {
     showTrackingNotice()
     reportLocation(true) // update volunteer's location in the server right away
     drawMyMarker(true)
-    drawRoute()
+    drawRoute(false, false)
     lastRouteLoc = { ...location.value }
   } else {
     // Later fixes: glide the marker, and quietly re-route after enough movement
@@ -862,6 +1076,10 @@ onUnmounted(() => {
   sheetObserver?.disconnect()
   clearTimeout(noticeTimer)
   clearInterval(reportTimer)
+  previewRun++
+  clearTimeout(recenterTimer)
+  clearTimeout(toastTimer)
+  cancelAnimationFrame(revealFrame)
 })
 </script>
 
@@ -931,6 +1149,13 @@ onUnmounted(() => {
 
       <MapNotice :notice="notice" @close="dismissNotice" />
 
+      <Transition name="toast">
+        <div v-if="toast" class="checkpoint-toast" :class="toast.tone" role="status">
+          <i class="bi" :class="toast.icon" aria-hidden="true"></i>
+          <span>{{ toast.text }}</span>
+        </div>
+      </Transition>
+
       <!-- F4: the report card floats over the map; it reuses this page's GPS through the location prop -->
       <!-- FIX: pass the volunteer's current school (:school) so the incident is saved with it -->
       <IncidentReportForm
@@ -961,14 +1186,19 @@ onUnmounted(() => {
             <span class="sheet-grip"></span>
           </div>
 
-          <div class="mode-toggle" role="group" aria-label="Travel mode">
+          <div v-if="!dayEnded" class="mode-toggle" role="group" aria-label="Travel mode">
+            <span
+              class="mode-thumb"
+              aria-hidden="true"
+              :style="{ transform: travelMode === 'walk' ? 'translateX(calc(100% + 4px))' : 'none' }"
+            ></span>
             <button
               v-for="m in MODES"
               :key="m.key"
               type="button"
               class="mode-btn"
               :class="{ active: travelMode === m.key }"
-              :disabled="loadingRoute"
+              :disabled="loadingRoute || routeBusy"
               @click="setTravelMode(m.key)"
             >
               <i class="bi" :class="m.icon"></i> {{ m.label }}
@@ -977,22 +1207,38 @@ onUnmounted(() => {
         </div>
 
         <div class="sheet-details">
-          <div class="route-summary">
-            <div class="route-icon" aria-hidden="true">
-              <i class="bi" :class="activeMode.icon"></i>
-            </div>
-            <div>
-              <div class="sheet-title">{{ activeMode.verb }} to {{ routeTarget.name }}</div>
-              <div v-if="liveInfo" class="route-stats">
-                <span class="route-min">{{ liveInfo.minutes }} min</span>
-                <span class="route-km">{{ liveInfo.km }} km</span>
+          <div v-if="!dayEnded" class="route-summary">
+            <Transition name="swap" mode="out-in">
+              <div :key="travelMode + (journeyReturning ? 'b' : 'o')" class="route-icon" :class="{ returning: journeyReturning }" aria-hidden="true">
+                <i class="bi" :class="activeMode.icon"></i>
               </div>
-              <div v-else class="route-stats text-muted">Finding route…</div>
+            </Transition>
+            <div>
+              <Transition name="swap" mode="out-in">
+                <div :key="activeMode.verb + routeTarget.name" class="sheet-title">
+                  {{ activeMode.verb }} to {{ routeTarget.name }}
+                </div>
+              </Transition>
+              <Transition name="swap" mode="out-in">
+                <div
+                  v-if="liveInfo"
+                  :key="'stats-' + travelMode"
+                  class="route-stats"
+                  :class="{ 'is-busy': routeBusy }"
+                >
+                  <span class="route-min" :class="{ returning: journeyReturning }">{{ liveInfo.minutes }} min</span>
+                  <span class="route-km">{{ liveInfo.km }} km</span>
+                  <span v-if="routeBusy" class="spinner-border spinner-border-sm text-primary ms-2" aria-hidden="true"></span>
+                </div>
+                <div v-else key="wait" class="route-stats text-muted">
+                  <span class="spinner-border spinner-border-sm text-primary me-2" aria-hidden="true"></span>Finding route…
+                </div>
+              </Transition>
             </div>
           </div>
 
           <!-- My accepted shows: pills pick the show, cards show its school -->
-          <div class="assign">
+          <div class="assign" :class="{ 'day-ended': dayEnded }">
             <template v-if="assignStatus === 'ready' && assignments.length">
               <div class="show-pills" role="group" aria-label="My shows">
                 <button
@@ -1070,7 +1316,8 @@ onUnmounted(() => {
                   data-testid="journey-next"
                   @click="advanceStage"
                 >
-                  <i class="bi bi-check2-circle" aria-hidden="true"></i> {{ nextStage.label }}
+                  <span v-if="stageBusy" class="spinner-border spinner-border-sm" aria-hidden="true"></span>
+                  <i v-else class="bi bi-check2-circle" aria-hidden="true"></i> {{ nextStage.label }}
                 </button>
                 <div v-else class="journey-complete" data-testid="journey-complete">
                   <!-- E2E: data-testid="journey-complete" lets Playwright check the "Day complete" message (see e2e/f4-tracking-live.spec.js) -->
@@ -1082,6 +1329,7 @@ onUnmounted(() => {
               <button
                 type="button"
                 class="report-open-btn"
+                :disabled="dayEnded"
                 data-testid="incident-open"
                 @click="showIncidentReport = true"
               >
@@ -1089,7 +1337,9 @@ onUnmounted(() => {
               </button>
             </template>
 
-            <div v-else-if="assignStatus === 'loading'" class="assign-msg">Loading your shows…</div>
+            <div v-else-if="assignStatus === 'loading'" class="assign-msg">
+              <span class="spinner-border spinner-border-sm text-primary me-2" aria-hidden="true"></span>Loading your shows…
+            </div>
             <div v-else-if="assignStatus === 'error'" class="assign-msg">
               Could not load your shows.
             </div>
@@ -1180,6 +1430,7 @@ onUnmounted(() => {
 
 /* Drive / Walk segmented control */
 .mode-toggle {
+  position: relative;
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 4px;
@@ -1189,7 +1440,22 @@ onUnmounted(() => {
   border-radius: 12px;
 }
 
+.mode-thumb {
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  left: 4px;
+  width: calc(50% - 6px);
+  border-radius: 9px;
+  background: #2563eb;
+  box-shadow: 0 2px 6px rgb(37 99 235 / 0.35);
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
 .mode-btn {
+  position: relative;
+  z-index: 1;
+  transition: color 0.2s;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1203,12 +1469,12 @@ onUnmounted(() => {
 }
 
 .mode-btn.active {
-  background: #2563eb;
   color: #fff;
 }
 
 .mode-btn:disabled {
   opacity: 0.7;
+  cursor: progress;
 }
 
 .sheet-details {
@@ -1245,6 +1511,104 @@ onUnmounted(() => {
   font-size: 1.8rem;
   line-height: 1.1;
   color: #2563eb;
+  transition: color 0.4s;
+}
+.route-min.returning {
+  color: #0d9488;
+}
+.route-icon {
+  transition: background-color 0.4s;
+}
+.route-icon.returning {
+  background: #0d9488;
+}
+.route-stats {
+  transition: opacity 0.2s;
+}
+.route-stats.is-busy {
+  opacity: 0.55;
+}
+.swap-enter-active,
+.swap-leave-active {
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
+}
+.swap-enter-from {
+  opacity: 0;
+  transform: translateY(6px) scale(0.94);
+}
+.swap-leave-to {
+  opacity: 0;
+  transform: translateY(-6px) scale(0.94);
+}
+
+.map-stage :deep(.checkpoint-ring) {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 24px;
+  height: 24px;
+  margin: -12px 0 0 -12px;
+  box-sizing: border-box;
+  border: 3px solid #1a73e8;
+  border-radius: 50%;
+  pointer-events: none;
+  animation: checkpoint-ring-out 0.9s ease-out forwards;
+}
+.map-stage :deep(.checkpoint-ring.back) {
+  border-color: #0d9488;
+}
+@keyframes checkpoint-ring-out {
+  from {
+    opacity: 0.9;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 0;
+    transform: scale(4);
+  }
+}
+
+.checkpoint-toast {
+  position: absolute;
+  top: 54px;
+  left: 0;
+  right: 0;
+  margin: 0 auto;
+  width: max-content;
+  max-width: calc(100% - 32px);
+  z-index: 1150;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 24px;
+  background: #1a73e8;
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 600;
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.3);
+}
+.checkpoint-toast.back {
+  background: #0d9488;
+}
+.checkpoint-toast.done {
+  background: #16a34a;
+}
+.checkpoint-toast.neutral {
+  background: #3c4043;
+}
+.toast-enter-active,
+.toast-leave-active {
+  transition:
+    opacity 0.25s ease,
+    transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.toast-enter-from,
+.toast-leave-to {
+  opacity: 0;
+  transform: translateY(-14px) scale(0.9);
 }
 
 .route-km {
@@ -1293,6 +1657,12 @@ onUnmounted(() => {
   margin-top: 14px;
   padding-top: 14px;
   border-top: 1px solid #eceef1;
+}
+
+.assign.day-ended {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: 0;
 }
 
 .show-pills {
@@ -1532,7 +1902,12 @@ onUnmounted(() => {
   font-weight: 600;
 }
 
-.report-open-btn:hover {
+.report-open-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.report-open-btn:hover:not(:disabled) {
   background: #fee2e2;
 }
 .report-open-btn:focus-visible {
@@ -1701,6 +2076,7 @@ onUnmounted(() => {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .map-stage :deep(.checkpoint-ring),
   .share-pill.sharing .share-dot,
   .jdot.flow-fwd::before,
   .jdot.flow-back::before,

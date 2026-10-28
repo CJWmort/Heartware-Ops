@@ -120,9 +120,10 @@ onMounted(() => {
       aria-live="polite"
       aria-label="Messages"
     >
-      <p v-if="chat.loadingMessages" class="text-body-secondary small text-center my-3">
-        Loading messages…
-      </p>
+      <div v-if="chat.loadingMessages" class="text-body-secondary small text-center my-3" role="status">
+        <div class="spinner-border text-primary spinner-border-sm" aria-hidden="true"></div>
+        <div class="mt-2">Loading messages…</div>
+      </div>
       <p
         v-else-if="!chat.messages.length && !chat.notice"
         class="text-body-secondary small text-center my-3"

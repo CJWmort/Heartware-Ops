@@ -125,7 +125,6 @@ test.describe('F2 Allocation', () => {
   })
 
   // TEST 5 – A volunteer who accepted a show cannot quietly drop it by unticking it in Change Availability.
-  // (The checkbox CAN be unticked; the server refuses on Save and the popup shows why.)
   test('an accepted show cannot be removed from availability', async ({ page }) => {
     const card = await openMyCard(page)
     await expect(card.getByTestId('assignment-status')).toHaveText(/accepted/i)
@@ -133,12 +132,10 @@ test.describe('F2 Allocation', () => {
     await page.getByTestId('change-availability').click()
     const modal = page.getByTestId('availability-modal')
     await expect(modal).toBeVisible()
-    await page.getByTestId(`availability-${SHOW}`).uncheck()
+    await expect(page.getByTestId(`availability-${SHOW}`)).toHaveCount(0)
+    await expect(page.getByTestId(`availability-locked-${SHOW}`)).toContainText(/accepted/i)
     await page.getByTestId('availability-save').click()
-
-    // The popup stays open and shows the server's reason (a red alert inside the popup)
-    await expect(modal.getByRole('alert')).toContainText(/accepted/i)
-    await expect(modal.getByRole('alert')).toContainText(SHOW)
+    await expect(modal).toBeHidden()
 
     // Nothing was deleted: after a reload the place is still Accepted
     await page.reload()
