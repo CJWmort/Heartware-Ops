@@ -31,6 +31,7 @@ import MapNotice from '@/components/map/MapNotice.vue' // temporary status popup
 import MapLoading from '@/components/map/MapLoading.vue' // NEW: dimmed overlay + spinner shown over the map while data is fetched
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue' // custom card instead of the browser's prompt()
 import { connectSocket } from '@/services/socket' // live updates
+import { getSavedFilter, saveFilter } from '@/services/selected-show'
 import { tipCard, bindTip, createIncidentIcon } from '@/utils/map-icons' // shared hover-card helpers (same as the Allocation and Live boards)
 
 // ---------------------------------------------------------------------------------------------------
@@ -122,7 +123,7 @@ function toggleStatus(key) {
 // ---------------------------------------------------------------------------------------------------
 // SORTING: which order the card list uses. 'priority' = keep the server's order (status > severity > newest).
 // ---------------------------------------------------------------------------------------------------
-const sortBy = ref('priority')
+const sortBy = ref(getSavedFilter('inc-sort', 'priority'))
 
 // The dropdown options. `value` is the key into `sorters` below; `label` is what the admin sees.
 const sortOptions = [
@@ -136,6 +137,9 @@ const sortOptions = [
   { value: 'typeAZ', label: 'Incident type A–Z' },
   { value: 'reporterAZ', label: 'Reporter A–Z' },
 ]
+
+if (!sortOptions.some((o) => o.value === sortBy.value)) sortBy.value = 'priority'
+watch(sortBy, (v) => saveFilter('inc-sort', v))
 
 // Lower number = more urgent. Same ranking the server uses.
 const SEVERITY_RANK = { high: 0, medium: 1, low: 2 }
@@ -159,11 +163,16 @@ const sorters = {
 // ---------------------------------------------------------------------------------------------------
 // FILTERS: dropdowns that let the admin narrow the card list. '' (empty) = "All", i.e. no filtering on that field.
 // ---------------------------------------------------------------------------------------------------
-const typeFilter = ref('') // an incident type code, e.g. 'BUS_DELAYED'
-const severityFilter = ref('') // 'high' | 'medium' | 'low'
-const schoolFilter = ref('') // a school name
+const typeFilter = ref(getSavedFilter('inc-type')) // an incident type code, e.g. 'BUS_DELAYED'
+const severityFilter = ref(getSavedFilter('inc-severity')) // 'high' | 'medium' | 'low'
+const schoolFilter = ref(getSavedFilter('inc-school')) // a school name
 
 // Options for the Type dropdown. Built from templatesByType so the names match the cards ("Bus delayed", not "BUS_DELAYED").
+if (!['', 'high', 'medium', 'low'].includes(severityFilter.value)) severityFilter.value = ''
+watch(typeFilter, (v) => saveFilter('inc-type', v))
+watch(severityFilter, (v) => saveFilter('inc-severity', v))
+watch(schoolFilter, (v) => saveFilter('inc-school', v))
+
 const typeOptions = computed(() =>
   Object.entries(templatesByType.value).map(([code, t]) => ({ value: code, label: t.label || code })),
 )
@@ -173,6 +182,56 @@ const typeOptions = computed(() =>
 const schoolOptions = computed(() =>
   [...new Set(incidents.value.map((i) => i.school).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
 )
+
+const typeFilterOptions = computed(() => [{ value: '', label: 'All types' }, ...typeOptions.value])
+const severityFilterOptions = [
+  { value: '', label: 'All severities' },
+  { value: 'high', label: 'High' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'low', label: 'Low' },
+]
+const schoolFilterOptions = computed(() => [
+  { value: '', label: 'All schools' },
+  ...schoolOptions.value.map((name) => ({ value: name, label: name })),
+])
+
+const sortMenuOpen = ref(false)
+const typeMenuOpen = ref(false)
+const severityMenuOpen = ref(false)
+const schoolMenuOpen = ref(false)
+const sortEl = ref(null)
+const typeEl = ref(null)
+const severityEl = ref(null)
+const schoolEl = ref(null)
+function labelFor(options, value) {
+  return options.find((o) => o.value === value)?.label ?? ''
+}
+function chooseSort(v) {
+  sortMenuOpen.value = false
+  sortBy.value = v
+}
+function chooseType(v) {
+  typeMenuOpen.value = false
+  typeFilter.value = v
+}
+function chooseSeverity(v) {
+  severityMenuOpen.value = false
+  severityFilter.value = v
+}
+function chooseSchool(v) {
+  schoolMenuOpen.value = false
+  schoolFilter.value = v
+}
+function onDocPointerDown(e) {
+  if (sortMenuOpen.value && sortEl.value && !sortEl.value.contains(e.target))
+    sortMenuOpen.value = false
+  if (typeMenuOpen.value && typeEl.value && !typeEl.value.contains(e.target))
+    typeMenuOpen.value = false
+  if (severityMenuOpen.value && severityEl.value && !severityEl.value.contains(e.target))
+    severityMenuOpen.value = false
+  if (schoolMenuOpen.value && schoolEl.value && !schoolEl.value.contains(e.target))
+    schoolMenuOpen.value = false
+}
 
 // How many of the three dropdowns are in use (drives the "Clear" button and its badge).
 const activeFilterCount = computed(
@@ -431,6 +490,7 @@ watch(showResolved, plotIncidents)
 let socket = null
 onMounted(async () => {
   socket = connectSocket()
+  document.addEventListener('pointerdown', onDocPointerDown)
   socket.on('incident:new', loadIncidents)
   socket.on('incident:updated', loadIncidents)
   try {
@@ -440,6 +500,8 @@ onMounted(async () => {
       templates.map((template) => [template.type, template]),
     )
     incidents.value = list
+    if (typeFilter.value && !templatesByType.value[typeFilter.value]) typeFilter.value = ''
+    if (schoolFilter.value && !schoolOptions.value.includes(schoolFilter.value)) schoolFilter.value = ''
     plotIncidents()
   } catch (error) {
     showPopup('error', 'Could not load', error.friendlyMessage)
@@ -449,6 +511,7 @@ onMounted(async () => {
 })
 // Stop listening when the admin leaves the page, otherwise handlers pile up each time they come back.
 onUnmounted(() => {
+  document.removeEventListener('pointerdown', onDocPointerDown)
   socket?.off('incident:new', loadIncidents)
   socket?.off('incident:updated', loadIncidents)
   clearTimeout(popupTimer)
@@ -548,32 +611,180 @@ onUnmounted(() => {
                 data-testid="inc-search"
                 v-model="searchbar"
               />
-              <!-- Sort dropdown. v-model keeps `sortBy` in the script in sync with the chosen option. -->
-              <select class="form-select sort-select" v-model="sortBy" data-testid="inc-sort" aria-label="Sort incidents">
-                <option v-for="opt in sortOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-              </select>
+              <div
+                ref="sortEl"
+                class="show-select"
+                :class="{ open: sortMenuOpen }"
+                @keydown.esc="sortMenuOpen = false"
+              >
+                <button
+                  type="button"
+                  class="show-btn"
+                  aria-haspopup="listbox"
+                  :aria-expanded="sortMenuOpen"
+                  aria-label="Sort incidents"
+                  data-testid="inc-sort"
+                  @click="sortMenuOpen = !sortMenuOpen"
+                >
+                  <i class="bi bi-sort-down" aria-hidden="true"></i>
+                  <span class="show-name">{{ labelFor(sortOptions, sortBy) }}</span>
+                  <i
+                    class="bi bi-chevron-down show-chevron"
+                    :class="{ open: sortMenuOpen }"
+                    aria-hidden="true"
+                  ></i>
+                </button>
+                <Transition name="menu">
+                  <div v-if="sortMenuOpen" class="show-menu filter-menu menu-end" role="listbox">
+                    <button
+                      v-for="(opt, i) in sortOptions"
+                      :key="opt.value || 'all'"
+                      type="button"
+                      class="show-option"
+                      :class="{ active: opt.value === sortBy }"
+                      :style="{ '--i': i }"
+                      role="option"
+                      :aria-selected="opt.value === sortBy"
+                      @click="chooseSort(opt.value)"
+                    >
+                      <span>{{ opt.label }}</span>
+                      <i v-if="opt.value === sortBy" class="bi bi-check-lg" aria-hidden="true"></i>
+                    </button>
+                  </div>
+                </Transition>
+              </div>
             </div>
 
-            <!-- Filter dropdowns: narrow the list by type, severity and school. "All ..." (value "") means no filter. -->
             <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
-              <select class="form-select filter-select" v-model="typeFilter" data-testid="filter-type" aria-label="Filter by incident type">
-                <option value="">All types</option>
-                <option v-for="opt in typeOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-              </select>
+              <div
+                ref="typeEl"
+                class="show-select"
+                :class="{ open: typeMenuOpen }"
+                @keydown.esc="typeMenuOpen = false"
+              >
+                <button
+                  type="button"
+                  class="show-btn"
+                  aria-haspopup="listbox"
+                  :aria-expanded="typeMenuOpen"
+                  aria-label="Filter by incident type"
+                  data-testid="filter-type"
+                  @click="typeMenuOpen = !typeMenuOpen"
+                >
+                  <i class="bi bi-tag" aria-hidden="true"></i>
+                  <span class="show-name">{{ labelFor(typeFilterOptions, typeFilter) }}</span>
+                  <i
+                    class="bi bi-chevron-down show-chevron"
+                    :class="{ open: typeMenuOpen }"
+                    aria-hidden="true"
+                  ></i>
+                </button>
+                <Transition name="menu">
+                  <div v-if="typeMenuOpen" class="show-menu filter-menu" role="listbox">
+                    <button
+                      v-for="(opt, i) in typeFilterOptions"
+                      :key="opt.value || 'all'"
+                      type="button"
+                      class="show-option"
+                      :class="{ active: opt.value === typeFilter }"
+                      :style="{ '--i': i }"
+                      role="option"
+                      :aria-selected="opt.value === typeFilter"
+                      @click="chooseType(opt.value)"
+                    >
+                      <span>{{ opt.label }}</span>
+                      <i v-if="opt.value === typeFilter" class="bi bi-check-lg" aria-hidden="true"></i>
+                    </button>
+                  </div>
+                </Transition>
+              </div>
 
-              <select class="form-select filter-select" v-model="severityFilter" data-testid="filter-severity" aria-label="Filter by severity">
-                <option value="">All severities</option>
-                <option value="high">High</option>
-                <option value="medium">Medium</option>
-                <option value="low">Low</option>
-              </select>
+              <div
+                ref="severityEl"
+                class="show-select"
+                :class="{ open: severityMenuOpen }"
+                @keydown.esc="severityMenuOpen = false"
+              >
+                <button
+                  type="button"
+                  class="show-btn"
+                  aria-haspopup="listbox"
+                  :aria-expanded="severityMenuOpen"
+                  aria-label="Filter by severity"
+                  data-testid="filter-severity"
+                  @click="severityMenuOpen = !severityMenuOpen"
+                >
+                  <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
+                  <span class="show-name">{{ labelFor(severityFilterOptions, severityFilter) }}</span>
+                  <i
+                    class="bi bi-chevron-down show-chevron"
+                    :class="{ open: severityMenuOpen }"
+                    aria-hidden="true"
+                  ></i>
+                </button>
+                <Transition name="menu">
+                  <div v-if="severityMenuOpen" class="show-menu filter-menu" role="listbox">
+                    <button
+                      v-for="(opt, i) in severityFilterOptions"
+                      :key="opt.value || 'all'"
+                      type="button"
+                      class="show-option"
+                      :class="{ active: opt.value === severityFilter }"
+                      :style="{ '--i': i }"
+                      role="option"
+                      :aria-selected="opt.value === severityFilter"
+                      @click="chooseSeverity(opt.value)"
+                    >
+                      <span>{{ opt.label }}</span>
+                      <i v-if="opt.value === severityFilter" class="bi bi-check-lg" aria-hidden="true"></i>
+                    </button>
+                  </div>
+                </Transition>
+              </div>
 
-              <select class="form-select filter-select" v-model="schoolFilter" data-testid="filter-school" aria-label="Filter by school">
-                <option value="">All schools</option>
-                <option v-for="school in schoolOptions" :key="school" :value="school">{{ school }}</option>
-              </select>
+              <div
+                ref="schoolEl"
+                class="show-select show-select-grow"
+                :class="{ open: schoolMenuOpen }"
+                @keydown.esc="schoolMenuOpen = false"
+              >
+                <button
+                  type="button"
+                  class="show-btn"
+                  aria-haspopup="listbox"
+                  :aria-expanded="schoolMenuOpen"
+                  aria-label="Filter by school"
+                  data-testid="filter-school"
+                  @click="schoolMenuOpen = !schoolMenuOpen"
+                >
+                  <i class="bi bi-building" aria-hidden="true"></i>
+                  <span class="show-name">{{ labelFor(schoolFilterOptions, schoolFilter) }}</span>
+                  <i
+                    class="bi bi-chevron-down show-chevron"
+                    :class="{ open: schoolMenuOpen }"
+                    aria-hidden="true"
+                  ></i>
+                </button>
+                <Transition name="menu">
+                  <div v-if="schoolMenuOpen" class="show-menu filter-menu" role="listbox">
+                    <button
+                      v-for="(opt, i) in schoolFilterOptions"
+                      :key="opt.value || 'all'"
+                      type="button"
+                      class="show-option"
+                      :class="{ active: opt.value === schoolFilter }"
+                      :style="{ '--i': i }"
+                      role="option"
+                      :aria-selected="opt.value === schoolFilter"
+                      @click="chooseSchool(opt.value)"
+                    >
+                      <span>{{ opt.label }}</span>
+                      <i v-if="opt.value === schoolFilter" class="bi bi-check-lg" aria-hidden="true"></i>
+                    </button>
+                  </div>
+                </Transition>
+              </div>
 
-              <!-- Only shown while at least one dropdown is in use -->
               <button v-if="activeFilterCount" type="button" class="btn btn-sm btn-outline-secondary" @click="clearFilters">
                 Clear ({{ activeFilterCount }})
               </button>
@@ -642,17 +853,6 @@ onUnmounted(() => {
   max-width: none;
 }
 
-/* The sort dropdown only takes the width it needs, and sits on the same row as the search box */
-.sort-select {
-  flex: 0 1 auto;
-  width: auto;
-}
-/* Each filter dropdown shares the row and shrinks on phones instead of overflowing */
-.filter-select {
-  flex: 1 1 120px;
-  width: auto;
-  min-width: 0;
-}
 
 /* Incident cards in the menu: a responsive grid */
 .inc-grid {
@@ -772,6 +972,135 @@ onUnmounted(() => {
 @media (prefers-reduced-motion: reduce) {
   .inc-panel-fade-enter-active,
   .inc-panel-fade-leave-active {
+    transition: none;
+  }
+}
+
+.show-select {
+  position: relative;
+  flex: 0 0 auto;
+  max-width: 100%;
+  z-index: 20;
+}
+.show-select.open {
+  z-index: 30;
+}
+.show-select-grow {
+  flex: 1 1 160px;
+}
+.show-select-grow .show-btn {
+  width: 100%;
+}
+.show-select-grow .show-menu {
+  min-width: 100%;
+}
+.show-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  height: 34px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--hw-bg);
+  color: var(--bs-secondary-color);
+  font-weight: 600;
+  transition: background-color 0.15s;
+}
+.show-btn:hover {
+  background: var(--bs-secondary-bg);
+}
+.show-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--hw-text);
+}
+.show-chevron {
+  flex: 0 0 auto;
+  font-size: 0.7rem;
+  transition: transform 0.25s ease;
+}
+.show-chevron.open {
+  transform: rotate(180deg);
+}
+.show-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  min-width: 170px;
+  max-width: min(320px, calc(100vw - 24px));
+  padding: 6px;
+  background: var(--hw-surface);
+  color: var(--hw-text);
+  border: 1px solid var(--bs-border-color);
+  border-radius: 14px;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.22);
+}
+.show-menu.menu-end {
+  left: auto;
+  right: 0;
+}
+.filter-menu {
+  max-height: 260px;
+  overflow-y: auto;
+}
+.show-option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.9rem;
+  text-align: left;
+  overflow-wrap: anywhere;
+  animation: option-in 0.2s ease both;
+  animation-delay: calc(var(--i) * 30ms);
+}
+.show-option:hover {
+  background: var(--hw-bg);
+}
+.show-option.active {
+  background: var(--bs-primary-bg-subtle);
+  color: var(--bs-primary-text-emphasis);
+  font-weight: 600;
+}
+.menu-enter-active,
+.menu-leave-active {
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
+  transform-origin: top left;
+}
+.menu-enter-from,
+.menu-leave-to {
+  opacity: 0;
+  transform: translateY(-6px) scale(0.95);
+}
+@keyframes option-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .show-option {
+    animation: none;
+  }
+  .menu-enter-active,
+  .menu-leave-active,
+  .show-chevron {
     transition: none;
   }
 }

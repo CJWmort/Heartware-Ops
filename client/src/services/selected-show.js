@@ -20,9 +20,34 @@ export function saveShow(show) {
   }
 }
 
+const FILTER_PREFIX = 'hw-filter:'
+
+export function getSavedFilter(key, fallback = '') {
+  try {
+    return localStorage.getItem(FILTER_PREFIX + key) ?? fallback
+  } catch {
+    return fallback
+  }
+}
+
+export function saveFilter(key, value) {
+  try {
+    localStorage.setItem(FILTER_PREFIX + key, value ?? '')
+  } catch {
+    /* ignore */
+  }
+}
+
 export function clearSavedShow() {
   try {
     sessionStorage.removeItem(KEY)
+  } catch {
+    /* ignore */
+  }
+  try {
+    Object.keys(localStorage)
+      .filter((k) => k.startsWith(FILTER_PREFIX))
+      .forEach((k) => localStorage.removeItem(k))
   } catch {
     /* ignore */
   }
