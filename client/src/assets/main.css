@@ -5,7 +5,7 @@
 :root {
   --hw-red: #d6001c; /* NDP red – primary actions */
   --hw-red-dark: #a80016;
-  --hw-navy: #14213d; /* navbar background */
+  --hw-navy: #0f1730; /* navbar background; same value the dark theme and the landing page use, so the navbar matches the landing background */
   --hw-heading: #14213d; /* NEW: heading/icon text colour (separate from --hw-navy so dark mode can make it light) */
   --hw-bg: #f6f7fb;
   --hw-surface: #ffffff;
@@ -22,7 +22,7 @@
 
 /* ---- Landing page "night sky" tokens: change the landing look HERE, not in the page ---- */
 :root {
-  --hw-landing-bg: #070c18; /* near-black navy sky */
+  --hw-landing-bg: #070b1a; /* near-black navy sky; was #070c18. Same colour as --hw-bg and HomeView's --hw-night, so Login and Home share it */
   --hw-landing-text: #f1f5f9; /* main text on the dark background */
   --hw-landing-muted: #a8b3c7; /* secondary text */
   --hw-landing-accent: #ff4d5e; /* brightened NDP red, readable on dark */
@@ -32,7 +32,7 @@
 
 /* Dark theme: applies when <html data-bs-theme="dark">. Same variable names as above, darker values. */
 [data-bs-theme='dark'] {
-  --hw-bg: #0b1020; /* page background */
+  --hw-bg: #070b1a; /* page background; was #0b1020. Now identical to the HomeView night colour so every page matches the landing page */
   --hw-surface: #141b2e; /* cards and panels: slightly lighter than the page (Material "elevation") */
   --hw-text: #e6eaf2;
   --hw-muted: #9aa6bb;
@@ -69,7 +69,9 @@ body {
    This replaces those jumps with "full width, up to --hw-content-w", so the navbar (which also uses .container)
    and every page stretch and shrink together as you drag the window. This file loads after Bootstrap, so it wins. */
 .container {
-  max-width: calc(var(--hw-content-w) + 24px); /* +24px = Bootstrap's 12px side padding on each side */
+  max-width: calc(
+    var(--hw-content-w) + 24px
+  ); /* +24px = Bootstrap's 12px side padding on each side */
 }
 
 .app-footer {
