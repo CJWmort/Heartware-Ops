@@ -160,7 +160,7 @@ test.describe('F3 Assignment', () => {
     await page.getByTestId('change-availability').click()
     await expect(page.getByTestId('availability-modal')).toBeVisible()
     await expect(page.getByTestId(`availability-locked-${SHOW}`)).toContainText(/you declined this show/i)
-    await expect(page.getByTestId(`availability-${SHOW}`)).toBeDisabled() // cannot be ticked again
+    await expect(page.getByTestId(`availability-${SHOW}`)).toHaveCount(0)
   })
 
   // TEST 5 – Unticking a show cancels its pending offer; ticking it again does not bring the offer back
