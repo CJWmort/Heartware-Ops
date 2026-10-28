@@ -4,9 +4,10 @@
 // allocation, so every show said "Awaiting allocation" forever. It now uses useMyAssignment() (services/assignment.js),
 // which loads the real shows (4 shows, 2027 dates), the volunteer's PUBLISHED assignments, and handles
 // accept / decline / withdraw. Keeping that logic in the service keeps this file about the screen only.
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import PageLoading from '@/components/common/PageLoading.vue' // NEW: fading "Fetching..." overlay
 import SchoolRouteMap from '@/components/map/SchoolRouteMap.vue'
+import MapNotice from '@/components/map/MapNotice.vue'
 import {
   useMyAssignment,
   showStatus,
@@ -44,6 +45,43 @@ const {
 } = useMyAssignment()
 
 onMounted(loadData)
+
+const showAvailabilityInfo = ref(false)
+let infoTimer = null
+
+watch(hasNoAvailability, (none) => {
+  clearTimeout(infoTimer)
+  showAvailabilityInfo.value = none
+  if (none) infoTimer = setTimeout(() => (showAvailabilityInfo.value = false), 8000)
+})
+
+onBeforeUnmount(() => clearTimeout(infoTimer))
+
+const notice = computed(() => {
+  if (errorMessage.value) {
+    return {
+      type: 'error',
+      icon: 'bi-exclamation-triangle-fill',
+      title: 'Something went wrong',
+      text: errorMessage.value,
+    }
+  }
+  if (showAvailabilityInfo.value) {
+    return {
+      type: 'info',
+      icon: 'bi-info-circle-fill',
+      title: 'No availability set',
+      text: "You haven't indicated any available shows yet. Click Change Availability to choose your shows.",
+    }
+  }
+  return null
+})
+
+function dismissNotice() {
+  clearTimeout(infoTimer)
+  if (errorMessage.value) errorMessage.value = ''
+  showAvailabilityInfo.value = false
+}
 
 function rowStatus(show) {
   if (!selectedShows.value.includes(show.name)) return 'Not available'
@@ -109,17 +147,8 @@ function datePart(date, part) {
     <Transition name="loading-fade">
       <PageLoading v-if="loading" contained text="Fetching Your Shows..." />
     </Transition>
-    <div v-if="errorMessage" class="alert alert-danger" role="alert">{{ errorMessage }}</div>
-
-    <div
-      v-if="hasNoAvailability"
-      class="alert alert-info d-flex align-items-center"
-      role="alert"
-      data-testid="no-availability"
-    >
-      <i class="bi bi-info-circle me-2"></i>
-      You haven't indicated any available shows yet. Click
-      <strong class="mx-1">Change Availability</strong> to choose your shows.
+    <div class="assign-notice">
+      <MapNotice :notice="notice" @close="dismissNotice" />
     </div>
 
     <div class="d-flex justify-content-end mb-3">
@@ -486,6 +515,16 @@ function datePart(date, part) {
 }
 .assign-page.is-loading {
   min-height: calc(100vh - 128px);
+}
+
+.assign-notice {
+  position: fixed;
+  top: 56px;
+  left: 0;
+  right: 0;
+  height: 0;
+  z-index: 1150;
+  --notice-top: 12px;
 }
 
 .hw-modal {

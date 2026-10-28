@@ -1,10 +1,11 @@
 <script setup>
 // Feature 5 – "Give a badge" form on the coordinator page — owner: Hanafi
 // Layout and CSS: AI-generated (declared in README.txt). Logic in the TODOs below: Hanafi.
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import PageLoading from '@/components/common/PageLoading.vue' // NEW: fading "Fetching..." overlay
 import { listBadges, listVolunteers, awardBadge } from '@/services/badges.js'
 import { getShows } from '@/services/assignment.js'
+import { getSavedFilter, saveFilter } from '@/services/selected-show'
 
 const badges = ref([]) 
 const volunteers = ref([]) 
@@ -12,8 +13,8 @@ const shows = ref([])
 const loading = ref(true)
 const loadError = ref('')
 
-const badgeCode = ref('') 
-const event = ref('') 
+const badgeCode = ref(getSavedFilter('awards-badge'))
+const event = ref(getSavedFilter('awards-event'))
 const search = ref('') 
 const picked = ref([]) 
 const message = ref('')
@@ -29,7 +30,8 @@ async function loadData() {
         volunteers.value = volunteerList
         shows.value = showList
 
-        event.value = shows.value[0]?.name
+        if (!shows.value.some((s) => s.name === event.value)) event.value = shows.value[0]?.name || ''
+        if (!badges.value.some((b) => b.code === badgeCode.value)) badgeCode.value = ''
   } catch (e) {
     loadError.value = e.friendlyMessage || 'Something went wrong. Please try again.'
     console.error(e)         
@@ -40,6 +42,42 @@ async function loadData() {
 
 const manualBadges = computed(() => badges.value.filter(badge => badge.awardType === 'manual'))
 const autoBadges = computed(() => badges.value.filter(badge => badge.awardType === 'auto'))
+
+const badgeOptions = computed(() => [
+    { label: 'Thank-you badges', options: manualBadges.value.map(b => ({ value: b.code, label: b.name })) },
+    { label: 'Missed by the app', options: autoBadges.value.map(b => ({ value: b.code, label: b.name })) },
+])
+
+const showOptions = computed(() => shows.value.map(s => ({ value: s.name, label: s.name })))
+
+watch(badgeCode, (v) => saveFilter('awards-badge', v))
+watch(event, (v) => saveFilter('awards-event', v))
+
+const badgeMenuOpen = ref(false)
+const eventMenuOpen = ref(false)
+const badgeEl = ref(null)
+const eventEl = ref(null)
+
+const badgeFlat = computed(() => badgeOptions.value.flatMap((g) => g.options))
+
+function labelFor(options, value) {
+    return options.find((o) => o.value === value)?.label ?? ''
+}
+
+function chooseBadge(v) {
+    badgeMenuOpen.value = false
+    badgeCode.value = v
+}
+
+function chooseEvent(v) {
+    eventMenuOpen.value = false
+    event.value = v
+}
+
+function onDocPointerDown(e) {
+    if (badgeMenuOpen.value && badgeEl.value && !badgeEl.value.contains(e.target)) badgeMenuOpen.value = false
+    if (eventMenuOpen.value && eventEl.value && !eventEl.value.contains(e.target)) eventMenuOpen.value = false
+}
 
 const selectedBadge = computed(() => {
     const badge = badges.value.find(badge => badge.code === badgeCode.value) 
@@ -99,12 +137,14 @@ function onPickerKeydown(e) {
 
 onMounted(() => {
     document.addEventListener('pointerdown', closeIfOutside)
+    document.addEventListener('pointerdown', onDocPointerDown)
     document.addEventListener('keydown', onPickerKeydown)
     document.addEventListener('focusin', closeIfOutside)
 })
 
 onBeforeUnmount(() => {
     document.removeEventListener('pointerdown', closeIfOutside)
+    document.removeEventListener('pointerdown', onDocPointerDown)
     document.removeEventListener('keydown', onPickerKeydown)
     document.removeEventListener('focusin', closeIfOutside)
 })
@@ -135,15 +175,47 @@ onMounted(loadData)
       <div class="row g-4">
         <div class="col-lg-5">
           <label for="award-badge" class="form-label field-label">Badge</label>
-          <select id="award-badge" v-model="badgeCode" class="form-select" data-testid="awards-badge-select">
-            <option value="" disabled>Choose a badge</option>
-            <optgroup label="Thank-you badges">
-              <option v-for="b in manualBadges" :key="b.code" :value="b.code">{{ b.name }}</option>
-            </optgroup>
-            <optgroup label="Missed by the app">
-              <option v-for="b in autoBadges" :key="b.code" :value="b.code">{{ b.name }}</option>
-            </optgroup>
-          </select>
+          <div
+          ref="badgeEl"
+          class="show-select"
+          :class="{ open: badgeMenuOpen }"
+          @keydown.esc="badgeMenuOpen = false"
+        >
+          <button
+            id="award-badge"
+            type="button"
+            class="show-btn"
+            aria-haspopup="listbox"
+            :aria-expanded="badgeMenuOpen"
+            aria-label="Choose a badge"
+            data-testid="awards-badge-select"
+            @click="badgeMenuOpen = !badgeMenuOpen"
+          >
+            <i class="bi bi-award" aria-hidden="true"></i>
+            <span class="show-name" :class="{ 'is-placeholder': !labelFor(badgeFlat, badgeCode) }">{{ labelFor(badgeFlat, badgeCode) || 'Choose a badge' }}</span>
+            <i class="bi bi-chevron-down show-chevron" :class="{ open: badgeMenuOpen }" aria-hidden="true"></i>
+          </button>
+          <Transition name="menu">
+            <div v-if="badgeMenuOpen" class="show-menu filter-menu" role="listbox">
+              <template v-for="group in badgeOptions" :key="group.label">
+                <div class="show-group">{{ group.label }}</div>
+                <button
+                  v-for="opt in group.options"
+                  :key="opt.value"
+                  type="button"
+                  class="show-option"
+                  :class="{ active: opt.value === badgeCode }"
+                  role="option"
+                  :aria-selected="opt.value === badgeCode"
+                  @click="chooseBadge(opt.value)"
+                >
+                  <span>{{ opt.label }}</span>
+                  <i v-if="opt.value === badgeCode" class="bi bi-check-lg" aria-hidden="true"></i>
+                </button>
+              </template>
+            </div>
+          </Transition>
+        </div>
 
           <div v-if="selectedBadge" class="badge-preview">
             <span class="medal" aria-hidden="true"><i :class="['bi', selectedBadge.icon]"></i></span>
@@ -157,9 +229,45 @@ onMounted(loadData)
           </div>
 
           <label for="award-event" class="form-label field-label mt-3">For which show</label>
-          <select id="award-event" v-model="event" class="form-select" data-testid="awards-event-select">
-            <option v-for="s in shows" :key="s.name" :value="s.name">{{ s.name }}</option>
-          </select>
+          <div
+          ref="eventEl"
+          class="show-select"
+          :class="{ open: eventMenuOpen }"
+          @keydown.esc="eventMenuOpen = false"
+        >
+          <button
+            id="award-event"
+            type="button"
+            class="show-btn"
+            aria-haspopup="listbox"
+            :aria-expanded="eventMenuOpen"
+            aria-label="Choose a show"
+            data-testid="awards-event-select"
+            @click="eventMenuOpen = !eventMenuOpen"
+          >
+            <i class="bi bi-calendar-event" aria-hidden="true"></i>
+            <span class="show-name" :class="{ 'is-placeholder': !labelFor(showOptions, event) }">{{ labelFor(showOptions, event) || 'Choose a show' }}</span>
+            <i class="bi bi-chevron-down show-chevron" :class="{ open: eventMenuOpen }" aria-hidden="true"></i>
+          </button>
+          <Transition name="menu">
+            <div v-if="eventMenuOpen" class="show-menu filter-menu" role="listbox">
+              <button
+                v-for="(opt, i) in showOptions"
+                :key="opt.value"
+                type="button"
+                class="show-option"
+                :class="{ active: opt.value === event }"
+                :style="{ '--i': i }"
+                role="option"
+                :aria-selected="opt.value === event"
+                @click="chooseEvent(opt.value)"
+              >
+                <span>{{ opt.label }}</span>
+                <i v-if="opt.value === event" class="bi bi-check-lg" aria-hidden="true"></i>
+              </button>
+            </div>
+          </Transition>
+        </div>
         </div>
 
         <div class="col-lg-7">
@@ -446,6 +554,141 @@ onMounted(loadData)
 @media (max-width: 575.98px) {
   .award-card .btn-brand {
     width: 100%; /* full-width button on phones */
+  }
+}
+
+.show-select {
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  z-index: 20;
+}
+.show-select.open {
+  z-index: 30;
+}
+.show-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  max-width: 100%;
+  height: 38px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--hw-bg);
+  color: var(--bs-secondary-color);
+  font-weight: 600;
+  text-align: left;
+  transition: background-color 0.15s;
+}
+.show-btn:hover {
+  background: var(--bs-secondary-bg);
+}
+.show-btn:focus-visible {
+  outline: 2px solid var(--bs-primary);
+  outline-offset: 2px;
+}
+.show-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--hw-text);
+}
+.show-name.is-placeholder {
+  color: var(--hw-muted);
+  font-weight: 500;
+}
+.show-chevron {
+  flex: 0 0 auto;
+  font-size: 0.7rem;
+  transition: transform 0.25s ease;
+}
+.show-chevron.open {
+  transform: rotate(180deg);
+}
+.show-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  min-width: 100%;
+  max-width: min(360px, calc(100vw - 24px));
+  padding: 6px;
+  background: var(--hw-surface);
+  color: var(--hw-text);
+  border: 1px solid var(--bs-border-color);
+  border-radius: 14px;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.22);
+}
+.filter-menu {
+  max-height: 260px;
+  overflow-y: auto;
+}
+.show-group {
+  padding: 8px 12px 4px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--hw-muted);
+}
+.show-option {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 12px;
+  border: 0;
+  border-radius: 9px;
+  background: transparent;
+  color: inherit;
+  font-size: 0.9rem;
+  text-align: left;
+  overflow-wrap: anywhere;
+  animation: option-in 0.2s ease both;
+  animation-delay: calc(var(--i) * 30ms);
+}
+.show-option:hover {
+  background: var(--hw-bg);
+}
+.show-option.active {
+  background: var(--bs-primary-bg-subtle);
+  color: var(--bs-primary-text-emphasis);
+  font-weight: 600;
+}
+.menu-enter-active,
+.menu-leave-active {
+  transition:
+    opacity 0.18s ease,
+    transform 0.18s ease;
+  transform-origin: top left;
+}
+.menu-enter-from,
+.menu-leave-to {
+  opacity: 0;
+  transform: translateY(-6px) scale(0.95);
+}
+@keyframes option-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .show-option {
+    animation: none;
+  }
+  .menu-enter-active,
+  .menu-leave-active,
+  .show-chevron {
+    transition: none;
   }
 }
 </style>

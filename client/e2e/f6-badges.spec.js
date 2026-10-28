@@ -180,8 +180,9 @@ test.describe('F6 Badges', () => {
     await openAdminBadges(page)
     const form = page.getByTestId('awards-form')
     await expect(form).toBeVisible()
-    await form.getByTestId('awards-badge-select').selectOption({ label: 'Heart of Gold' })
-    const show = await form.getByTestId('awards-event-select').inputValue() // the show the badge is "for"
+    await form.getByTestId('awards-badge-select').click()
+    await form.getByRole('option', { name: 'Heart of Gold' }).click()
+    const show = (await form.getByTestId('awards-event-select').innerText()).trim() // the show the badge is "for"
 
     const giveBadge = async () => {
       await form.getByTestId('awards-volunteer-search').fill(volunteer.email)
