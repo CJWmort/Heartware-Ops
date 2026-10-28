@@ -1,8 +1,9 @@
 <script setup>
 // Feature 5 – Badge Studio — owner: Hanafi
 // Spec: docs/FEATURES.md   ·   API calls: src/services/   ·   Tests: e2e/
-import { ref, computed, onMounted } from 'vue'
-import PageLoading from '@/components/common/PageLoading.vue' // NEW: fading "Fetching..." overlay
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { onBeforeRouteLeave } from 'vue-router'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue' 
 import { getMyDesign, getMyOrders, saveMyDesign, placeOrder } from '@/services/badges.js'
 import { timeAgo } from '@/utils/time.js'
 
@@ -71,11 +72,18 @@ function designFromPage() {
     }
 }
 
+const savedDesign = ref(null)
+const hasUnsavedChanges = computed(
+  () => !locked.value && savedDesign.value !== null && JSON.stringify(designFromPage()) !== savedDesign.value,
+)
+
 async function save() {
   errorMessage.value = ''      
   successMessage.value = ''
   try {
-    await saveMyDesign(designFromPage())
+    const design = designFromPage() 
+    await saveMyDesign(design)
+    savedDesign.value = JSON.stringify(design) 
     successMessage.value = 'Design saved!'
   } catch (error) {
     errorMessage.value = error.friendlyMessage || 'Something went wrong. Please try again.'
@@ -88,7 +96,9 @@ async function placeMyOrder() {
   successMessage.value = ''
   submitting.value = true
   try {
-    await saveMyDesign(designFromPage())
+    const design = designFromPage()
+    await saveMyDesign(design)
+    savedDesign.value = JSON.stringify(design) 
 
     const newOrder = await placeOrder({
       line1:      addressLine1.value,
@@ -126,10 +136,42 @@ onMounted(async () => {
     errorMessage.value = error.friendlyMessage || 'Something went wrong. Please try again.'
     console.error(error)
   } finally {
+    savedDesign.value = JSON.stringify(designFromPage())
     loading.value = false
   }
   
 })
+
+const leaveDialog = ref(null) 
+let answerLeave = null 
+
+onBeforeRouteLeave((to) => {
+  if (!hasUnsavedChanges.value) return true
+  if (to.name === 'login') return true
+  leaveDialog.value = {
+    title: 'Leave without saving?',
+    text: "Your badge design has changes you haven't saved. If you leave now, they'll be lost.",
+    confirmText: 'Leave',
+    cancelText: 'Stay',
+    danger: true,
+    icon: 'bi-exclamation-circle-fill',
+  }
+  return new Promise((resolve) => (answerLeave = resolve)) 
+})
+
+function onLeaveAnswer(leave) {
+  leaveDialog.value = null
+  answerLeave?.(leave)
+  answerLeave = null
+}
+
+function warnBeforeUnload(event) {
+  if (!hasUnsavedChanges.value) return
+  event.preventDefault()
+  event.returnValue = '' 
+}
+onMounted(() => window.addEventListener('beforeunload', warnBeforeUnload))
+onBeforeUnmount(() => window.removeEventListener('beforeunload', warnBeforeUnload))
 </script>
 
 <template>
@@ -149,7 +191,7 @@ onMounted(async () => {
     </Transition>
  
     <div v-if="!loading" class="d-flex flex-column gap-4"> <!-- NEW: wait for the data (was v-else after the old spinner block) -->
-      <div class="row g-4" :class="{ 'align-items-start': !locked }">
+      <div class="row g-4">
         <!-- preview -->
         <div class="col-12 col-md-6 col-lg-5 preview-col">
           <div class="card-hw preview-card">
@@ -275,12 +317,15 @@ onMounted(async () => {
               <!-- Actions -->
               <div class="action-bar">
                 <button v-if="!showOrderForm" type="button" class="btn btn-brand px-4" data-testid="studio-lock" @click="showOrderForm = true">
-                  <i class="bi bi-bag-check me-2" aria-hidden="true"></i>Lock in and order
+                  <i class="bi bi-bag-check me-2" aria-hidden="true"></i>Continue to order
                 </button>
                 <button type="button" class="btn btn-outline-secondary" data-testid="studio-save" @click="save">
-                  <i class="bi bi-cloud-arrow-up me-2" aria-hidden="true"></i>Save
+                  <i class="bi bi-cloud-arrow-up me-2" aria-hidden="true"></i>Save design
                 </button>
-                <span v-if="successMessage" class="save-note" role="status">
+                <span v-if="hasUnsavedChanges" class="unsaved-note" role="status" data-testid="studio-unsaved">
+                  <i class="bi bi-pencil-fill me-1" aria-hidden="true"></i>Unsaved changes
+                </span>
+                <span v-else-if="successMessage" class="save-note" role="status">
                   <i class="bi bi-check-circle-fill me-1" aria-hidden="true"></i>{{ successMessage }}
                 </span>
               </div>
@@ -340,7 +385,7 @@ onMounted(async () => {
           <i class="bi bi-bag" aria-hidden="true"></i>
           <div>
             <div class="fw-semibold">You haven't ordered a badge yet.</div>
-            <div class="small text-muted-hw">When your design is ready, choose Lock in and order.</div>
+            <div class="small text-muted-hw">When your design is ready, choose Continue to order.</div>
           </div>
         </div>
  
@@ -371,6 +416,7 @@ onMounted(async () => {
         </ul>
       </div>
     </div>
+  <ConfirmDialog :dialog="leaveDialog" @answer="onLeaveAnswer" />
   </section>
 </template>
  
@@ -576,6 +622,10 @@ onMounted(async () => {
 .save-note {
   font-size: 0.875rem;
   color: var(--hw-success);
+}
+.unsaved-note {
+  font-size: 0.875rem;
+  color: var(--hw-muted);
 }
 @media (max-width: 575.98px) {
   .action-bar .btn {
