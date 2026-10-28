@@ -377,6 +377,7 @@ onUnmounted(() => {
 .w-in {
   display: inline-block;
   animation: hw-rise 0.95s cubic-bezier(0.2, 0.8, 0.2, 1) var(--d, 0ms) both;
+  user-select: none;
 }
 
 /* motto words: red, with a gold light sweep that repeats */
@@ -416,6 +417,7 @@ onUnmounted(() => {
   font-size: 1.1rem;
   max-width: 44ch;
   margin-bottom: 1.25rem;
+  user-select: none;
 }
 
 .hw-fade {
