@@ -461,12 +461,23 @@ onMounted(async () => {
 .studio.is-locked .preview-svg {
   max-width: 240px; 
 }
- 
-.studio .btn-brand {
-  --bs-btn-disabled-bg: transparent;
-  --bs-btn-disabled-border-color: var(--bs-border-color);
+.studio .btn-outline-secondary {
+  --bs-btn-color: var(--hw-text);
+  --bs-btn-border-color: var(--hw-muted);
+  --bs-btn-hover-color: var(--hw-text);
+  --bs-btn-hover-bg: rgb(255 255 255 / 0.08);
+  --bs-btn-hover-border-color: var(--hw-text);
+  --bs-btn-active-color: var(--hw-text);
+  --bs-btn-active-bg: rgb(255 255 255 / 0.12);
+  --bs-btn-active-border-color: var(--hw-text);
   --bs-btn-disabled-color: var(--hw-muted);
-  --bs-btn-disabled-opacity: 1;
+  --bs-btn-disabled-border-color: var(--bs-border-color);
+}
+.studio .btn-brand {
+  --bs-btn-disabled-bg: rgb(255 255 255 / 0.06);
+  --bs-btn-disabled-border-color: transparent;
+  --bs-btn-disabled-color: var(--hw-muted);
+  --bs-btn-disabled-opacity: 0.55;
 }
 .order-hint {
   font-size: 0.85rem;
