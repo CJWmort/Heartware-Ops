@@ -135,14 +135,16 @@ function onKeydown(e) {
   inset: 0;
   z-index: 2000; /* above the navbar, the floating panel (1100) and the popup notice (1150) */
   display: flex;
-  align-items: flex-start; /* CHANGED: was "center". Puts the card at the top; justify-content: center below still centres it sideways */
+  align-items: center;
   justify-content: center;
-  padding: 72px 16px 16px; /* CHANGED: extra top space so the card sits just below the navbar */
+  padding: 16px;
   background: rgb(0 0 0 / 0.55);
 }
 .confirm-card {
   width: 100%;
   max-width: 420px;
+  max-height: calc(100vh - 32px);
+  overflow-y: auto;
   padding: 16px;
   background: #fff;
   color: #1f2430; /* fixed dark text on the fixed-white card, as in MapNotice */
