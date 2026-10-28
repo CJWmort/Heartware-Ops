@@ -172,6 +172,12 @@ async function logout() {
               <i :class="['bi', link.icon, 'me-1']" aria-hidden="true"></i>{{ link.label }}
             </RouterLink>
           </li>
+          <!-- MOVED: desktop chat button now sits right after the last link (Badges) instead of next to the name.
+               d-none d-lg-flex = desktop only; phones keep their own chat button in the bar (nav-chat-mobile). -->
+          <li class="nav-item d-none d-lg-flex align-items-center">
+            <!-- show-label: prints the word "Chat" next to the icon, like the other links -->
+            <ChatButton show-label data-testid="nav-chat" />
+          </li>
         </ul>
 
         <div
@@ -179,7 +185,6 @@ async function logout() {
           :class="{ 'justify-content-between justify-content-lg-start': auth.isLoggedIn }"
         >
           <template v-if="auth.isLoggedIn">
-            <ChatButton class="d-none d-lg-inline-flex" data-testid="nav-chat" />
 
             <span
               class="navbar-text small py-0 d-flex align-items-center gap-2"

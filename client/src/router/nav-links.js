@@ -4,13 +4,13 @@ export const NAV_LINKS = {
     {
       to: '/volunteer/assignment',
       label: 'Assignment',
-      icon: 'bi-geo-alt',
+      icon: 'bi-clipboard-check' /* assigned school/show */,
       testid: 'nav-my-assignment',
     },
     {
       to: '/volunteer/tracking',
       label: 'Tracking',
-      icon: 'bi-signpost-split',
+      icon: 'bi-pin-map' /* journey between school and Padang */,
       testid: 'nav-tracking',
     },
     { to: '/volunteer/badges', label: 'Badges', icon: 'bi-award', testid: 'nav-badges' },
@@ -19,11 +19,11 @@ export const NAV_LINKS = {
     {
       to: '/admin/allocation',
       label: 'Allocation',
-      icon: 'bi-grid-3x3-gap',
+      icon: 'bi-diagram-3' /* matching volunteers to schools */,
       testid: 'nav-allocation',
     },
     { to: '/admin/live', label: 'Live Monitoring', icon: 'bi-broadcast', testid: 'nav-hq-live' },
-    { to: '/admin/incidents', label: 'Incidents', icon: 'bi-bell', testid: 'nav-hq-incidents' },
-    { to: '/admin/badges', label: 'Badges', icon: 'bi-award', testid: 'nav-badge-awards' },
+    { to: '/admin/incidents', label: 'Incidents', icon: 'bi-exclamation-triangle' /* incident alerts */, testid: 'nav-hq-incidents' },
+    { to: '/admin/badges', label: 'Badges', icon: 'bi-trophy' /* admin awards badges */, testid: 'nav-badge-awards' },
   ],
 }
