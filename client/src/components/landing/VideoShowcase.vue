@@ -6,8 +6,8 @@
   - Always shows the whole picture (no cropping)
   - Pauses while scrolled off screen; respects "reduce motion"
 
-  Put your video files in  public/videos/  and update the paths below
-  (or pass your own list:  <VideoShowcase :videos="myVideos" /> ).
+  The videos are YouTube videos. Change the IDs in utils/youtube.js
+  (or pass your own list:  <VideoShowcase :videos="[{ id: 'pSg-DubiZK0' }]" /> ).
 
   <VideoShowcase fill />  stretches the player to the full height of its parent
   on laptops (instead of a fixed 16:9 box).
@@ -15,17 +15,18 @@
   waiting for each video to end.
 -->
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
+import {
+  HEARTWARE_VIDEO_ID,
+  HEARTWARE_SHORT_ID,
+  PLAYER_STATE,
+  loadYouTubeApi,
+} from '@/utils/youtube'
 
 const props = defineProps({
   videos: {
     type: Array,
-    default: () => [
-      { src: '/videos/Heartware.mp4' },
-      { src: '/videos/Heartware2.mp4' },
-      { src: '/videos/Heartware3.mp4' },
-      { src: '/videos/Heartware4.mp4' },
-    ],
+    default: () => [{ id: HEARTWARE_VIDEO_ID }, { id: HEARTWARE_SHORT_ID }],
   },
   fill: { type: Boolean, default: false },
   // 0 = move on when each video ends; any other number = move on after that many seconds
@@ -33,7 +34,7 @@ const props = defineProps({
 })
 
 const root = ref(null)
-const videoEl = ref(null)
+const slideEl = ref(null)
 const active = ref(0)
 const direction = ref('next')
 const muted = ref(true)
@@ -46,6 +47,11 @@ const tilt = ref({ x: 0, y: 0 })
 let onScreen = true
 let observer = null
 let skipTimer = 0
+let startTimer = 0
+let pollTimer = 0
+let autoBlocked = false
+
+const players = new Map()
 
 const current = computed(() => props.videos[active.value])
 const hasMany = computed(() => props.videos.length > 1)
@@ -76,64 +82,169 @@ function prev() {
   go(active.value - 1, 'prev')
 }
 
+// ---- Players ----
+function currentEntry() {
+  return slideEl.value ? players.get(slideEl.value) : undefined
+}
+
+function withPlayer(action) {
+  const entry = currentEntry()
+  if (entry && entry.ready) action(entry.player)
+}
+
+function isActive(el) {
+  return el === slideEl.value
+}
+
+function createPlayer(el, id, label) {
+  const holder = document.createElement('div')
+  el.appendChild(holder)
+  const entry = { player: null, ready: false, dead: false }
+  players.set(el, entry)
+  loadYouTubeApi()
+    .then((YT) => {
+      if (entry.dead) return
+      entry.player = new YT.Player(holder, {
+        videoId: id,
+        playerVars: {
+          autoplay: 0,
+          controls: 0,
+          rel: 0,
+          modestbranding: 1,
+          playsinline: 1,
+          disablekb: 1,
+          fs: 0,
+          iv_load_policy: 3,
+          origin: window.location.origin,
+        },
+        events: {
+          onReady: () => {
+            if (entry.dead) return
+            entry.ready = true
+            const frame = entry.player.getIframe()
+            frame.setAttribute('title', label)
+            frame.setAttribute('tabindex', '-1')
+            if (isActive(el)) playCurrent()
+          },
+          onStateChange: (event) => onPlayerState(el, entry, event.data),
+          onError: () => {
+            if (!entry.dead && isActive(el)) onFail()
+          },
+        },
+      })
+    })
+    .catch(() => {
+      if (!entry.dead && isActive(el)) onFail()
+    })
+}
+
+function mountCurrent() {
+  const el = slideEl.value
+  if (!el || players.has(el) || !current.value) return
+  createPlayer(el, current.value.id, `Heartware video ${active.value + 1}`)
+}
+
+function destroyEntry(el) {
+  const entry = players.get(el)
+  if (!entry) return
+  entry.dead = true
+  if (entry.player && typeof entry.player.destroy === 'function') entry.player.destroy()
+  players.delete(el)
+}
+
+function onBeforeLeave(el) {
+  const entry = players.get(el)
+  if (entry && entry.ready) entry.player.pauseVideo()
+}
+
+function onAfterLeave(el) {
+  destroyEntry(el)
+}
+
 // ---- Playing ----
-function playCurrent() {
-  const v = videoEl.value
-  if (!v || paused.value || failed.value || !onScreen) return
-  v.play().catch(() => {
+function watchStart(entry) {
+  clearTimeout(startTimer)
+  startTimer = setTimeout(() => {
+    if (entry.dead || paused.value || !entry.ready) return
+    const state = entry.player.getPlayerState()
+    if (state === PLAYER_STATE.PLAYING || state === PLAYER_STATE.BUFFERING) return
     // browsers block autoplay with sound: try again muted, otherwise show the play button
-    if (!v.muted) {
+    if (!muted.value) {
       muted.value = true
-      v.muted = true
-      v.play().catch(() => (paused.value = true))
-    } else {
-      paused.value = true
+      entry.player.mute()
+      entry.player.playVideo()
+      watchStart(entry)
+      return
     }
-  })
+    autoBlocked = true
+    paused.value = true
+  }, 2000)
+}
+
+function playCurrent() {
+  const entry = currentEntry()
+  if (!entry || !entry.ready || paused.value || failed.value || !onScreen) return
+  if (muted.value) entry.player.mute()
+  else entry.player.unMute()
+  entry.player.playVideo()
+  watchStart(entry)
 }
 
 function togglePause() {
   if (failed.value) return
   paused.value = !paused.value
-  if (paused.value) videoEl.value?.pause()
-  else playCurrent()
+  autoBlocked = false
+  if (paused.value) {
+    clearTimeout(startTimer)
+    withPlayer((player) => player.pauseVideo())
+  } else {
+    playCurrent()
+  }
 }
 
 function toggleSound() {
   muted.value = !muted.value
+  withPlayer((player) => (muted.value ? player.mute() : player.unMute()))
   if (!muted.value && paused.value) {
     paused.value = false
     playCurrent()
   }
 }
 
-// ---- Video events (ignore any from the video that's sliding out) ----
-function isCurrent(event) {
-  return event.target === videoEl.value
+// ---- Player events (ignore any from the video that's sliding out) ----
+function onPlayerState(el, entry, state) {
+  if (entry.dead || !isActive(el)) return
+  if (state === PLAYER_STATE.PLAYING) {
+    clearTimeout(startTimer)
+    if (autoBlocked) {
+      autoBlocked = false
+      paused.value = false
+    }
+  } else if (state === PLAYER_STATE.ENDED) {
+    if (hasMany.value) {
+      next()
+    } else {
+      entry.player.seekTo(0)
+      entry.player.playVideo()
+    }
+  }
 }
 
-function onCanPlay(event) {
-  if (isCurrent(event)) playCurrent()
-}
-
-function onTime(event) {
-  if (!isCurrent(event)) return
-  const v = event.target
-  const length =
-    props.advanceAfter > 0 ? Math.min(props.advanceAfter, v.duration || Infinity) : v.duration
-  progress.value = length ? Math.min(v.currentTime / length, 1) : 0
-  if (props.advanceAfter > 0 && v.currentTime >= props.advanceAfter) next()
-}
-
-function onEnded(event) {
-  if (isCurrent(event)) next()
-}
-
-function onError(event) {
-  if (!isCurrent(event)) return
+function onFail() {
   failed.value = true
   // skip a video that can't load
   if (hasMany.value) skipTimer = setTimeout(next, 2500)
+}
+
+function tick() {
+  const entry = currentEntry()
+  if (!entry || !entry.ready || paused.value || failed.value) return
+  const time = entry.player.getCurrentTime()
+  const duration = entry.player.getDuration()
+  const length =
+    props.advanceAfter > 0 ? Math.min(props.advanceAfter, duration || Infinity) : duration
+  progress.value = length ? Math.min(time / length, 1) : 0
+  if (props.advanceAfter > 0 && time >= props.advanceAfter) next()
 }
 
 // ---- 3D tilt on hover ----
@@ -149,6 +260,14 @@ function resetTilt() {
   tilt.value = { x: 0, y: 0 }
 }
 
+watch(
+  () => current.value && current.value.id,
+  async () => {
+    await nextTick()
+    mountCurrent()
+  },
+)
+
 onMounted(() => {
   reduceMotion.value = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   // with reduce motion on, wait for the viewer to press play
@@ -159,16 +278,22 @@ onMounted(() => {
     (entries) => {
       onScreen = entries[entries.length - 1].intersectionRatio >= 0.2
       if (onScreen) playCurrent()
-      else videoEl.value?.pause()
+      else withPlayer((player) => player.pauseVideo())
     },
     { threshold: [0, 0.2] },
   )
   observer.observe(root.value)
+
+  pollTimer = setInterval(tick, 250)
+  mountCurrent()
 })
 
 onUnmounted(() => {
   observer?.disconnect()
   clearTimeout(skipTimer)
+  clearTimeout(startTimer)
+  clearInterval(pollTimer)
+  for (const el of [...players.keys()]) destroyEntry(el)
 })
 </script>
 
@@ -188,25 +313,17 @@ onUnmounted(() => {
         aria-label="Heartware videos"
       >
         <div class="stage">
-          <Transition :name="slideName" @before-leave="(el) => el.pause()">
-            <video
-              :key="current.src"
-              ref="videoEl"
+          <Transition :name="slideName" @before-leave="onBeforeLeave" @after-leave="onAfterLeave">
+            <div
+              :key="current.id"
+              ref="slideEl"
               class="slide"
-              :src="current.src"
-              :muted="muted"
-              :autoplay="!paused"
-              :loop="!hasMany"
+              role="group"
               :aria-label="`Heartware video ${active + 1}`"
-              playsinline
-              preload="auto"
-              @canplay="onCanPlay"
-              @timeupdate="onTime"
-              @ended="onEnded"
-              @error="onError"
-              @click="togglePause"
-            ></video>
+            ></div>
           </Transition>
+
+          <div class="shield" @click="togglePause"></div>
 
           <!-- previous / next -->
           <template v-if="hasMany">
@@ -390,9 +507,20 @@ onUnmounted(() => {
   inset: 0;
   width: 100%;
   height: 100%;
-  /* always show the whole picture; change to "cover" to fill the frame edge to edge (crops the sides) */
-  object-fit: contain;
   background: transparent;
+}
+
+.slide :deep(iframe) {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.shield {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
   cursor: pointer;
 }
 
@@ -491,8 +619,8 @@ onUnmounted(() => {
 }
 
 .nav:hover {
-  background: var(--hw-red); /* FIX (U9): app-wide brand red instead of the landing-only #ef3340 */
-  border-color: var(--hw-red);
+  background: #ef3340;
+  border-color: #ef3340;
 }
 
 /* touch screens have no hover, so keep the arrows visible */
@@ -539,8 +667,8 @@ onUnmounted(() => {
 }
 
 .icon-btn.is-on {
-  background: var(--hw-red); /* FIX (U9): app-wide brand red instead of the landing-only #ef3340 */
-  border-color: var(--hw-red);
+  background: #ef3340;
+  border-color: #ef3340;
 }
 
 .icon-btn svg {
@@ -586,7 +714,7 @@ onUnmounted(() => {
   width: 84px;
   height: 84px;
   border-radius: 50%;
-  background: var(--hw-red); /* FIX (U9): app-wide brand red */
+  background: #ef3340;
   color: #fff;
   transition: transform 0.3s cubic-bezier(0.3, 1.6, 0.5, 1);
 }
