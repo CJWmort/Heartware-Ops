@@ -20,7 +20,4 @@ const isLanding = computed(() => route.name === 'home' && !auth.isLoggedIn)
       <RouterView />
     </div>
   </main>
-  <!-- <footer class="app-footer text-center small py-3">
-    IS216 G5T1 · Built for Heartware NDP Volunteers
-  </footer> -->
 </template>

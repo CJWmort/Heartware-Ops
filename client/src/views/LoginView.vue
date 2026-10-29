@@ -1,10 +1,11 @@
 <script setup>
-import { ref, onMounted, onBeforeUnmount } from 'vue'
+import { ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/services/auth'
 import { landingFor } from '@/router/landing' // NEW: where each role lands after login (not Home)
 import FireworksBackground from '@/components/landing/FireworksBackground.vue'
 import MapNotice from '@/components/map/MapNotice.vue'
+import { loadYouTubeApi, PLAYER_STATE, HEARTWARE_VIDEO_ID, HEARTWARE_SHORT_ID } from '@/utils/youtube'
 import axios from 'axios' // used only for the wake up ping of server hosted on render
 
 const auth = useAuthStore()
@@ -74,9 +75,7 @@ const mode = ref('login')
 const showPassword = ref(false)
 
 // UI only: muted background video on the sign-up side.
-// The files live in client/public/videos/ (anything in /public is served from the site root).
-const VIDEO_SRC = '/videos/Heartware.mp4' // landscape 16:9, for the right half of the card on tablet/desktop
-const VIDEO_SRC_PHONE = '/videos/Heartware2.mp4' // portrait 9:16, fills the whole card on phones
+// Both are YouTube videos (IDs in utils/youtube.js): the landscape one for tablet/desktop, the portrait one for phones.
 
 // UI only: true below Bootstrap's "md" breakpoint (768px), so phones get the portrait video.
 // Same breakpoint as the CSS below. Updates if the window is resized or the phone is rotated.
@@ -85,6 +84,91 @@ const isPhone = ref(phoneQuery.matches)
 const onBreakpointChange = (e) => (isPhone.value = e.matches)
 onMounted(() => phoneQuery.addEventListener('change', onBreakpointChange))
 onBeforeUnmount(() => phoneQuery.removeEventListener('change', onBreakpointChange))
+
+const sceneEl = ref(null)
+const muted = ref(true)
+const soundReady = ref(false)
+let scene = null
+
+const sceneVideoId = () => (isPhone.value ? HEARTWARE_SHORT_ID : HEARTWARE_VIDEO_ID)
+
+function destroyScene(el) {
+  if (!scene || (el && scene.el !== el)) return
+  scene.dead = true
+  if (scene.player && typeof scene.player.destroy === 'function') scene.player.destroy()
+  scene = null
+  soundReady.value = false
+  muted.value = true
+}
+
+async function buildScene() {
+  await nextTick()
+  const el = sceneEl.value
+  if (mode.value !== 'join' || !el) return
+  if (scene && scene.el === el) return
+  destroyScene()
+  const holder = document.createElement('div')
+  el.appendChild(holder)
+  const current = { el, player: null, ready: false, dead: false }
+  scene = current
+  try {
+    const YT = await loadYouTubeApi()
+    if (current.dead) return
+    current.player = new YT.Player(holder, {
+      videoId: sceneVideoId(),
+      playerVars: {
+        autoplay: 1,
+        mute: 1,
+        controls: 0,
+        playsinline: 1,
+        disablekb: 1,
+        fs: 0,
+        rel: 0,
+        modestbranding: 1,
+        iv_load_policy: 3,
+        origin: window.location.origin,
+      },
+      events: {
+        onReady: (event) => {
+          if (current.dead) return
+          current.ready = true
+          event.target.mute()
+          event.target.playVideo()
+          const frame = event.target.getIframe()
+          frame.setAttribute('title', 'Heartware video')
+          frame.setAttribute('tabindex', '-1')
+          soundReady.value = true
+        },
+        onStateChange: (event) => {
+          if (!current.dead && event.data === PLAYER_STATE.ENDED) {
+            event.target.seekTo(0)
+            event.target.playVideo()
+          }
+        },
+      },
+    })
+  } catch {
+    soundReady.value = false
+  }
+}
+
+function toggleSound() {
+  if (!scene || !scene.ready) return
+  if (muted.value) {
+    scene.player.unMute()
+    scene.player.playVideo()
+  } else {
+    scene.player.mute()
+  }
+  muted.value = !muted.value
+}
+
+watch(mode, buildScene)
+watch(isPhone, () => {
+  if (scene && scene.ready) scene.player.loadVideoById(sceneVideoId())
+})
+onMounted(buildScene)
+onBeforeUnmount(() => destroyScene())
 </script>
 
 <template>
@@ -165,25 +249,32 @@ onBeforeUnmount(() => phoneQuery.removeEventListener('change', onBreakpointChang
         <!-- Decorative: muted looping video. It only loads while this side is showing -->
         <!-- col-md-6 (was col-md-5): a wider video column means less of the video is cropped -->
         <!-- Phones: this layer covers the whole card (full-screen portrait video) and only shows on the sign-up side -->
-        <div class="col-12 col-md-6 auth-scene" aria-hidden="true">
+        <div class="col-12 col-md-6 auth-scene">
           <!-- fireworks only on desktop: on phones the video covers the whole layer, so they'd be hidden anyway -->
           <FireworksBackground v-if="mode === 'join' && !isPhone" :skyline="false" />
-          <Transition name="scene-fade">
-            <video
-              v-if="mode === 'join'"
-              :key="isPhone ? 'phone' : 'wide'"
-              class="scene-video"
-              :src="isPhone ? VIDEO_SRC_PHONE : VIDEO_SRC"
-              autoplay
-              muted
-              loop
-              playsinline
-              disablepictureinpicture
-              disableremoteplayback
-              tabindex="-1"
-            ></video>
+          <Transition name="scene-fade" @after-leave="destroyScene">
+            <div v-if="mode === 'join'" ref="sceneEl" class="scene-video" aria-hidden="true"></div>
           </Transition>
-          <div class="scene-shade"></div>
+          <div class="scene-shade" aria-hidden="true"></div>
+          <button
+            v-if="mode === 'join' && soundReady"
+            type="button"
+            class="scene-sound"
+            :class="{ 'is-on': !muted }"
+            :aria-label="muted ? 'Turn sound on' : 'Turn sound off'"
+            @click="toggleSound"
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" fill="currentColor" stroke="none" />
+              <template v-if="muted">
+                <path d="M16 9.5l5 5M21 9.5l-5 5" />
+              </template>
+              <template v-else>
+                <path d="M15.5 9a4 4 0 0 1 0 6" />
+                <path d="M18 6.5a7.5 7.5 0 0 1 0 11" />
+              </template>
+            </svg>
+          </button>
         </div>
       </div>
 
@@ -471,6 +562,7 @@ onBeforeUnmount(() => phoneQuery.removeEventListener('change', onBreakpointChang
 .auth-scene {
   position: relative;
   overflow: hidden;
+  container-type: size;
   background:
     radial-gradient(1.5px 1.5px at 14% 22%, rgb(255 255 255 / 0.9) 50%, transparent 52%),
     radial-gradient(1px 1px at 32% 12%, rgb(255 255 255 / 0.7) 50%, transparent 52%),
@@ -481,16 +573,70 @@ onBeforeUnmount(() => phoneQuery.removeEventListener('change', onBreakpointChang
     linear-gradient(180deg, #050913 0%, var(--hw-landing-bg) 55%, #160c1d 100%);
 }
 
-/* Video fills the box and is cropped to fit (like background-size: cover). No controls, clicks pass through */
+/* No controls, clicks pass through */
 .scene-video {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  height: auto;
+  border: 0;
+  /* contain = the WHOLE video frame is shown, never cropped, so the burned-in subtitles can't be cut off.
+     The column is taller than a 16:9 video, so there are empty bands above and below it */
+  aspect-ratio: 16 / 9;
+  width: min(100cqw, calc(100cqh * 16 / 9));
+  pointer-events: none;
+}
+.scene-video :deep(iframe) {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  /* contain = the WHOLE video frame is shown, never cropped, so the burned-in subtitles can't be cut off.
-     The column is taller than a 16:9 video, so there are empty bands above and below it */
-  object-fit: contain;
-  pointer-events: none;
+  border: 0;
+}
+.scene-sound {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border-radius: 50%;
+  border: 1px solid rgb(244 246 251 / 0.25);
+  background: rgb(7 11 26 / 0.55);
+  color: #f4f6fb;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition:
+    background-color 0.25s ease,
+    border-color 0.25s ease,
+    transform 0.2s ease;
+}
+.scene-sound:hover {
+  background: rgb(244 246 251 / 0.16);
+}
+.scene-sound:active {
+  transform: scale(0.92);
+}
+.scene-sound.is-on {
+  background: #ef3340;
+  border-color: #ef3340;
+}
+.scene-sound:focus-visible {
+  outline: 2px solid #ffc857;
+  outline-offset: 2px;
+}
+.scene-sound svg {
+  width: 19px;
+  height: 19px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 /* soft dark edge so the red wave stands out against bright footage */
 .scene-shade {
@@ -760,7 +906,8 @@ onBeforeUnmount(() => phoneQuery.removeEventListener('change', onBreakpointChang
   }
   /* cover = the video fills its whole area edge to edge (no black bars); the portrait clip is trimmed top and bottom */
   .scene-video {
-    object-fit: cover;
+    aspect-ratio: 9 / 16;
+    width: max(100cqw, calc(100cqh * 9 / 16));
   }
 
   /* sign-up info: a little tighter so it fits the red panel on small phones */
@@ -925,7 +1072,8 @@ onBeforeUnmount(() => phoneQuery.removeEventListener('change', onBreakpointChang
   .is-join .auth-base {
     transition: none;
   }
-  .scene-video {
+  .scene-video,
+  .scene-sound {
     display: none; /* no moving background for reduce-motion users; the night sky shows instead */
   }
   .ov-block,
