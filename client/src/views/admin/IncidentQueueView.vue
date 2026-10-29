@@ -437,24 +437,68 @@ async function loadIncidents() {
     incidents.value = await listIncidents()
     plotIncidents()
   } catch (error) {
-    showPopup('error', 'Could not load', error.friendlyMessage)
+    showPopup('error', 'Could not load', error.friendlyMessage || 'Something went wrong.') // FIX (C13): fallback so the popup never has a title with no text
   }
 }
 
+// FIX (C12, safety poll): a quiet version of loadIncidents for the 30-second safety net below.
+// - Quiet: a failed background refresh shows no popup (it would nag the admin every 30 s); the next round just tries again.
+// - Only redraws when the list really changed, so the map pins and open tooltips are not redrawn for nothing.
+async function refreshQuietly() {
+  try {
+    const fresh = await listIncidents()
+    if (JSON.stringify(fresh) !== JSON.stringify(incidents.value)) {
+      incidents.value = fresh
+      plotIncidents()
+    }
+  } catch {
+    /* ignore: the socket or the next round will catch up */
+  }
+}
+
+// FIX (C12): the socket is the fast path, this poll is the safety net for events the socket missed.
+const SAFETY_POLL_MS = 30000 // 30 seconds
+let safetyTimer = null
+// Refresh straight away when the admin comes back to this tab (the timer skips rounds while the tab is hidden)
+function onTabVisible() {
+  if (document.visibilityState === 'visible') refreshQuietly()
+}
+
+// FIX (C17): true while an Acknowledge / Resolve is in progress, so a quick double-click cannot send it twice.
+// It is also passed to the focus card, which greys out its buttons while this is true.
+const statusBusy = ref(false)
+
 // "Acknowledge" button on a card: new -> acknowledged
 async function onAcknowledge(incident) {
+  if (statusBusy.value) return // FIX (C17): already working on one, ignore the extra click
+  statusBusy.value = true
   try {
-    await updateIncidentStatus(incident._id, 'acknowledged')
-  } catch (error) {
-    showPopup('error', 'Acknowledge failed', error.friendlyMessage)
-    return
+    try {
+      await updateIncidentStatus(incident._id, 'acknowledged')
+    } catch (error) {
+      showPopup('error', 'Acknowledge failed', error.friendlyMessage || 'Something went wrong.') // FIX (C13): fallback so the popup never has a title with no text
+      return
+    }
+    await loadIncidents()
+    showPopup('info', 'Acknowledged', 'The incident was marked as acknowledged.')
+  } finally {
+    statusBusy.value = false // FIX (C17): always unlock, even after an error
   }
-  await loadIncidents()
-  showPopup('info', 'Acknowledged', 'The incident was marked as acknowledged.')
 }
 
 // "Resolve" button on a card: acknowledged -> resolved. A note about how it was resolved is required.
 async function onResolve(incident) {
+  if (statusBusy.value) return // FIX (C17): ignore extra clicks (this also stops the note dialog opening twice)
+  statusBusy.value = true
+  try {
+    await resolveWithNote(incident)
+  } finally {
+    statusBusy.value = false // FIX (C17): always unlock, even after an error or when the dialog is cancelled
+  }
+}
+
+// The original body of onResolve (unchanged), split out so onResolve above can wrap it in the busy guard
+async function resolveWithNote(incident) {
   const note = await askNote({
     title: 'Resolve incident',
     text: 'Please include details on how it was resolved.',
@@ -470,7 +514,7 @@ async function onResolve(incident) {
   try {
     await updateIncidentStatus(incident._id, 'resolved', note)
   } catch (error) {
-    showPopup('error', 'Resolve failed', error.friendlyMessage)
+    showPopup('error', 'Resolve failed', error.friendlyMessage || 'Something went wrong.') // FIX (C13): fallback so the popup never has a title with no text
     return
   }
   await loadIncidents()
@@ -493,6 +537,14 @@ onMounted(async () => {
   document.addEventListener('pointerdown', onDocPointerDown)
   socket.on('incident:new', loadIncidents)
   socket.on('incident:updated', loadIncidents)
+  // FIX (C12): after the connection drops and comes back, we may have missed incident events,
+  // so reload the list. "reconnect" does not fire on the first connect, so there is no duplicate load at startup.
+  socket.io.on('reconnect', loadIncidents)
+  // FIX (C12): safety poll every 30 s, only while the tab is visible
+  safetyTimer = setInterval(() => {
+    if (document.visibilityState === 'visible') refreshQuietly()
+  }, SAFETY_POLL_MS)
+  document.addEventListener('visibilitychange', onTabVisible)
   try {
     // Both at once: the pins need the templates (names + icons) and the incidents
     const [list, templates] = await Promise.all([listIncidents(), listTemplates()])
@@ -504,7 +556,7 @@ onMounted(async () => {
     if (schoolFilter.value && !schoolOptions.value.includes(schoolFilter.value)) schoolFilter.value = ''
     plotIncidents()
   } catch (error) {
-    showPopup('error', 'Could not load', error.friendlyMessage)
+    showPopup('error', 'Could not load', error.friendlyMessage || 'Something went wrong.') // FIX (C13): fallback so the popup never has a title with no text
   } finally {
     loading.value = false // NEW: runs after success AND failure, so the overlay can never get stuck on screen
   }
@@ -514,6 +566,9 @@ onUnmounted(() => {
   document.removeEventListener('pointerdown', onDocPointerDown)
   socket?.off('incident:new', loadIncidents)
   socket?.off('incident:updated', loadIncidents)
+  socket?.io.off('reconnect', loadIncidents) // FIX (C12): clean up when leaving the page
+  clearInterval(safetyTimer) // FIX (C12)
+  document.removeEventListener('visibilitychange', onTabVisible) // FIX (C12)
   clearTimeout(popupTimer)
 })
 </script>
@@ -828,6 +883,7 @@ onUnmounted(() => {
         :template="selectedIncident ? templatesByType[selectedIncident.type] : null"
         @list="panelOpen = true"
         @clear="clearSelection"
+        :busy="statusBusy"
         @acknowledge="onAcknowledge"
         @resolve="onResolve"
       />

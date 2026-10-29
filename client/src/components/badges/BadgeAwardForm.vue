@@ -111,7 +111,9 @@ async function submitAward() {
         const ids = picked.value.map(vol => vol._id)
         const result = await awardBadge(ids, badgeCode.value, event.value, message.value)
 
-        const skippedNames = result.skipped.map(id => volunteers.value.find(vol => vol._id === id).name)
+        // FIX (C3): `?.name ?? 'a volunteer'` so an id missing from the loaded list can't throw.
+        // The badges are already saved at this point, so a lookup problem must not show an error.
+        const skippedNames = result.skipped.map(id => volunteers.value.find(vol => vol._id === id)?.name ?? 'a volunteer')
         successText.value = `${selectedBadge.value.name} given to ${result.given.length} volunteer(s).` + (skippedNames.length ? ` Already had it for ${event.value}: ${skippedNames.join(', ')}.` : '')
 
         picked.value = []

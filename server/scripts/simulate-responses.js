@@ -3,13 +3,16 @@
 //            pnpm run simulate:responses --accept=80 --decline=5      (your own percentages)
 //            pnpm run simulate:responses --show="NE Show 2"           (only one show)
 //            pnpm run simulate:responses --withdraw=5                 (5% of the accepted volunteers then pull out)
-//            pnpm run simulate:responses --reset                      (everyone goes back to Pending, to try again)
+//            pnpm run simulate:responses --reset                      (accepted answers go back to Pending; declines and
+//                                                                      pull-outs are deleted like in the real app, so press
+//                                                                      "Run Allocations" to fill those places again)
 //            add --seed=7 for a different (but repeatable) random pick
 //
 // WHY this exists: with 400 volunteers nobody is going to click Accept 300 times. This lets you test what happens
 // after answers come in: the green/red/dark badges, the capacity count, a re-run that keeps accepted volunteers, etc.
 //
-// SAFETY RULES (they mirror the real buttons, see Assignments.acceptMine / declineMine / withdrawMine):
+// SAFETY RULES (declines and pull-outs use the real Assignments.declineMine / withdrawMine, so the row is deleted,
+// logged in the volunteer's history and the place goes to the nearest reserve, exactly like the real buttons):
 //  - Only DEMO volunteers (demo.volunteerNNN@demo.sg) are touched, never a real account.
 //  - Only PUBLISHED assignments can be answered (press "Publish" on the admin board first), exactly like a real volunteer.
 //  - Only Pending -> Accepted / Declined, and Accepted -> Withdrawn. Every update re-checks the old status, so a row that
@@ -125,8 +128,10 @@ async function main() {
 
   const mongoose = require('mongoose')
   const { connect, disconnect } = require('./_connect')
-  require('../models/account-model') // registers "Account"
-  require('../models/assignments-model') // registers "Assignments" and its SHOWS list
+  const AccountModel = require('../models/account-model') // registers "Account"
+  const AssignmentModel = require('../models/assignments-model') // registers "Assignments" and its SHOWS list
+  const Shows = require('../models/shows-model')
+  const { replaceFromReserve } = require('../utils/reserve-replacement')
   const Account = mongoose.model('Account')
   const Assignments = mongoose.model('Assignments')
 
@@ -160,8 +165,8 @@ async function main() {
     return
   }
 
-  const pending = await Assignments.find({ ...base, status: 'Pending' }).select('_id').lean()
-  const accepted = await Assignments.find({ ...base, status: 'Accepted' }).select('_id').lean()
+  const pending = await Assignments.find({ ...base, status: 'Pending' }).select('_id volunteer').lean()
+  const accepted = await Assignments.find({ ...base, status: 'Accepted' }).select('_id volunteer').lean()
   if (pending.length === 0 && accepted.length === 0) {
     console.log('Nothing to answer. Run the allocation, then press "Publish" on the admin board (volunteers only see published rows).')
     await disconnect()
@@ -169,34 +174,59 @@ async function main() {
   }
 
   const plan = planResponses(pending, accepted, options, makeRandom(options.seed))
+  const ownerOf = new Map([...pending, ...accepted].map((r) => [String(r._id), r.volunteer]))
 
   // bulkWrite sends everything in one go. Each update re-checks the OLD status (and published), the same guard the real
   // endpoints use, so a row that changed meanwhile is skipped rather than overwritten.
-  const operations = [
-    ...plan.toAccept.map((r) => ({
-      updateOne: { filter: { _id: r._id, status: 'Pending', published: true }, update: { $set: { status: 'Accepted' } } },
-    })),
-    ...plan.toDecline.map((r) => ({
-      updateOne: {
-        filter: { _id: r._id, status: 'Pending', published: true },
-        update: { $set: { status: 'Declined', withdrawReason: r.reason } },
-      },
-    })),
-  ]
+  const operations = plan.toAccept.map((r) => ({
+    updateOne: { filter: { _id: r._id, status: 'Pending', published: true }, update: { $set: { status: 'Accepted' } } },
+  }))
   const first = operations.length ? await Assignments.bulkWrite(operations) : { modifiedCount: 0 }
 
+  const touchedShows = new Set()
+  async function leave(r, status) {
+    const volunteer = ownerOf.get(String(r._id))
+    const row = status === 'Declined'
+      ? await AssignmentModel.declineMine(r._id, volunteer)
+      : await AssignmentModel.withdrawMine(r._id, volunteer)
+    if (!row) return 0
+    try {
+      const show = await Shows.findByName(row.show)
+      await AccountModel.logWithdrawnShow(volunteer, {
+        showId: show?._id,
+        show: row.show,
+        reportingDate: show?.date,
+        reportingTime: row.school?.reportingTime,
+        reportingLocation: row.school?.name,
+        status,
+        reason: r.reason,
+      })
+    } catch (error) {
+      const restored = row.toObject()
+      restored.school = row.school?._id
+      await AssignmentModel.restore(restored)
+      throw error
+    }
+    touchedShows.add(row.show)
+    return 1
+  }
+
+  let declined = 0
+  for (const r of plan.toDecline) declined += await leave(r, 'Declined')
   // Withdrawals run AFTER the accepts, so people who just accepted can also pull out
-  const withdrawOps = plan.toWithdraw.map((r) => ({
-    updateOne: { filter: { _id: r._id, status: 'Accepted' }, update: { $set: { status: 'Withdrawn', withdrawReason: r.reason } } },
-  }))
-  const second = withdrawOps.length ? await Assignments.bulkWrite(withdrawOps) : { modifiedCount: 0 }
+  let withdrawn = 0
+  for (const r of plan.toWithdraw) withdrawn += await leave(r, 'Withdrawn')
+
+  let refilled = 0
+  for (const show of touchedShows) refilled += (await replaceFromReserve(show)).length
 
   console.log(`Answered for ${pending.length} pending demo assignments${options.show ? ` in ${options.show}` : ''}:`)
   console.log(`  accepted  ${plan.toAccept.length}`)
-  console.log(`  declined  ${plan.toDecline.length}`)
+  console.log(`  declined  ${declined}`)
   console.log(`  left Pending  ${pending.length - plan.toAccept.length - plan.toDecline.length}`)
-  console.log(`  pulled out after accepting  ${second.modifiedCount}`)
-  console.log(`(${first.modifiedCount + second.modifiedCount} rows changed in the database)`)
+  console.log(`  pulled out after accepting  ${withdrawn}`)
+  console.log(`  places refilled from the reserve list  ${refilled}`)
+  console.log(`(${first.modifiedCount + declined + withdrawn} rows changed in the database)`)
   console.log('Now refresh the admin board, or press "Run Allocations" to see accepted volunteers keep their school.')
   await disconnect()
 }

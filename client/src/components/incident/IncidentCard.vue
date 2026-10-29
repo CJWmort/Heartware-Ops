@@ -65,7 +65,7 @@ const barClass = computed(() =>
       </button>
     </h3>
 
-    <div class="progress my-2" role="progressbar" aria-label="Incident progress" style="height: 6px">
+    <div class="progress my-2" role="progressbar" aria-label="Incident progress" :aria-valuenow="statusInfo.percent" aria-valuemin="0" aria-valuemax="100" style="height: 6px">
       <div class="progress-bar" :class="barClass" :style="{ width: statusInfo.percent + '%' }"></div>
     </div>
     <div class="d-flex flex-wrap gap-1 card-meta">

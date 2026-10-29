@@ -70,7 +70,7 @@ function onKeydown(e) {
           aria-labelledby="confirm-title"
           aria-describedby="confirm-text"
         >
-          <div class="confirm-head align-items-center">
+          <div class="confirm-head">
             <div class="confirm-icon" aria-hidden="true">
               <i
                 class="bi"
@@ -135,9 +135,11 @@ function onKeydown(e) {
   inset: 0;
   z-index: 2000; /* above the navbar, the floating panel (1100) and the popup notice (1150) */
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 16px;
+  /* FIX (U1): top-centre like every other popup (team rule). flex-start puts the card at the top; */
+  align-items: flex-start;
+  justify-content: center; /* still centred left to right */
+  padding: 72px 16px 16px; /* 72px top gap keeps the card clear of the navbar */
+  overflow-y: auto; /* a tall card on a small screen can scroll instead of being cut off */
   background: rgb(0 0 0 / 0.55);
 }
 .confirm-card {
@@ -156,7 +158,7 @@ function onKeydown(e) {
 }
 .confirm-head {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 12px;
 }
 .confirm-icon {

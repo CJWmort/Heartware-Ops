@@ -116,7 +116,9 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocPointerDo
 
     <!-- NEW: box with a contained overlay. No <Transition> on this box on purpose: if the box faded out while the content
          appeared, both would take up space for 0.5s and the content would jump. -->
-    <div v-if="loading" class="loading-area"><PageLoading contained text="Fetching Shows..." /></div>
+    <div v-if="loading" class="loading-area">
+      <PageLoading contained text="Fetching Shows..." />
+    </div>
 
     <div
       v-if="!loading && loadError"
@@ -148,8 +150,14 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocPointerDo
             @click="showMenuOpen = !showMenuOpen"
           >
             <i class="bi bi-calendar-event" aria-hidden="true"></i>
-            <span class="show-name" :class="{ 'is-placeholder': !labelFor(showOptions, event) }">{{ labelFor(showOptions, event) || 'Choose a show' }}</span>
-            <i class="bi bi-chevron-down show-chevron" :class="{ open: showMenuOpen }" aria-hidden="true"></i>
+            <span class="show-name" :class="{ 'is-placeholder': !labelFor(showOptions, event) }">{{
+              labelFor(showOptions, event) || 'Choose a show'
+            }}</span>
+            <i
+              class="bi bi-chevron-down show-chevron"
+              :class="{ open: showMenuOpen }"
+              aria-hidden="true"
+            ></i>
           </button>
           <Transition name="menu">
             <div v-if="showMenuOpen" class="show-menu filter-menu" role="listbox">
@@ -203,9 +211,10 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocPointerDo
         >
           <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
           <div class="flex-grow-1">{{ runError }}</div>
+          <!-- FIX (A6): removed "btn-close-sm" - it is not a real Bootstrap class, so it did nothing -->
           <button
             type="button"
-            class="btn-close btn-close-sm"
+            class="btn-close"
             aria-label="Dismiss"
             @click="runError = ''"
           ></button>
@@ -499,14 +508,6 @@ onBeforeUnmount(() => document.removeEventListener('pointerdown', onDocPointerDo
 .filter-menu {
   max-height: 260px;
   overflow-y: auto;
-}
-.show-group {
-  padding: 8px 12px 4px;
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--hw-muted);
 }
 .show-option {
   width: 100%;

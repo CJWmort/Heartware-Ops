@@ -40,13 +40,20 @@ function fillAddress() {
 }
 watch(() => props.location, fillAddress) // the first GPS fix may arrive after the form opens
 
-onMounted(async () => {
-  fillAddress() // GPS may already be known when the card opens
+// FIX (C18): its own function so the "Try again" button can call it too
+async function loadTemplates() {
+  errorMessage.value = ''
   try {
     templates.value = await listTemplates()
   } catch (error) {
-    errorMessage.value = error.friendlyMessage
+    // fallback text so the red alert is never empty (same idea as C13)
+    errorMessage.value = error.friendlyMessage || 'Could not load the incident types.'
   }
+}
+
+onMounted(() => {
+  fillAddress() // GPS may already be known when the card opens
+  loadTemplates()
 })
 
 // The full template of the chosen type (label, icon, severity), used for the step-2 header
@@ -162,7 +169,13 @@ async function submitReport() {
 
     <!-- Only this part scrolls when the content is taller than the card -->
     <div class="rep-scroll">
-      <div v-if="errorMessage" class="alert alert-danger">{{ errorMessage }}</div>
+      <div v-if="errorMessage" class="alert alert-danger d-flex align-items-center justify-content-between gap-2">
+        <span>{{ errorMessage }}</span>
+        <!-- FIX (C18): only when the type tiles failed to load (nothing to pick from); a failed submit has its own message -->
+        <button v-if="!templates.length" type="button" class="btn btn-sm btn-outline-danger flex-shrink-0" @click="loadTemplates">
+          Try again
+        </button>
+      </div>
 
       <!-- STEP 1: the type tiles -->
       <div v-if="!selectedType" class="rep-tiles" role="group" aria-label="Incident type">
@@ -202,8 +215,9 @@ async function submitReport() {
           class="form-control rep-field mb-3"
           placeholder="Postal code, building or road name"
         />
+        <!-- FIX (U6): btn-brand (red) like every other main action, was grey btn-secondary -->
         <button
-          class="btn btn-secondary w-100"
+          class="btn btn-brand w-100"
           type="submit"
           :disabled="submitting || !note.trim()"
           data-testid="incident-submit"
@@ -222,7 +236,7 @@ async function submitReport() {
    bottom sheet on phones. */
 .rep-card {
   position: absolute;
-  z-index: 1110; /* above Leaflet (1000) and the route sheet (1050), below the notice (1120) */
+  z-index: 1110; /* above Leaflet (1000) and the route sheet (1050), below the notice (1150) */
   top: 12px;
   left: 12px;
   width: min(340px, calc(100% - 24px));
@@ -264,7 +278,7 @@ async function submitReport() {
   }
 }
 
-/* Type tiles: 2 columns. Colour by severity, using the same Bootstrap colours as .incident-btn in main.css. */
+/* Type tiles: 2 columns. Colour by severity, using Bootstrap colours. */
 .rep-tiles {
   display: grid;
   grid-template-columns: 1fr 1fr;

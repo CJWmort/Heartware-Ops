@@ -2,7 +2,8 @@ const express = require("express");
 const schoolsController = require("../controllers/schools-controller");
 const router = express.Router();
 
-const { requireRole } = require("../middleware/auth-middleware");
+const { requireLogin } = require("../middleware/auth-middleware");
+router.use(requireLogin);
 
 // '/api/schools/<endpoint>'
 // Note: specific paths (/name, /show, /postal) must come BEFORE '/:id',

@@ -4,6 +4,10 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue' 
+// FIX (C1): PageLoading was used in the template (line ~192) but never imported, so Vue
+// could not find it and the "Fetching Your Design..." overlay never showed. Importing it
+// here (same as MyBadgesView.vue does) lets <PageLoading v-if="loading"> render.
+import PageLoading from '@/components/common/PageLoading.vue'
 import { getMyDesign, getMyOrders, saveMyDesign, placeOrder } from '@/services/badges.js'
 import { timeAgo } from '@/utils/time.js'
 
@@ -79,6 +83,14 @@ const hasUnsavedChanges = computed(
   () => !locked.value && savedDesign.value !== null && JSON.stringify(designFromPage()) !== savedDesign.value,
 )
 
+// FIX (C10): show a success message, then clear it after 5 seconds so it does not hang around
+let successTimer = null
+function showSuccess(text) {
+  successMessage.value = text
+  clearTimeout(successTimer)
+  successTimer = setTimeout(() => (successMessage.value = ''), 5000)
+}
+
 async function save() {
   errorMessage.value = ''      
   successMessage.value = ''
@@ -86,7 +98,7 @@ async function save() {
     const design = designFromPage() 
     await saveMyDesign(design)
     savedDesign.value = JSON.stringify(design) 
-    successMessage.value = 'Design saved!'
+    showSuccess('Design saved!')
   } catch (error) {
     errorMessage.value = error.friendlyMessage || 'Something went wrong. Please try again.'
     console.error(error)
@@ -112,7 +124,7 @@ async function placeMyOrder() {
 
     locked.value = true
     showOrderForm.value = false
-    successMessage.value = 'Order placed!'
+    showSuccess('Order placed!')
     window.scrollTo({ top: 0, behavior: 'smooth' });
   } catch (error) {
     errorMessage.value = error.friendlyMessage || 'Something went wrong. Please try again.'
@@ -173,7 +185,10 @@ function warnBeforeUnload(event) {
   event.returnValue = '' 
 }
 onMounted(() => window.addEventListener('beforeunload', warnBeforeUnload))
-onBeforeUnmount(() => window.removeEventListener('beforeunload', warnBeforeUnload))
+onBeforeUnmount(() => {
+  window.removeEventListener('beforeunload', warnBeforeUnload)
+  clearTimeout(successTimer) // C10: stop the message timer when leaving the page
+})
 </script>
 
 <template>

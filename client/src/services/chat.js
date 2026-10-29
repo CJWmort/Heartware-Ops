@@ -35,9 +35,9 @@ export const useChatStore = defineStore('chat', () => {
   const typing = ref(null) // { role } while the other side is typing
   const otherReadAt = ref(null) // when the OTHER side last read this chat (drives "Seen")
   const loadingMessages = ref(false)
+  const threadsLoaded = ref(false) // FIX (C21): false until the first thread-list load has finished (success or error)
   const sending = ref(false)
   const error = ref('')
-  const notice = ref('') // e.g. "this chat was closed"
 
   // ---- derived ----
   const isAdmin = computed(() => auth.role === 'admin')
@@ -88,6 +88,8 @@ export const useChatStore = defineStore('chat', () => {
       online.value = Object.fromEntries(threads.value.filter((t) => t.online).map((t) => [t.volunteerId, true]))
     } catch (e) {
       error.value = e.friendlyMessage
+    } finally {
+      threadsLoaded.value = true // FIX (C21): runs after success AND failure, so "Loading..." can never get stuck
     }
   }
 
@@ -176,7 +178,6 @@ export const useChatStore = defineStore('chat', () => {
     messages.value = []
     otherReadAt.value = null
     typing.value = null
-    notice.value = ''
     await loadConversation()
   }
   function backToList() {
@@ -184,7 +185,6 @@ export const useChatStore = defineStore('chat', () => {
     messages.value = []
     otherReadAt.value = null
     typing.value = null
-    notice.value = ''
     error.value = ''
   }
 
@@ -196,7 +196,6 @@ export const useChatStore = defineStore('chat', () => {
     error.value = ''
     try {
       addMessage(await sendMessage(clean, isAdmin.value ? activeId.value : undefined))
-      notice.value = ''
       return true
     } catch (e) {
       error.value = e.friendlyMessage
@@ -300,6 +299,7 @@ export const useChatStore = defineStore('chat', () => {
     // Forget everything so the next person to log in on this browser starts clean
     isOpen.value = false
     threads.value = []
+    threadsLoaded.value = false // FIX (C21): the next person to log in starts with "Loading..." again
     activeId.value = null
     messages.value = []
     otherReadAt.value = null
@@ -307,7 +307,6 @@ export const useChatStore = defineStore('chat', () => {
     online.value = {}
     typing.value = null
     error.value = ''
-    notice.value = ''
     for (const key of Object.keys(lastReadSent)) delete lastReadSent[key]
   }
 
@@ -320,9 +319,9 @@ export const useChatStore = defineStore('chat', () => {
     otherReadAt,
     typing,
     loadingMessages,
+    threadsLoaded, // FIX (C21)
     sending,
     error,
-    notice,
     isAdmin,
     myId,
     unreadTotal,

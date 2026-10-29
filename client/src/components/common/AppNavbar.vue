@@ -185,7 +185,6 @@ async function logout() {
           :class="{ 'justify-content-between justify-content-lg-start': auth.isLoggedIn }"
         >
           <template v-if="auth.isLoggedIn">
-
             <span
               class="navbar-text small py-0 d-flex align-items-center gap-2"
               data-testid="nav-user-name"
@@ -291,8 +290,12 @@ async function logout() {
 .nav-chat-desktop {
   --bs-btn-font-size: 1rem; /* links use 1rem; btn-sm used 0.875rem */
   --bs-btn-padding-y: 0.5rem; /* same as .nav-link */
-  --bs-btn-padding-x: var(--bs-navbar-nav-link-padding-x); /* same side padding as .nav-link (0.5rem) */
-  color: var(--bs-navbar-color) !important; /* same dimmed white as the links; !important needed to beat the .text-white class */
+  --bs-btn-padding-x: var(
+    --bs-navbar-nav-link-padding-x
+  ); /* same side padding as .nav-link (0.5rem) */
+  color: var(
+    --bs-navbar-color
+  ) !important; /* same dimmed white as the links; !important needed to beat the .text-white class */
 }
 
 /* 392px and under: hide the icon row (the links move into the red-circle menu instead) */
@@ -348,7 +351,7 @@ async function logout() {
       height 0s linear 0.2s; /* collapse to 0 only after the fade-out ends */
   }
   .nav-backdrop.is-open {
-    height: 100vh;
+    height: calc(100vh - 100% - 1px);
     opacity: 1;
     pointer-events: auto;
     transition: opacity 0.2s ease;

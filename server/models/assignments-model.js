@@ -102,16 +102,11 @@ const AssignmentsSchema = new mongoose.Schema({
     ],
     default: [],
   },
-  updatedAt: {
-    type: Date,
-    required: true,
-    default: Date.now,
-  },
   fromReserve: {
     type: Boolean,
     default: false,
   },
-});
+}, { timestamps: true });
 
 // A volunteer can only have one assignment (one school) per show
 AssignmentsSchema.index({ volunteer: 1, show: 1 }, { unique: true });

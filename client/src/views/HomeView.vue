@@ -14,28 +14,16 @@
 -->
 <script setup>
 import { ref, onMounted, onUnmounted } from 'vue'
-import { RouterLink, useRouter } from 'vue-router'
-import FireworksSky from '@/components/FireworksSky.vue'
-import VideoShowcase from '@/components/VideoShowcase.vue'
+import { RouterLink } from 'vue-router' // (useRouter no longer needed: the links use named routes)
+import FireworksSky from '@/components/landing/FireworksSky.vue' // moved into components/landing/ with the other homepage components
+import VideoShowcase from '@/components/landing/VideoShowcase.vue' // moved into components/landing/ with the other homepage components
 import FeatureFlipCard from '@/components/landing/FeatureFlipCard.vue' // click-to-flip card that cycles through our features
 
 // ---- Where the "Sign up to volunteer" and "Log in" buttons go ----
-// Looks through the routes in src/router/index.js for your log-in and sign-up pages
-// (by path or route name), so the buttons work even if your routes are called
-// something like /register or /signin. If it picks the wrong page, replace the
-// line with the path yourself, e.g.  const signupPath = '/volunteer-signup'
-const router = useRouter()
-
-function findRoute(words, fallback) {
-  const match = router.getRoutes().find((route) => {
-    const text = `${route.path} ${String(route.name ?? '')}`.toLowerCase()
-    return !route.path.includes(':') && words.some((word) => text.includes(word))
-  })
-  return match ? match.path : fallback
-}
-
-const loginPath = findRoute(['login', 'log-in', 'signin', 'sign-in'], '/login')
-const signupPath = findRoute(['signup', 'sign-up', 'register', 'registration'], '/signup')
+// FIX (C20): link straight to the named routes (see router/index.js) instead of guessing from the path text.
+// The old fallback '/signup' is not a real page, so a wrong guess gave a 404.
+const loginPath = { name: 'login' }
+const signupPath = { name: 'register' }
 
 const titleWords = ['NE', 'Show']
 const mottoWords = ['Success', 'and', 'Safety', 'Always']
@@ -203,17 +191,16 @@ onUnmounted(() => {
 -->
 <style>
 .hw-page {
-  /* height of your app's navbar, so the top screen fits exactly below it */
-  --hw-nav-h: 72px;
+  /* FIX (U9): the real navbar is 56px (was 72px), so the first screen now fits exactly below it */
+  --hw-nav-h: 56px;
 
   /* design tokens */
   --hw-night: var(--hw-bg); /* was #070b1a; now reads the app-wide page colour (main.css) so there is one source of truth */
-  --hw-navy: #0f1730;
+  /* FIX (U9): --hw-navy, --hw-red and --hw-muted are no longer redefined here; they come from main.css,
+     so the landing page uses the same colours as every other page */
   --hw-line: rgba(244, 246, 251, 0.1);
-  --hw-red: #ef3340;
   --hw-red-hot: #ff4d5a;
   --hw-white: #f4f6fb;
-  --hw-muted: #a3adc8;
   --hw-gold: #ffc857;
   --hw-display: 'Barlow Condensed', 'Arial Narrow', sans-serif;
   --hw-body: 'Instrument Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;

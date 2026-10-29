@@ -68,7 +68,11 @@ const rows = computed(() => {
           </span>
         </button>
       </li>
-      <li v-if="!rows.length" class="text-body-secondary small text-center p-4">
+      <!-- FIX (C21): say "Loading..." until the first load has finished, so "No volunteers yet." does not flash -->
+      <li v-if="!chat.threadsLoaded && !rows.length" class="text-body-secondary small text-center p-4">
+        Loading volunteers…
+      </li>
+      <li v-else-if="!rows.length" class="text-body-secondary small text-center p-4">
         {{ query ? 'No volunteers match that name.' : 'No volunteers yet.' }}
       </li>
     </ul>

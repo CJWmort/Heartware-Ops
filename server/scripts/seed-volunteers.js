@@ -67,7 +67,7 @@ const pad = (n, width) => String(n).padStart(width, '0')
 
 // ---------------------------------------------------------------------------------------------
 // Names: a mix of Chinese, Malay and Indian names, as in Singapore.
-// WHY full-name combinations: Account.name is UNIQUE in the database, so every volunteer needs a different name.
+// WHY full-name combinations: so every demo volunteer has a different name and is easy to tell apart on the board and in chat.
 // We list every possible combination, shuffle them, and take the first N, so no two can ever match.
 // ---------------------------------------------------------------------------------------------
 const NAME_POOLS = [
@@ -247,8 +247,8 @@ async function main() {
       if (result.upsertedCount) created++
       else updated++
     } catch (error) {
-      // Most likely a name or phone number that a REAL account already uses (both are unique in the schema)
-      skipped.push(`${v.email}: ${error.code === 11000 ? 'name or phone already used by another account' : error.message}`)
+      // Most likely a phone number that a REAL account already uses (phone is unique in the schema)
+      skipped.push(`${v.email}: ${error.code === 11000 ? 'phone already used by another account' : error.message}`)
     }
   }
 

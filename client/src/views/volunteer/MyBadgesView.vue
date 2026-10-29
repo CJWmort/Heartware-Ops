@@ -20,17 +20,18 @@ const lockedBadges = computed(() => badges.value.filter(b => !awardFor(b.code)))
 
 const loading = ref(true)
 
-onMounted(async () => {         
-  try {
-    const [list, awards] = await Promise.all([listBadges(), getMyBadges()])
-    badges.value = list 
-    myAwards.value = awards
-  } catch (e) {
-    error.value = e.friendlyMessage || 'Something went wrong. Please try again.'
-    console.error(e)         
-  } finally {
-    loading.value = false
+onMounted(async () => {
+  // FIX (C11): allSettled waits for BOTH requests and never throws, so one failure no longer hides the other.
+  const [listResult, awardsResult] = await Promise.allSettled([listBadges(), getMyBadges()])
+  if (listResult.status === 'fulfilled') badges.value = listResult.value
+  if (awardsResult.status === 'fulfilled') myAwards.value = awardsResult.value
+  // show an error if either one failed (the page still shows whatever did load)
+  const failed = [listResult, awardsResult].find((r) => r.status === 'rejected')
+  if (failed) {
+    error.value = failed.reason?.friendlyMessage || 'Something went wrong. Please try again.'
+    console.error(failed.reason)
   }
+  loading.value = false
 })
 </script>
 
@@ -123,7 +124,8 @@ onMounted(async () => {
     <Teleport to="body">
     <div v-if="selected" class="modal d-block hw-modal" tabindex="-1" role="dialog" aria-modal="true"
          aria-labelledby="badge-modal-title" data-testid="badge-modal" @click.self="selected = null">
-      <div class="modal-dialog modal-dialog-centered">
+      <!-- FIX (U1): removed "modal-dialog-centered" so this popup opens at the TOP centre (team rule), not the middle -->
+      <div class="modal-dialog">
         <div class="modal-content badge-modal">
           <button type="button" class="btn-close" aria-label="Close" data-testid="badge-modal-close" @click="selected = null"></button>
           <div class="modal-body text-center px-4 pt-4 pb-4">

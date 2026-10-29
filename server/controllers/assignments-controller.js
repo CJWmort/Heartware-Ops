@@ -10,6 +10,7 @@ const dotenv = require("dotenv");
 
 const { scarcityFirst } = require("../utils/scarcityFirst");
 const { greedyByPair } = require("../utils/greedy");
+const sendServerError = require('../utils/send-server-error')
 
 // dotenv.config({ path: "./config.env" }); //process.env.ONEMAP_TOKEN
 
@@ -20,7 +21,7 @@ exports.getAssignments = async (req, res) => {
     const assignments = await Assignments.retrieveAll();
     res.json(assignments);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    sendServerError(res, error);
   }
 };
 
@@ -31,7 +32,7 @@ exports.getMyAssignments = async (req, res) => {
     const assignments = await Assignments.findMine(req.session.userId);
     res.json(assignments.map((a) => Assignments.withToday(a))); // stage / stageHistory only reflect today
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    sendServerError(res, error);
   }
 };
 
@@ -90,7 +91,7 @@ exports.getShowAssignments = async (req, res) => {
     const assignments = await Assignments.findByShow(show);
     res.json(assignments);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    sendServerError(res, error);
   }
 };
 
@@ -186,7 +187,7 @@ exports.runAssignments = async (req, res) => {
     emit("assignments:updated", { reason: reset ? "reset" : "allocate", shows: showsToRun });
     res.json({ assignments, skippedShows, toppedUp });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    sendServerError(res, error);
   }
 };
 
@@ -207,7 +208,7 @@ exports.publishAssignments = async (req, res) => {
     if (result.modifiedCount > 0) emit("assignments:updated", { reason: "publish", shows: show ? [show] : Assignments.SHOWS });
     res.json({ published: result.modifiedCount, show: show || "all" });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    sendServerError(res, error);
   }
 };
 
@@ -226,7 +227,7 @@ exports.acceptMyAssignment = async (req, res) => {
     }
     res.json(assignment);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    sendServerError(res, error);
   }
 };
 
@@ -295,7 +296,7 @@ exports.declineMyAssignment = async (req, res) => {
   try {
     await leaveAssignment(req, res, "Declined");
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    sendServerError(res, error);
   }
 };
 
@@ -304,6 +305,6 @@ exports.withdrawMyAssignment = async (req, res) => {
   try {
     await leaveAssignment(req, res, "Withdrawn");
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    sendServerError(res, error);
   }
 };

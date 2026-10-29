@@ -4,6 +4,7 @@ const ThreadState = require("../models/thread-state-model");
 const Account = require("../models/account-model");
 const presence = require("../sockets/presence");
 const { emit } = require("../sockets"); // same helper the incidents controller uses
+const sendServerError = require('../utils/send-server-error')
 
 // Decides WHOSE conversation this request is about.
 // Volunteer: always their own (we ignore anything they send, so they can't read someone else's chat).
@@ -21,7 +22,7 @@ exports.listMessages = async (req, res) => {
     if (!mongoose.isValidObjectId(thread)) return res.status(400).json({ message: "Invalid volunteer" });
     res.json(await Message.retrieveThread(thread));
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    sendServerError(res, error);
   }
 };
 
@@ -38,7 +39,7 @@ exports.getReadState = async (req, res) => {
       adminLastReadAt: state?.adminLastReadAt || null,
     });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    sendServerError(res, error);
   }
 };
 
@@ -51,6 +52,7 @@ exports.sendMessage = async (req, res) => {
 
     const thread = threadFor(req, req.body);
     if (!thread) return res.status(400).json({ message: "volunteerId is required" });
+    if (!mongoose.isValidObjectId(thread)) return res.status(400).json({ message: "Invalid volunteer" });
 
     // Admin only: make sure the target really is a volunteer, so HQ can't create chats with random ids
     if (req.session.role === "admin") {
@@ -109,7 +111,7 @@ exports.listThreads = async (req, res) => {
     );
     res.json(threads);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    sendServerError(res, error);
   }
 };
 
@@ -123,6 +125,6 @@ exports.getUnread = async (req, res) => {
     }
     res.json({ unread: await Message.unreadForVolunteer(req.session.userId) });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    sendServerError(res, error);
   }
 };

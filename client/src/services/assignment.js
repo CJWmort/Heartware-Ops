@@ -187,6 +187,9 @@ export function useMyAssignment() {
       await loadData(true) // NEW: other shows may have changed too, so refresh every card (quietly)
     } catch (error) {
       errorMessage.value = error.friendlyMessage
+      // FIX (C2): reload the cards quietly after a failed Accept (e.g. the offer expired),
+      // so the stale Accept button disappears. `true` = silent, so the error message above is kept.
+      await loadData(true)
     }
 
     acceptingId.value = null

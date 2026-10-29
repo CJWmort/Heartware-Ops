@@ -1,6 +1,6 @@
 import 'bootstrap/dist/css/bootstrap.min.css'
 import 'bootstrap-icons/font/bootstrap-icons.css'
-import 'bootstrap/dist/js/bootstrap.bundle.min.js' // navbar collapse, dropdowns, modals
+import 'bootstrap/dist/js/bootstrap.bundle.min.js' // only used by the phone navbar menu (collapse); popups and dropdowns are Vue-only
 import './assets/main.css'
 
 import { createApp } from 'vue'

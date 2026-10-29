@@ -125,7 +125,7 @@ onMounted(() => {
         <div class="mt-2">Loading messages…</div>
       </div>
       <p
-        v-else-if="!chat.messages.length && !chat.notice"
+        v-else-if="!chat.messages.length"
         class="text-body-secondary small text-center my-3"
       >
         {{ emptyText }}
@@ -144,8 +144,6 @@ onMounted(() => {
           <span v-if="m._id === seenId" class="msg-seen" data-testid="msg-seen">· Seen</span>
         </div>
       </div>
-
-      <p v-if="chat.notice" class="alert alert-secondary py-2 small my-2">{{ chat.notice }}</p>
     </div>
 
     <!-- Fixed height so the layout doesn't jump when the indicator appears -->
@@ -154,7 +152,7 @@ onMounted(() => {
     <p v-if="chat.error" class="text-danger small px-3 mb-1" role="alert">{{ chat.error }}</p>
 
     <form
-      class="d-flex align-items-end gap-2 p-2 border-top align-items-center"
+      class="d-flex gap-2 p-2 border-top align-items-center"
       @submit.prevent="submit"
     >
       <textarea
@@ -222,10 +220,12 @@ onMounted(() => {
   overflow-wrap: anywhere;
 }
 .mine .bubble {
-  background: #ffffff;
-  color: #0f1730;
-  /* the panel is white too, so a thin border keeps the white bubble visible */
-  border: 1px solid #d5dae6;
+  /* FIX (U2): theme variables instead of fixed white, so the bubble follows dark mode
+     (--hw-surface is white in light mode and #141b2e in dark mode; same idea for text and border) */
+  background: var(--hw-surface, #ffffff);
+  color: var(--hw-text, #0f1730);
+  /* the panel is the same colour as the bubble in light mode, so a thin border keeps the bubble visible */
+  border: 1px solid var(--bs-border-color, #d5dae6);
   border-bottom-right-radius: 0.25rem;
 }
 .theirs .bubble {

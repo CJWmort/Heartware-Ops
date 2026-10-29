@@ -1240,7 +1240,8 @@ onUnmounted(() => {
         </div>
       </TransitionGroup>
 
-      <div v-if="emptyMsg" class="empty-pill bg-danger text-white">{{ emptyMsg }}</div>
+      <!-- FIX (U5): neutral dark pill (was bg-danger red) - "nobody has shared a location yet" is a normal waiting state, not an error -->
+      <div v-if="emptyMsg" class="empty-pill bg-dark text-white">{{ emptyMsg }}</div>
 
       <!-- NEW: <Transition> makes the overlay fade in/out instead of popping -->
       <Transition name="loading-fade">
@@ -1281,9 +1282,6 @@ onUnmounted(() => {
   padding: 0 10px;
   border-radius: 9px;
   color: #555;
-}
-
-.search-box {
   flex: 1 1 auto;
   min-width: 0;
 }

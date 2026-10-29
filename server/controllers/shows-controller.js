@@ -1,6 +1,7 @@
 // Get Shows model
 const mongoose = require('mongoose');
 const Shows = require('../models/shows-model');
+const sendServerError = require('../utils/send-server-error')
 
 // Helper: check that an id is a valid MongoDB ObjectId before querying
 const isValidId = (id) => mongoose.Types.ObjectId.isValid(id);
@@ -13,7 +14,7 @@ exports.showsGet = async (req, res) => {
         const showList = await Shows.retrieveAll();
         res.json(showList);
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        sendServerError(res, error);
     }
 };
 
@@ -26,7 +27,7 @@ exports.showGetByName = async (req, res) => {
         }
         res.json(show);
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        sendServerError(res, error);
     }
 };
 
@@ -41,7 +42,7 @@ exports.showsGetByDate = async (req, res) => {
         const showList = await Shows.findByDate(date);
         res.json(showList);
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        sendServerError(res, error);
     }
 };
 
@@ -59,6 +60,6 @@ exports.showGetById = async (req, res) => {
         }
         res.json(show);
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        sendServerError(res, error);
     }
 };

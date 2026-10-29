@@ -16,6 +16,7 @@ import { useAuthStore } from '@/services/auth'
 const props = defineProps({
   incident: { type: Object, default: null },
   template: { type: Object, default: null },
+  busy: { type: Boolean, default: false }, // FIX (C17): true while the parent is saving an Acknowledge / Resolve, so the buttons are greyed out
 })
 defineEmits(['list', 'clear', 'acknowledge', 'resolve'])
 
@@ -85,7 +86,7 @@ const steps = computed(() => props.incident?.history || [])
         ><i class="bi bi-clock me-1"></i>{{ formatDateTime(incident.createdAt) }}</small
       >
 
-      <div class="progress my-2" role="progressbar" aria-label="Incident progress" style="height: 6px">
+      <div class="progress my-2" role="progressbar" aria-label="Incident progress" :aria-valuenow="statusInfo.percent" aria-valuemin="0" aria-valuemax="100" style="height: 6px">
         <div class="progress-bar" :class="barClass" :style="{ width: statusInfo.percent + '%' }"></div>
       </div>
       <div class="d-flex flex-wrap gap-1">
@@ -131,6 +132,7 @@ const steps = computed(() => props.incident?.history || [])
           <button
             v-if="incident.status === 'new'"
             class="btn btn-sm btn-outline-primary"
+            :disabled="busy"
             data-testid="incident-ack"
             @click.stop="$emit('acknowledge', incident)"
           >
@@ -139,6 +141,7 @@ const steps = computed(() => props.incident?.history || [])
           <button
             v-if="incident.status === 'acknowledged'"
             class="btn btn-sm btn-success"
+            :disabled="busy"
             data-testid="incident-resolve"
             @click.stop="$emit('resolve', incident)"
           >

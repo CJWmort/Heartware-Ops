@@ -150,10 +150,16 @@ const groupedAssignments = computed(() => {
       byShow[a.show] = { schools: [], unassigned: [] }
     }
 
+    // FIX (C16): a volunteer who Declined or Withdrew is not part of the allocation any more, so they are left
+    // out of the board (Unassigned card, school lists and map). The row stays in the database on purpose as
+    // history, and the volunteer still sees it on their own Assignment page.
+    const left = a.status === 'Declined' || a.status === 'Withdrawn'
+
     // A free volunteer has no school: list them separately and move on
     // (assignmentId identifies the record so a drag can update it;
     //  distance is null, so it is left out)
     if (!a.school) {
+      if (left) continue // FIX (C16): not shown in the "Unassigned" card
       byShow[a.show].unassigned.push({
         ...a.volunteer,
         assignmentId: a._id,
@@ -175,6 +181,9 @@ const groupedAssignments = computed(() => {
       schoolEntry = { ...a.school, volunteers: [] }
       showSchools.push(schoolEntry)
     }
+
+    // FIX (C16): the school entry above is still created even if its only volunteer left, so the school card stays on the board
+    if (left) continue // not shown in the school's volunteer list or on the map
 
     // Add the volunteer: every volunteer field unchanged,
     // plus status and distance, which belong to the assignment (not to the person)
@@ -765,10 +774,7 @@ watch(focusedSchoolId, () => {
   updateSchoolIcons()
 })
 
-// A different show was picked: the focused school belongs to the old show, so unfocus it.
-// (Declared before the refit watcher below so the refit sees focusedSchoolId = null.)
 watch(selectedShow, () => {
-  focusedSchoolId.value = null
   limitView()
 })
 // Refit the overview ONLY the first time, or when the admin picks a different show (and never while a school
@@ -794,14 +800,23 @@ watch([selectedShow, assignments], ([newShow], [oldShow]) => {
 // stays on screen instead of vanishing at the next refresh, and a failed refresh does not nag the admin.
 let timer = null
 
+// FIX (C15): when the tab comes back into view, refresh straight away, because the timer skipped rounds while hidden
+function onTabVisible() {
+  if (document.visibilityState === 'visible' && !runningAlloc.value && !publishing.value) loadData(true)
+}
+
 onMounted(() => {
   document.addEventListener('pointerdown', onDocPointerDown, true)
+  document.addEventListener('visibilitychange', onTabVisible) // FIX (C15)
   timer = setInterval(() => {
+    // FIX (C15): skip the refresh while the browser tab is hidden (the Live Board already does this)
+    if (document.visibilityState !== 'visible') return
     if (!runningAlloc.value && !publishing.value) loadData(true)
   }, 5000)
 })
 onUnmounted(() => {
   document.removeEventListener('pointerdown', onDocPointerDown, true)
+  document.removeEventListener('visibilitychange', onTabVisible) // FIX (C15): clean up when leaving the page
   clearInterval(timer)
   clearTimeout(popupTimer)
 })
@@ -1208,6 +1223,9 @@ loadData()
                     class="progress my-2"
                     role="progressbar"
                     aria-label="Places filled"
+                    :aria-valuenow="capacityPercent(school)"
+                    aria-valuemin="0"
+                    aria-valuemax="100"
                     style="height: 6px"
                   >
                     <div
@@ -1279,6 +1297,9 @@ loadData()
             class="progress my-1"
             role="progressbar"
             aria-label="Places filled"
+            :aria-valuenow="capacityPercent(focusedSchool)"
+            aria-valuemin="0"
+            aria-valuemax="100"
             style="height: 6px"
           >
             <div

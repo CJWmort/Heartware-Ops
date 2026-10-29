@@ -136,7 +136,14 @@ const passwordChecks = computed(() =>
 const rules = {
   name: () => (name.value.trim() ? '' : 'Enter your name.'),
   email: emailError,
-  address: () => (address.value.trim() ? '' : 'Enter your postal code to fill in your address.'),
+  // FIX (C5, option A): if the address lookup (OneMap) is down, say so, instead of telling the user
+  // to "enter your postal code" when they already did.
+  address: () => {
+    if (address.value.trim()) return ''
+    if (postalStatus.value === 'error')
+      return 'We can\'t look up your address right now. Please tap "Try again" or come back in a few minutes.'
+    return 'Enter your postal code to fill in your address.'
+  },
   postalCode: () => {
     if (!/^\d{6}$/.test(postalCode.value.trim())) return 'Enter a 6-digit postal code.'
     // OneMap checked it and there is no such place -> not a real Singapore postal code
@@ -323,6 +330,14 @@ async function register() {
     showError('Still checking your postal code. Try again in a second.')
     return
   }
+  // FIX (C5, option A): the lookup is down, so there is no address. Say that plainly instead of a vague field error.
+  if (postalStatus.value === 'error') {
+    showError(
+      'Our address service is not responding right now. Please press "Try again" under the postal code, or come back in a few minutes.',
+      'Address lookup unavailable',
+    )
+    return
+  }
   if (!validate()) return
 
   loading.value = true
@@ -397,7 +412,12 @@ async function verifyAndCreate() {
     await axios.post('/api/users/login', { email: email.value.trim(), password: password.value })
 
     // Full page load so the navbar picks up the logged-in user
-    window.location.assign(route.query.redirect || '/')
+    // FIX (C4): only follow a redirect that is a local path ("/something"). A value like
+    // "https://evil.com" or "//evil.com" would send the new user to another website (open redirect).
+    // "/\evil.com" is blocked too, because some browsers read a backslash like a second slash.
+    const target = route.query.redirect
+    const safeRedirect = typeof target === 'string' && target.startsWith('/') && !target.startsWith('//') && !target.startsWith('/\\') ? target : '/'
+    window.location.assign(safeRedirect)
   } catch (error) {
     showError(error.response?.data?.message || 'Something went wrong. Try again.', 'Verification failed')
   } finally {
@@ -851,7 +871,7 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
                         <i class="bi bi-geo-alt-fill"></i> Found: {{ postalPreview }}
                       </template>
                       <template v-else>
-                        <i class="bi bi-wifi-off"></i> Couldn't reach OneMap to find your address.
+                        <i class="bi bi-wifi-off"></i> Our address service isn't responding right now, so we can't fill in your address. Please try again in a few minutes.
                         <button
                           type="button"
                           class="btn btn-link btn-sm p-0 align-baseline link-warning"

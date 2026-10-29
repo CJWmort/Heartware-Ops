@@ -8,6 +8,7 @@ const bcrypt = require("bcrypt");
 const otp = require("../utils/otp"); // email verification codes (Brevo)
 const Assignments = require("../models/assignments-model"); // NEW: needed to tidy allocations when availability changes
 const { disconnectUser } = require("../sockets"); // NEW: close live connections on logout
+const sendServerError = require('../utils/send-server-error')
 
 // NEW (availability change): FIX for "stale allocations". Before, a volunteer could untick a show AFTER being allocated
 // to it, and the allocation stayed, so the school place was held by someone who said they could not come.
@@ -41,7 +42,7 @@ exports.usersGet = async (req, res) => {
     const userList = await Account.retrieveAll();
     res.json(userList);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    sendServerError(res, error);
   }
 };
 

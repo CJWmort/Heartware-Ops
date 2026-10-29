@@ -1,6 +1,8 @@
 const express = require("express");
 const showsController = require("../controllers/shows-controller");
+const { requireLogin } = require("../middleware/auth-middleware");
 const router = express.Router();
+router.use(requireLogin);
 
 // '/api/shows/<endpoint>'
 // Note: specific paths (/name, /date) must come BEFORE '/:id',

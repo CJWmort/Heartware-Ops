@@ -189,7 +189,7 @@ onUnmounted(() => clearTimeout(timer)) // don't leave a timer running if the pag
 }
 .face-icon {
   font-size: 1.8rem;
-  color: #ef3340;
+  color: var(--hw-red); /* FIX (U9): app-wide brand red instead of the landing-only #ef3340 */
   line-height: 1;
 }
 .face-title {
@@ -208,7 +208,7 @@ onUnmounted(() => clearTimeout(timer)) // don't leave a timer running if the pag
 }
 .face-bullet::before {
   content: '• ';
-  color: #ef3340;
+  color: var(--hw-red); /* FIX (U9): app-wide brand red */
 }
 .face-hint {
   margin-top: auto;

@@ -4,6 +4,9 @@ const BadgeDesign = require("../models/badge-design-model");
 const BadgeOrder = require("../models/badge-order-model");
 const Account = require('../models/account-model')
 const Assignments = require('../models/assignments-model')
+const mongoose = require("mongoose");
+const sendServerError = require('../utils/send-server-error')
+const SCHEDULE = require("../data/schedule.json");
 
 function reportingMinutes(text) {
   const clean = text.toLowerCase().replace(/\s/g, '') 
@@ -44,7 +47,7 @@ exports.listMyAwards = async (req, res) => {
     });
     res.json(myAwards);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    sendServerError(res, error);
   }
 };
 
@@ -53,6 +56,18 @@ exports.awardBadge = async (req, res) => {
     const { volunteerIds, badgeCode, event, message } = req.body;  
     if (!Array.isArray(volunteerIds) || volunteerIds.length === 0) {
       return res.status(400).json({ message: 'Please choose at least one volunteer.' })
+    }
+    if (!BADGES.some((b) => b.code === badgeCode)) {
+      return res.status(400).json({ message: 'Please choose a valid badge.' })
+    }
+    if (!SCHEDULE.some((s) => s.name === event)) {
+      return res.status(400).json({ message: 'Please choose a valid show.' })
+    }
+    if (!volunteerIds.every((id) => mongoose.Types.ObjectId.isValid(id))) {
+      return res.status(400).json({ message: 'One of the chosen volunteers is not valid.' })
+    }
+    if (message && message.length > 300) {
+      return res.status(400).json({ message: 'The message can be at most 300 characters.' })
     }
     const given = [];
     const skipped = [];
@@ -96,15 +111,23 @@ exports.saveMyDesign = async (req, res) => {
 }
 
 exports.placeOrder = async (req, res) => {
+  let lockedByMe = false // true once THIS request has locked the design (so only we undo it on failure)
   try {
-    const design = await BadgeDesign.findByVolunteer(req.session.userId)
+    // FIX (S2): lock FIRST, atomically. Only one of several simultaneous requests (e.g. a double tap) gets a design back.
+    const design = await BadgeDesign.lockIfUnlocked(req.session.userId)
     if (!design) {
-      return res.status(400).json({ message: 'Please save your design before ordering.' })}
-    if (design?.locked === true) {
-      return res.status(409).json({ message: 'You have already ordered your badge.' }) }
+      // Nothing was locked: either no design exists yet, or it was already locked (ordered / double tap)
+      const existing = await BadgeDesign.findByVolunteer(req.session.userId)
+      if (!existing) {
+        return res.status(400).json({ message: 'Please save your design before ordering.' })
+      }
+      return res.status(409).json({ message: 'You have already ordered your badge.' })
+    }
+    lockedByMe = true
+
     const { address } = req.body
     const order = await BadgeOrder.create(
-      { 
+      {
           volunteer: req.session.userId,
           designSnapshot: {
               shape:          design.shape,
@@ -119,11 +142,12 @@ exports.placeOrder = async (req, res) => {
               postalCode: address?.postalCode,
           },
         })
-      design.locked = true
-      await design.save()
-      res.status(201).json(order)
+    // (the design is already locked above, so there is no separate lock step here any more)
+    res.status(201).json(order)
   } catch (error) {
-     res.status(400).json({ message: error.message })
+    // The order failed (e.g. invalid address), so give the design back to the volunteer to fix and retry
+    if (lockedByMe) await BadgeDesign.unlock(req.session.userId)
+    res.status(400).json({ message: error.message })
   }
 }
 
@@ -132,7 +156,7 @@ exports.getMyDesign = async (req, res) => {
     const design = await BadgeDesign.findByVolunteer(req.session.userId)
     res.status(200).json(design)
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    sendServerError(res, error)
   }
 }
 
@@ -141,7 +165,7 @@ exports.listMyOrders = async (req, res) => {
     const orders = await BadgeOrder.findByVolunteer(req.session.userId)
     res.status(200).json(orders)
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    sendServerError(res, error)
   }
 }
 
@@ -150,7 +174,7 @@ exports.listAllOrders = async (req, res) => {
     const orders = await BadgeOrder.findAll()
     res.status(200).json(orders)
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    sendServerError(res, error)
   }
 }
 
@@ -176,7 +200,7 @@ exports.updateOrderStatus = async (req, res) => {
     if (error.name === 'CastError'){
       res.status(400).json({ message: 'That order ID is invalid.'})
     } else {
-    res.status(500).json({ message: error.message })
+    sendServerError(res, error)
     }
   }
 }
@@ -186,7 +210,7 @@ exports.listVolunteers = async (req, res) => {
     const volunteers = await Account.retrieveVolunteerNames()
     res.status(200).json(volunteers)
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    sendServerError(res, error)
   }
 }
 
@@ -231,6 +255,6 @@ exports.autoAward = async (req, res) => {
 
     res.status(200).json({ given, skipped })
   } catch (error) {
-    res.status(500).json({ message: error.message })
+    sendServerError(res, error)
   }
 }

@@ -278,8 +278,8 @@ function datePart(date, part) {
         data-testid="pullout-modal"
         @click.self="closeWithdrawModal"
       >
-        <!-- CHANGED: removed "modal-dialog-centered" so this popup opens at the TOP centre, not the middle of the screen -->
-        <div class="modal-dialog modal-dialog-centered">
+        <!-- FIX (U1): "modal-dialog-centered" is now really removed, so this popup opens at the TOP centre (team rule), not the middle -->
+        <div class="modal-dialog">
           <div class="modal-content">
             <div class="modal-header">
               <!-- CHANGED: the Accepted wording was "Pull out of ...?". It now uses the same words as the row button
@@ -365,8 +365,8 @@ function datePart(date, part) {
         @click.self="directionsShow = null"
         @keydown.esc="directionsShow = null"
       >
-        <!-- CHANGED: removed "modal-dialog-centered" so this popup opens at the TOP centre, not the middle of the screen -->
-        <div class="modal-dialog modal-lg modal-dialog-centered">
+        <!-- FIX (U1): "modal-dialog-centered" is now really removed, so this popup opens at the TOP centre (team rule), not the middle -->
+        <div class="modal-dialog modal-lg">
           <div class="modal-content">
             <div class="modal-header">
               <div>
@@ -411,8 +411,8 @@ function datePart(date, part) {
         @click.self="closeAvailabilityModal"
         @keydown.esc="closeAvailabilityModal"
       >
-        <!-- CHANGED: removed "modal-dialog-centered" so this popup opens at the TOP centre, not the middle of the screen -->
-        <div class="modal-dialog modal-dialog-centered">
+        <!-- FIX (U1): "modal-dialog-centered" is now really removed, so this popup opens at the TOP centre (team rule), not the middle -->
+        <div class="modal-dialog">
           <div class="modal-content">
             <div class="modal-header">
               <h5 class="modal-title" id="availability-title">

@@ -7,6 +7,7 @@ const SEVERITY_ORDER = { high: 0, medium: 1, low: 2 };
 const NEXT_STATUS = { new: "acknowledged", acknowledged: "resolved" };
 const { emit } = require("../sockets"); // emit is declared here to use sockets
 const onemap = require("../services/onemap"); // this will access onemap service for reverseGeocoding
+const sendServerError = require('../utils/send-server-error')
 
 // GET /api/incidents/templates
 exports.listTemplates = (req, res) => res.json(TEMPLATES);
@@ -29,6 +30,13 @@ exports.createIncident = async (req, res) => {
     const cleanNote = typeof note === "string" ? note.trim() : "";
     if (!cleanNote) {
       return res.status(400).json({ message: "Please describe the incident." });
+    }
+    if (cleanNote.length > 500) {
+      return res.status(400).json({ message: "The description can be at most 500 characters." });
+    }
+    const tooLong = [school, busNo, slotId, typedAddress].some((v) => typeof v === "string" && v.length > 200);
+    if (tooLong) {
+      return res.status(400).json({ message: "One of the fields is too long." });
     }
     // handle address retreival using geocoding by onemap
     let address = typedAddress?.trim() || null;
@@ -78,7 +86,7 @@ exports.listIncidents = async (req, res) => {
     });
     res.json(list);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    sendServerError(res, error);
   }
 };
 
@@ -101,7 +109,7 @@ exports.updateIncidentStatus = async (req, res) => {
     emit("incident:updated", incident, "hq"); // this will be removed from the alert. FIX: admins only, same reason
     res.json(incident);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    sendServerError(res, error);
   }
 };
 

@@ -16,6 +16,7 @@ import {
   bindTip,
 } from '@/utils/map-icons'
 import { VENUES, JOURNEY_STAGES } from '@/utils/constants'
+import { haversineKm } from '@/utils/haversine'
 import {
   startTracking,
   stopTracking,
@@ -30,7 +31,8 @@ const DEST = VENUES['Padang'] // destination { lat, lng }
 const GLIDE_MS = 1000 // how long the marker takes to glide between GPS fixes
 const BIG_JUMP_M = 500 // jumps larger than this snap instead of gliding
 const REROUTE_M = 10 // re-fetch the route after moving this many metres
-const HEADING_MIN_MOVE_M = 3 // ignore GPS jitter smaller than this when computing heading
+const HEADING_MIN_MOVE_M = 5 // ignore GPS jitter smaller than this when computing heading
+const DISPLAY_MAX_ACCURACY_M = 50 // NEW: fixes less accurate than this (in metres) won't move the pin
 const REPORT_MOVE_M = 25 // send to the server after moving this far...
 const REPORT_HEARTBEAT_MS = 30000 // ...or after this long without sending, 30s
 const STILL_REFRESH_MS = 25000 // standing still: ask for a fresh reading after this long without a GPS update
@@ -50,7 +52,6 @@ const MODES = [
 /* ------------------------------------------------------------------ */
 /* Vue state (reactive, used by the template)                          */
 /* ------------------------------------------------------------------ */
-const loading = ref(true) // waiting for the first GPS fix
 const geoError = ref('') // location problem (permission denied, timeout, ...)
 const routeError = ref('') // route could not be loaded
 const showTrackingInfo = ref(false) // brief "tracking is on" message
@@ -365,6 +366,7 @@ let animFrame = null // id of the running glide animation
 let recentering = false // true while the recenter pan is animating
 let heading = null // degrees clockwise from north, null if unknown
 let prevFix = null // last position used for the bearing fallback
+let shownHeading = null // NEW: the angle currently drawn on the cone, so it can turn smoothly
 let routeBase = null // snapshot of the last route, used for live estimates
 let routeRequestId = 0 // guards against slow responses overwriting newer ones
 let lastFixAt = 0 // time the latest GPS fix arrived
@@ -380,16 +382,7 @@ let catchUp = false // true = send the next fix straight away (set when the tab 
 /* ------------------------------------------------------------------ */
 
 // Straight-line distance in metres between two { lat, lng } points (haversine)
-function distanceMeters(a, b) {
-  const R = 6371000
-  const toRad = (d) => (d * Math.PI) / 180
-  const dLat = toRad(b.lat - a.lat)
-  const dLng = toRad(b.lng - a.lng)
-  const h =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos(toRad(a.lat)) * Math.cos(toRad(b.lat)) * Math.sin(dLng / 2) ** 2
-  return 2 * R * Math.asin(Math.sqrt(h))
-}
+const distanceMeters = (a, b) => haversineKm(a, b) * 1000
 
 // Compass bearing in degrees (0 = north, 90 = east) from point a to point b
 function bearingDeg(a, b) {
@@ -601,7 +594,11 @@ function updateHeadingUI() {
     return
   }
   el.style.display = 'block'
-  el.style.transform = `rotate(${heading}deg)`
+  // NEW: turn the short way round (350° to 10° is a 20° turn, not 340°) and ease towards the new angle
+  if (shownHeading === null) shownHeading = heading // first time: start straight at the real angle
+  const diff = ((((heading - shownHeading + 180) % 360) + 360) % 360) - 180 // shortest turn, -180 to 180
+  shownHeading += diff * 0.35 // move 35% of the way each update
+  el.style.transform = `rotate(${shownHeading}deg)`
 }
 
 /* ------------------------------------------------------------------ */
@@ -908,13 +905,18 @@ function onVisibilityChange() {
 
 // Called by watchPosition on every new GPS fix
 function onPosition(pos) {
+  // NEW: a very inaccurate fix would drag the pin sideways, so skip it once we already have a good position.
+  // The first fix is always accepted so the map can load.
+  if (!firstFix && pos.coords.accuracy > DISPLAY_MAX_ACCURACY_M) {
+    lastFixAt = Date.now() // GPS is still alive, so don't let the "stale" check mark the volunteer as lost
+    return
+  }
   location.value = {
     lat: pos.coords.latitude,
     lng: pos.coords.longitude,
     accuracy: pos.coords.accuracy, // metres
   }
   geoError.value = '' // a fix arrived, clear any location error
-  loading.value = false
   lastFixAt = Date.now()
   const forceReport = catchUp // true only for the first fix after returning to the tab
   catchUp = false
@@ -943,7 +945,6 @@ function onPosition(pos) {
 // Called by watchPosition when location fails (permission denied, timeout, etc.)
 function onGeoError(err) {
   geoError.value = geolocationMessage(err)
-  loading.value = false
 }
 
 /* ------------------------------------------------------------------ */
@@ -1190,7 +1191,9 @@ onUnmounted(() => {
             <span
               class="mode-thumb"
               aria-hidden="true"
-              :style="{ transform: travelMode === 'walk' ? 'translateX(calc(100% + 4px))' : 'none' }"
+              :style="{
+                transform: travelMode === 'walk' ? 'translateX(calc(100% + 4px))' : 'none',
+              }"
             ></span>
             <button
               v-for="m in MODES"
@@ -1209,7 +1212,12 @@ onUnmounted(() => {
         <div class="sheet-details">
           <div v-if="!dayEnded" class="route-summary">
             <Transition name="swap" mode="out-in">
-              <div :key="travelMode + (journeyReturning ? 'b' : 'o')" class="route-icon" :class="{ returning: journeyReturning }" aria-hidden="true">
+              <div
+                :key="travelMode + (journeyReturning ? 'b' : 'o')"
+                class="route-icon"
+                :class="{ returning: journeyReturning }"
+                aria-hidden="true"
+              >
                 <i class="bi" :class="activeMode.icon"></i>
               </div>
             </Transition>
@@ -1226,12 +1234,22 @@ onUnmounted(() => {
                   class="route-stats"
                   :class="{ 'is-busy': routeBusy }"
                 >
-                  <span class="route-min" :class="{ returning: journeyReturning }">{{ liveInfo.minutes }} min</span>
+                  <span class="route-min" :class="{ returning: journeyReturning }"
+                    >{{ liveInfo.minutes }} min</span
+                  >
                   <span class="route-km">{{ liveInfo.km }} km</span>
-                  <span v-if="routeBusy" class="spinner-border spinner-border-sm text-primary ms-2" aria-hidden="true"></span>
+                  <span
+                    v-if="routeBusy"
+                    class="spinner-border spinner-border-sm text-primary ms-2"
+                    aria-hidden="true"
+                  ></span>
                 </div>
                 <div v-else key="wait" class="route-stats text-muted">
-                  <span class="spinner-border spinner-border-sm text-primary me-2" aria-hidden="true"></span>Finding route…
+                  <span
+                    class="spinner-border spinner-border-sm text-primary me-2"
+                    aria-hidden="true"
+                  ></span
+                  >Finding route…
                 </div>
               </Transition>
             </div>
@@ -1260,7 +1278,9 @@ onUnmounted(() => {
                     <i class="bi bi-mortarboard-fill" aria-hidden="true"></i>Allocated school
                   </div>
                   <!-- E2E: data-testid="track-school" lets Playwright find this element (see e2e/f4-tracking-live.spec.js) -->
-                  <div class="info-value" data-testid="track-school">{{ currentAssignment?.school?.name || '—' }}</div>
+                  <div class="info-value" data-testid="track-school">
+                    {{ currentAssignment?.school?.name || '—' }}
+                  </div>
                 </div>
                 <div class="info-card">
                   <div class="info-label">
@@ -1280,7 +1300,9 @@ onUnmounted(() => {
                     >{{ journeyLeg.text }}</span
                   >
                   <!-- E2E: data-testid="journey-count" lets Playwright find this element (see e2e/f4-tracking-live.spec.js) -->
-                  <span class="journey-count" data-testid="journey-count">{{ currentStage }}/{{ JOURNEY_STAGES.length }}</span>
+                  <span class="journey-count" data-testid="journey-count"
+                    >{{ currentStage }}/{{ JOURNEY_STAGES.length }}</span
+                  >
                 </div>
 
                 <ol class="journey-dots" aria-label="Journey progress">
@@ -1316,8 +1338,13 @@ onUnmounted(() => {
                   data-testid="journey-next"
                   @click="advanceStage"
                 >
-                  <span v-if="stageBusy" class="spinner-border spinner-border-sm" aria-hidden="true"></span>
-                  <i v-else class="bi bi-check2-circle" aria-hidden="true"></i> {{ nextStage.label }}
+                  <span
+                    v-if="stageBusy"
+                    class="spinner-border spinner-border-sm"
+                    aria-hidden="true"
+                  ></span>
+                  <i v-else class="bi bi-check2-circle" aria-hidden="true"></i>
+                  {{ nextStage.label }}
                 </button>
                 <div v-else class="journey-complete" data-testid="journey-complete">
                   <!-- E2E: data-testid="journey-complete" lets Playwright check the "Day complete" message (see e2e/f4-tracking-live.spec.js) -->
@@ -1338,7 +1365,11 @@ onUnmounted(() => {
             </template>
 
             <div v-else-if="assignStatus === 'loading'" class="assign-msg">
-              <span class="spinner-border spinner-border-sm text-primary me-2" aria-hidden="true"></span>Loading your shows…
+              <span
+                class="spinner-border spinner-border-sm text-primary me-2"
+                aria-hidden="true"
+              ></span
+              >Loading your shows…
             </div>
             <div v-else-if="assignStatus === 'error'" class="assign-msg">
               Could not load your shows.

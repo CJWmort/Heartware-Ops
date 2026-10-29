@@ -1,6 +1,7 @@
 // Get Schools model
 const mongoose = require('mongoose');
 const Schools = require('../models/schools-model');
+const sendServerError = require('../utils/send-server-error')
 
 // Helper: check that an id is a valid MongoDB ObjectId before querying
 const isValidId = (id) => mongoose.Types.ObjectId.isValid(id);
@@ -13,7 +14,7 @@ exports.schoolsGet = async (req, res) => {
         const schoolList = await Schools.retrieveAll();
         res.json(schoolList);
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        sendServerError(res, error);
     }
 };
 
@@ -26,7 +27,7 @@ exports.schoolGetByName = async (req, res) => {
         }
         res.json(school);
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        sendServerError(res, error);
     }
 };
 
@@ -36,7 +37,7 @@ exports.schoolsGetByShow = async (req, res) => {
         const schoolList = await Schools.findByShow(req.params.show);
         res.json(schoolList);
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        sendServerError(res, error);
     }
 };
 
@@ -54,7 +55,7 @@ exports.schoolGetByPostalCode = async (req, res) => {
         }
         res.json(school);
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        sendServerError(res, error);
     }
 };
 
