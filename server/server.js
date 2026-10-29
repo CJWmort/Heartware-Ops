@@ -59,12 +59,12 @@ const sessionMiddleware = session({
     maxAge: 1000 * 60 * 60 * 8, // 8 hours
   },
 });
-server.use(sessionMiddleware);
-
 // NEW: health check. Answers { ok: true } without touching the database or the login session, so it is cheap.
 // Used by an uptime pinger (e.g. UptimeRobot, every 5 min) to stop Render's free server falling asleep, and
 // can be set as Render's "Health Check Path". saveUninitialized is false, so a ping never creates a session row.
 server.get("/api/health", (req, res) => res.json({ ok: true }));
+
+server.use(sessionMiddleware);
 
 server.get("/api/socket-token", (req, res) => {
   if (!req.session?.userId) return res.status(401).json({ message: "Please log in." });

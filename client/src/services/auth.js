@@ -10,6 +10,8 @@ export const useAuthStore = defineStore('auth', () => {
   const user = ref(null) // Holds the logged-in user's data ({ _id, name, email, role }), or null for a guest.
   const ready = ref(false) // Records whether we've asked the server yet. It starts false and flips to true after the first check.
 
+  const loggingOut = ref(false)
+
   const isLoggedIn = computed(() => !!user.value) // True when user has a value. !! turns the object into true and null into false.
   const role = computed(() => user.value?.role ?? null) // User's role, or null for a guest. The ?. stops it crashing when user is null.
 
@@ -46,16 +48,15 @@ export const useAuthStore = defineStore('auth', () => {
 
   // Tells the server to destroy the session, then clears user and the alert history
   async function logout() {
+    loggingOut.value = true
     user.value = null
     useZoneEventsStore().clear()
     clearSavedShow() // the next person to log in starts fresh
-    try {
-      await axios.post('/api/users/logout')
-    } catch (err) {
+    axios.post('/api/users/logout').catch((err) => {
       console.error('Logout request failed', err)
-    }
+    })
   }
 
   // Allow other components to call the functions in here (auth.js)
-  return { user, ready, isLoggedIn, role, login, restore, logout }
+  return { user, ready, loggingOut, isLoggedIn, role, login, restore, logout }
 })

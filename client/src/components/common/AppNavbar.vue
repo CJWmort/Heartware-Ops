@@ -87,7 +87,11 @@ watch(menu, (el, oldEl) => {
 
 async function logout() {
   await auth.logout()
-  router.push({ name: 'login' })
+  try {
+    await router.push({ name: 'login' })
+  } finally {
+    auth.loggingOut = false
+  }
 }
 </script>
 
@@ -206,7 +210,7 @@ async function logout() {
 
       <!-- Guests: Log In / Sign-up sit directly on the navbar at every screen size (no burger, no menu).
            On /login only Sign-up shows, on /register only Log In shows (you are already on the other page). -->
-      <div v-else class="ms-auto d-flex align-items-center gap-2 gap-sm-3">
+      <div v-else-if="auth.ready && route.name && !auth.loggingOut" class="ms-auto d-flex align-items-center gap-2 gap-sm-3">
         <RouterLink
           v-if="route.name !== 'login'"
           class="btn btn-outline-light btn-sm nav-plain-btn"
