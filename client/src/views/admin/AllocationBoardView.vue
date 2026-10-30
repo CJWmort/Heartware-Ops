@@ -34,6 +34,7 @@ import BaseMap from '@/components/map/BaseMap.vue'
 import MapNotice from '@/components/map/MapNotice.vue'
 import MapLoading from '@/components/map/MapLoading.vue' // NEW: dimmed overlay + spinner shown over the map while data is fetched
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import AppDropdown from '@/components/common/AppDropdown.vue' // reusable dropdown (replaces the three hand-built menus)
 import { getSavedShow, saveShow, getSavedFilter, saveFilter } from '@/services/selected-show'
 import { useChatStore } from '@/services/chat'
 import { createSchoolIcon, createVolIcon, volTip, schoolTip, bindTip } from '@/utils/map-icons'
@@ -52,34 +53,10 @@ const shows = ['NE Show 1', 'NE Show 2', 'NE Show 3', 'NE Show 4']
 const selectedShow = ref(shows.includes(getSavedShow()) ? getSavedShow() : 'NE Show 1') // remembered for this session
 watch(selectedShow, saveShow)
 
-// Custom show dropdown: open/closed state, the wrapper element (for outside-click detection) and the handlers
-const showMenuOpen = ref(false)
-const showEl = ref(null)
-function chooseShow(show) {
-  showMenuOpen.value = false
-  selectedShow.value = show
-}
-const zoneMenuOpen = ref(false)
-const timeMenuOpen = ref(false)
-const zoneEl = ref(null)
-const timeEl = ref(null)
-function chooseZone(z) {
-  zoneMenuOpen.value = false
-  zoneFilter.value = z
-}
-function chooseTime(t) {
-  timeMenuOpen.value = false
-  timeFilter.value = t
-}
-// Close the menu when the admin taps anywhere outside it
-function onDocPointerDown(e) {
-  if (showMenuOpen.value && showEl.value && !showEl.value.contains(e.target))
-    showMenuOpen.value = false
-  if (zoneMenuOpen.value && zoneEl.value && !zoneEl.value.contains(e.target))
-    zoneMenuOpen.value = false
-  if (timeMenuOpen.value && timeEl.value && !timeEl.value.contains(e.target))
-    timeMenuOpen.value = false
-}
+// The show / zone / time dropdowns are <AppDropdown> components: each one keeps its own open state and closes itself
+// on an outside click. The page only supplies the options and the v-model value (selectedShow, zoneFilter, timeFilter).
+// AppDropdown wants options as { value, label }, so the plain list of show names is converted here.
+const showDropdownOptions = shows.map((show) => ({ value: show, label: show }))
 
 const searchbar = ref('')
 const runningAlloc = ref(false)
@@ -296,6 +273,15 @@ const timeOptions = computed(() => {
   )
 })
 
+// Dropdown versions of zoneOptions / timeOptions: '' (empty) is the "no filter" row shown first.
+const zoneDropdownOptions = computed(() => [
+  { value: '', label: 'All Zones' },
+  ...zoneOptions.value.map((z) => ({ value: z, label: z })),
+])
+const timeDropdownOptions = computed(() => [
+  { value: '', label: 'All Timings' },
+  ...timeOptions.value.map((t) => ({ value: t, label: t })),
+])
 watch(zoneOptions, (opts) => {
   if (opts.length && zoneFilter.value && !opts.includes(zoneFilter.value)) zoneFilter.value = ''
 })
@@ -304,7 +290,9 @@ watch(timeOptions, (opts) => {
 })
 
 const filtersActive = computed(() => !!(zoneFilter.value || timeFilter.value))
-const activeFilterCount = computed(() => [zoneFilter.value, timeFilter.value].filter(Boolean).length)
+const activeFilterCount = computed(
+  () => [zoneFilter.value, timeFilter.value].filter(Boolean).length,
+)
 function clearSchoolFilters() {
   zoneFilter.value = ''
   timeFilter.value = ''
@@ -580,7 +568,7 @@ async function runAllocation(reset = false) {
       .filter(([, t]) => t.added > 0) // skip shows where nobody was late
       .map(
         ([show, t]) =>
-          `${show}: ${t.added} late volunteer${t.added === 1 ? '' : 's'} added (${t.placed} placed, ${t.added - t.placed} on reserve)`,
+          `${show}: ${t.added} new volunteer${t.added === 1 ? '' : 's'} added (${t.placed} placed, ${t.added - t.placed} on reserve)`,
       )
     const lateText = lateNotes.length > 0 ? ' ' + lateNotes.join('. ') + '.' : '' // empty when nobody was late
     if (skipped.length > 0) {
@@ -802,11 +790,11 @@ let timer = null
 
 // FIX (C15): when the tab comes back into view, refresh straight away, because the timer skipped rounds while hidden
 function onTabVisible() {
-  if (document.visibilityState === 'visible' && !runningAlloc.value && !publishing.value) loadData(true)
+  if (document.visibilityState === 'visible' && !runningAlloc.value && !publishing.value)
+    loadData(true)
 }
 
 onMounted(() => {
-  document.addEventListener('pointerdown', onDocPointerDown, true)
   document.addEventListener('visibilitychange', onTabVisible) // FIX (C15)
   timer = setInterval(() => {
     // FIX (C15): skip the refresh while the browser tab is hidden (the Live Board already does this)
@@ -815,7 +803,6 @@ onMounted(() => {
   }, 5000)
 })
 onUnmounted(() => {
-  document.removeEventListener('pointerdown', onDocPointerDown, true)
   document.removeEventListener('visibilitychange', onTabVisible) // FIX (C15): clean up when leaving the page
   clearInterval(timer)
   clearTimeout(popupTimer)
@@ -865,55 +852,15 @@ loadData()
                sharing one line equally, so nothing wraps onto a third line. -->
             <div class="alloc-head-row mb-2">
               <div class="alloc-title-group d-flex flex-wrap align-items-center gap-3">
-                <!-- Custom show dropdown (same look and animation as the HQ Live Board) -->
-                <div
-                  ref="showEl"
-                  class="show-select"
-                  :class="{ open: showMenuOpen }"
-                  @keydown.esc="showMenuOpen = false"
-                >
-                  <button
-                    type="button"
-                    class="show-btn"
-                    aria-haspopup="listbox"
-                    :aria-expanded="showMenuOpen"
-                    aria-label="Show"
-                    data-testid="alloc-event-select"
-                    @click="showMenuOpen = !showMenuOpen"
-                  >
-                    <i class="bi bi-calendar-event" aria-hidden="true"></i>
-                    <span class="show-name">{{ selectedShow }}</span>
-                    <i
-                      class="bi bi-chevron-down show-chevron"
-                      :class="{ open: showMenuOpen }"
-                      aria-hidden="true"
-                    ></i>
-                  </button>
-
-                  <Transition name="menu">
-                    <div v-if="showMenuOpen" class="show-menu" role="listbox">
-                      <button
-                        v-for="(show, i) in shows"
-                        :key="show"
-                        type="button"
-                        class="show-option"
-                        :class="{ active: show === selectedShow }"
-                        :style="{ '--i': i }"
-                        role="option"
-                        :aria-selected="show === selectedShow"
-                        :data-testid="'alloc-show-option-' + (i + 1)"
-                        @click="chooseShow(show)"
-                      >
-                        <span>{{ show }}</span>
-                        <i
-                          v-if="show === selectedShow"
-                          class="bi bi-check-lg"
-                          aria-hidden="true"
-                        ></i>
-                      </button>
-                    </div>
-                  </Transition>
-                </div>
+                <!-- Show selector (reusable AppDropdown; v-model keeps selectedShow in sync) -->
+                <AppDropdown
+                  v-model="selectedShow"
+                  :options="showDropdownOptions"
+                  icon="bi-calendar-event"
+                  aria-label="Show"
+                  testid="alloc-event-select"
+                  option-testid-prefix="alloc-show-option-"
+                />
               </div>
               <div class="alloc-actions d-flex flex-wrap align-items-center gap-2">
                 <!-- Allocate: matches unassigned volunteers to schools (draft only, nothing is visible to volunteers yet).
@@ -999,91 +946,23 @@ loadData()
               <!-- Zone + reporting time filters (these apply to the card list only, like the search box) -->
               <!-- Zone + reporting time filters: same custom dropdown as the show selector -->
               <div class="alloc-filter-row d-flex flex-wrap align-items-center gap-2 mt-2">
-                <div
-                  ref="zoneEl"
-                  class="show-select"
-                  :class="{ open: zoneMenuOpen }"
-                  @keydown.esc="zoneMenuOpen = false"
-                >
-                  <button
-                    type="button"
-                    class="show-btn"
-                    aria-haspopup="listbox"
-                    :aria-expanded="zoneMenuOpen"
-                    aria-label="Filter by zone"
-                    data-testid="alloc-zone-filter"
-                    @click="zoneMenuOpen = !zoneMenuOpen"
-                  >
-                    <i class="bi bi-geo-alt" aria-hidden="true"></i>
-                    <span class="show-name">{{ zoneFilter || 'All Zones' }}</span>
-                    <i
-                      class="bi bi-chevron-down show-chevron"
-                      :class="{ open: zoneMenuOpen }"
-                      aria-hidden="true"
-                    ></i>
-                  </button>
-                  <Transition name="menu">
-                    <div v-if="zoneMenuOpen" class="show-menu filter-menu" role="listbox">
-                      <button
-                        v-for="(z, i) in ['', ...zoneOptions]"
-                        :key="z || 'all'"
-                        type="button"
-                        class="show-option"
-                        :class="{ active: z === zoneFilter }"
-                        :style="{ '--i': i }"
-                        role="option"
-                        :aria-selected="z === zoneFilter"
-                        @click="chooseZone(z)"
-                      >
-                        <span>{{ z || 'All Zones' }}</span> <!-- FIX: same wording as the button above ('All Zones') -->
-                        <i v-if="z === zoneFilter" class="bi bi-check-lg" aria-hidden="true"></i>
-                      </button>
-                    </div>
-                  </Transition>
-                </div>
+                <!-- Zone filter ('' = All Zones) -->
+                <AppDropdown
+                  v-model="zoneFilter"
+                  :options="zoneDropdownOptions"
+                  icon="bi-geo-alt"
+                  aria-label="Filter by zone"
+                  testid="alloc-zone-filter"
+                />
 
-                <div
-                  ref="timeEl"
-                  class="show-select"
-                  :class="{ open: timeMenuOpen }"
-                  @keydown.esc="timeMenuOpen = false"
-                >
-                  <button
-                    type="button"
-                    class="show-btn"
-                    aria-haspopup="listbox"
-                    :aria-expanded="timeMenuOpen"
-                    aria-label="Filter by reporting time"
-                    data-testid="alloc-time-filter"
-                    @click="timeMenuOpen = !timeMenuOpen"
-                  >
-                    <i class="bi bi-clock" aria-hidden="true"></i>
-                    <span class="show-name">{{ timeFilter || 'All Timings' }}</span>
-                    <i
-                      class="bi bi-chevron-down show-chevron"
-                      :class="{ open: timeMenuOpen }"
-                      aria-hidden="true"
-                    ></i>
-                  </button>
-                  <Transition name="menu">
-                    <div v-if="timeMenuOpen" class="show-menu filter-menu" role="listbox">
-                      <button
-                        v-for="(t, i) in ['', ...timeOptions]"
-                        :key="t || 'all'"
-                        type="button"
-                        class="show-option"
-                        :class="{ active: t === timeFilter }"
-                        :style="{ '--i': i }"
-                        role="option"
-                        :aria-selected="t === timeFilter"
-                        @click="chooseTime(t)"
-                      >
-                        <span>{{ t || 'All Timings' }}</span>
-                        <i v-if="t === timeFilter" class="bi bi-check-lg" aria-hidden="true"></i>
-                      </button>
-                    </div>
-                  </Transition>
-                </div>
+                <!-- Reporting time filter ('' = All Timings) -->
+                <AppDropdown
+                  v-model="timeFilter"
+                  :options="timeDropdownOptions"
+                  icon="bi-clock"
+                  aria-label="Filter by reporting time"
+                  testid="alloc-time-filter"
+                />
 
                 <button
                   v-if="filtersActive"
@@ -1679,119 +1558,5 @@ loadData()
     transition: none;
   }
 }
-/* ===== Show dropdown (same look and animation as the HQ Live Board) ===== */
-.show-select {
-  position: relative;
-  flex: 0 0 auto;
-  z-index: 20; /* keeps the open menu above the chips and cards underneath */
-}
-.show-select.open {
-  z-index: 30;
-}
-.show-btn {
-  max-width: 100%;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 34px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 9px;
-  background: var(--hw-bg);
-  color: var(--bs-secondary-color);
-  font-weight: 600;
-  transition: background-color 0.15s;
-}
-.show-btn:hover {
-  background: var(--bs-secondary-bg);
-}
-.show-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--hw-text);
-}
-.show-chevron {
-  font-size: 0.7rem;
-  transition: transform 0.25s ease;
-}
-.show-chevron.open {
-  transform: rotate(180deg);
-}
-.show-menu {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 0;
-  min-width: 170px;
-  padding: 6px;
-  background: var(--hw-surface);
-  color: var(--hw-text);
-  border: 1px solid var(--bs-border-color);
-  border-radius: 14px;
-  box-shadow: 0 4px 16px rgb(0 0 0 / 0.22);
-}
-/* A long list of zones/times scrolls inside the menu instead of running off the screen */
-.filter-menu {
-  max-height: 260px;
-  overflow-y: auto;
-}
-.show-option {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 9px 12px;
-  border: 0;
-  border-radius: 9px;
-  background: transparent;
-  color: inherit;
-  font-size: 0.9rem;
-  text-align: left;
-  animation: option-in 0.2s ease both;
-  animation-delay: calc(var(--i) * 30ms);
-}
-.show-option:hover {
-  background: var(--hw-bg);
-}
-.show-option.active {
-  background: var(--bs-primary-bg-subtle);
-  color: var(--bs-primary-text-emphasis);
-  font-weight: 600;
-}
-/* The menu grows out of the button */
-.menu-enter-active,
-.menu-leave-active {
-  transition:
-    opacity 0.18s ease,
-    transform 0.18s ease;
-  transform-origin: top left;
-}
-.menu-enter-from,
-.menu-leave-to {
-  opacity: 0;
-  transform: translateY(-6px) scale(0.95);
-}
-/* Options fade in one after another */
-@keyframes option-in {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .show-option {
-    animation: none;
-  }
-  .menu-enter-active,
-  .menu-leave-active,
-  .show-chevron {
-    transition: none;
-  }
-}
+/* The dropdown styles (.show-select, .show-btn, .show-menu, .show-option ...) moved into components/common/AppDropdown.vue */
 </style>

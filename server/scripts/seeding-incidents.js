@@ -1,6 +1,6 @@
 // seeding-incidents.js - adds realistic demo incidents to the "incidents" collection.
-//   node scripts/seeding-incidents.js            adds them (replaces the demo incidents from an earlier run)
-//   node scripts/seeding-incidents.js --remove   deletes the demo incidents again
+//   pnpm run seed:incidents              adds them (replaces the demo incidents from an earlier run)
+//   pnpm run seed:incidents -- --remove  deletes the demo incidents again
 // Only incidents whose slotId starts with "seed-" are ever deleted, so real reports are safe.
 // It needs volunteers who are already assigned to schools (run Allocations on the admin board first).
 

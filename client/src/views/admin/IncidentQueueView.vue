@@ -30,6 +30,7 @@ import IncidentFocusCard from '@/components/incident/IncidentFocusCard.vue'
 import MapNotice from '@/components/map/MapNotice.vue' // temporary status popup (same as the Allocation board)
 import MapLoading from '@/components/map/MapLoading.vue' // NEW: dimmed overlay + spinner shown over the map while data is fetched
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue' // custom card instead of the browser's prompt()
+import AppDropdown from '@/components/common/AppDropdown.vue' // reusable dropdown (replaces the four hand-built menus)
 import { connectSocket } from '@/services/socket' // live updates
 import { getSavedFilter, saveFilter } from '@/services/selected-show'
 import { tipCard, bindTip, createIncidentIcon } from '@/utils/map-icons' // shared hover-card helpers (same as the Allocation and Live boards)
@@ -195,43 +196,8 @@ const schoolFilterOptions = computed(() => [
   ...schoolOptions.value.map((name) => ({ value: name, label: name })),
 ])
 
-const sortMenuOpen = ref(false)
-const typeMenuOpen = ref(false)
-const severityMenuOpen = ref(false)
-const schoolMenuOpen = ref(false)
-const sortEl = ref(null)
-const typeEl = ref(null)
-const severityEl = ref(null)
-const schoolEl = ref(null)
-function labelFor(options, value) {
-  return options.find((o) => o.value === value)?.label ?? ''
-}
-function chooseSort(v) {
-  sortMenuOpen.value = false
-  sortBy.value = v
-}
-function chooseType(v) {
-  typeMenuOpen.value = false
-  typeFilter.value = v
-}
-function chooseSeverity(v) {
-  severityMenuOpen.value = false
-  severityFilter.value = v
-}
-function chooseSchool(v) {
-  schoolMenuOpen.value = false
-  schoolFilter.value = v
-}
-function onDocPointerDown(e) {
-  if (sortMenuOpen.value && sortEl.value && !sortEl.value.contains(e.target))
-    sortMenuOpen.value = false
-  if (typeMenuOpen.value && typeEl.value && !typeEl.value.contains(e.target))
-    typeMenuOpen.value = false
-  if (severityMenuOpen.value && severityEl.value && !severityEl.value.contains(e.target))
-    severityMenuOpen.value = false
-  if (schoolMenuOpen.value && schoolEl.value && !schoolEl.value.contains(e.target))
-    schoolMenuOpen.value = false
-}
+// Each dropdown below is an <AppDropdown>: it keeps its own open/closed state and closes itself on an outside click,
+// so the page only needs the options and the v-model value (sortBy, typeFilter, severityFilter, schoolFilter).
 
 // How many of the three dropdowns are in use (drives the "Clear" button and its badge).
 const activeFilterCount = computed(
@@ -534,7 +500,6 @@ watch(showResolved, plotIncidents)
 let socket = null
 onMounted(async () => {
   socket = connectSocket()
-  document.addEventListener('pointerdown', onDocPointerDown)
   socket.on('incident:new', loadIncidents)
   socket.on('incident:updated', loadIncidents)
   // FIX (C12): after the connection drops and comes back, we may have missed incident events,
@@ -563,7 +528,6 @@ onMounted(async () => {
 })
 // Stop listening when the admin leaves the page, otherwise handlers pile up each time they come back.
 onUnmounted(() => {
-  document.removeEventListener('pointerdown', onDocPointerDown)
   socket?.off('incident:new', loadIncidents)
   socket?.off('incident:updated', loadIncidents)
   socket?.io.off('reconnect', loadIncidents) // FIX (C12): clean up when leaving the page
@@ -666,179 +630,46 @@ onUnmounted(() => {
                 data-testid="inc-search"
                 v-model="searchbar"
               />
-              <div
-                ref="sortEl"
-                class="show-select"
-                :class="{ open: sortMenuOpen }"
-                @keydown.esc="sortMenuOpen = false"
-              >
-                <button
-                  type="button"
-                  class="show-btn"
-                  aria-haspopup="listbox"
-                  :aria-expanded="sortMenuOpen"
-                  aria-label="Sort incidents"
-                  data-testid="inc-sort"
-                  @click="sortMenuOpen = !sortMenuOpen"
-                >
-                  <i class="bi bi-sort-down" aria-hidden="true"></i>
-                  <span class="show-name">{{ labelFor(sortOptions, sortBy) }}</span>
-                  <i
-                    class="bi bi-chevron-down show-chevron"
-                    :class="{ open: sortMenuOpen }"
-                    aria-hidden="true"
-                  ></i>
-                </button>
-                <Transition name="menu">
-                  <div v-if="sortMenuOpen" class="show-menu filter-menu menu-end" role="listbox">
-                    <button
-                      v-for="(opt, i) in sortOptions"
-                      :key="opt.value || 'all'"
-                      type="button"
-                      class="show-option"
-                      :class="{ active: opt.value === sortBy }"
-                      :style="{ '--i': i }"
-                      role="option"
-                      :aria-selected="opt.value === sortBy"
-                      @click="chooseSort(opt.value)"
-                    >
-                      <span>{{ opt.label }}</span>
-                      <i v-if="opt.value === sortBy" class="bi bi-check-lg" aria-hidden="true"></i>
-                    </button>
-                  </div>
-                </Transition>
-              </div>
+              <!-- Sort dropdown. v-model keeps sortBy and the dropdown in sync (the existing watch still saves the choice).
+                   menu-end opens the menu from the right edge so it stays on screen. -->
+              <AppDropdown
+                v-model="sortBy"
+                :options="sortOptions"
+                icon="bi-sort-down"
+                aria-label="Sort incidents"
+                testid="inc-sort"
+                menu-end
+              />
             </div>
 
             <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
-              <div
-                ref="typeEl"
-                class="show-select"
-                :class="{ open: typeMenuOpen }"
-                @keydown.esc="typeMenuOpen = false"
-              >
-                <button
-                  type="button"
-                  class="show-btn"
-                  aria-haspopup="listbox"
-                  :aria-expanded="typeMenuOpen"
-                  aria-label="Filter by incident type"
-                  data-testid="filter-type"
-                  @click="typeMenuOpen = !typeMenuOpen"
-                >
-                  <i class="bi bi-tag" aria-hidden="true"></i>
-                  <span class="show-name">{{ labelFor(typeFilterOptions, typeFilter) }}</span>
-                  <i
-                    class="bi bi-chevron-down show-chevron"
-                    :class="{ open: typeMenuOpen }"
-                    aria-hidden="true"
-                  ></i>
-                </button>
-                <Transition name="menu">
-                  <div v-if="typeMenuOpen" class="show-menu filter-menu" role="listbox">
-                    <button
-                      v-for="(opt, i) in typeFilterOptions"
-                      :key="opt.value || 'all'"
-                      type="button"
-                      class="show-option"
-                      :class="{ active: opt.value === typeFilter }"
-                      :style="{ '--i': i }"
-                      role="option"
-                      :aria-selected="opt.value === typeFilter"
-                      @click="chooseType(opt.value)"
-                    >
-                      <span>{{ opt.label }}</span>
-                      <i v-if="opt.value === typeFilter" class="bi bi-check-lg" aria-hidden="true"></i>
-                    </button>
-                  </div>
-                </Transition>
-              </div>
+              <!-- Incident type filter ('' = All types) -->
+              <AppDropdown
+                v-model="typeFilter"
+                :options="typeFilterOptions"
+                icon="bi-tag"
+                aria-label="Filter by incident type"
+                testid="filter-type"
+              />
 
-              <div
-                ref="severityEl"
-                class="show-select"
-                :class="{ open: severityMenuOpen }"
-                @keydown.esc="severityMenuOpen = false"
-              >
-                <button
-                  type="button"
-                  class="show-btn"
-                  aria-haspopup="listbox"
-                  :aria-expanded="severityMenuOpen"
-                  aria-label="Filter by severity"
-                  data-testid="filter-severity"
-                  @click="severityMenuOpen = !severityMenuOpen"
-                >
-                  <i class="bi bi-exclamation-triangle" aria-hidden="true"></i>
-                  <span class="show-name">{{ labelFor(severityFilterOptions, severityFilter) }}</span>
-                  <i
-                    class="bi bi-chevron-down show-chevron"
-                    :class="{ open: severityMenuOpen }"
-                    aria-hidden="true"
-                  ></i>
-                </button>
-                <Transition name="menu">
-                  <div v-if="severityMenuOpen" class="show-menu filter-menu" role="listbox">
-                    <button
-                      v-for="(opt, i) in severityFilterOptions"
-                      :key="opt.value || 'all'"
-                      type="button"
-                      class="show-option"
-                      :class="{ active: opt.value === severityFilter }"
-                      :style="{ '--i': i }"
-                      role="option"
-                      :aria-selected="opt.value === severityFilter"
-                      @click="chooseSeverity(opt.value)"
-                    >
-                      <span>{{ opt.label }}</span>
-                      <i v-if="opt.value === severityFilter" class="bi bi-check-lg" aria-hidden="true"></i>
-                    </button>
-                  </div>
-                </Transition>
-              </div>
+              <!-- Severity filter ('' = All severities) -->
+              <AppDropdown
+                v-model="severityFilter"
+                :options="severityFilterOptions"
+                icon="bi-exclamation-triangle"
+                aria-label="Filter by severity"
+                testid="filter-severity"
+              />
 
-              <div
-                ref="schoolEl"
-                class="show-select show-select-grow"
-                :class="{ open: schoolMenuOpen }"
-                @keydown.esc="schoolMenuOpen = false"
-              >
-                <button
-                  type="button"
-                  class="show-btn"
-                  aria-haspopup="listbox"
-                  :aria-expanded="schoolMenuOpen"
-                  aria-label="Filter by school"
-                  data-testid="filter-school"
-                  @click="schoolMenuOpen = !schoolMenuOpen"
-                >
-                  <i class="bi bi-building" aria-hidden="true"></i>
-                  <span class="show-name">{{ labelFor(schoolFilterOptions, schoolFilter) }}</span>
-                  <i
-                    class="bi bi-chevron-down show-chevron"
-                    :class="{ open: schoolMenuOpen }"
-                    aria-hidden="true"
-                  ></i>
-                </button>
-                <Transition name="menu">
-                  <div v-if="schoolMenuOpen" class="show-menu filter-menu" role="listbox">
-                    <button
-                      v-for="(opt, i) in schoolFilterOptions"
-                      :key="opt.value || 'all'"
-                      type="button"
-                      class="show-option"
-                      :class="{ active: opt.value === schoolFilter }"
-                      :style="{ '--i': i }"
-                      role="option"
-                      :aria-selected="opt.value === schoolFilter"
-                      @click="chooseSchool(opt.value)"
-                    >
-                      <span>{{ opt.label }}</span>
-                      <i v-if="opt.value === schoolFilter" class="bi bi-check-lg" aria-hidden="true"></i>
-                    </button>
-                  </div>
-                </Transition>
-              </div>
+              <!-- School filter ('' = All schools). grow = stretch to fill the rest of the row. -->
+              <AppDropdown
+                v-model="schoolFilter"
+                :options="schoolFilterOptions"
+                icon="bi-building"
+                aria-label="Filter by school"
+                testid="filter-school"
+                grow
+              />
 
               <button v-if="activeFilterCount" type="button" class="btn btn-sm btn-outline-secondary" @click="clearFilters">
                 Clear ({{ activeFilterCount }})
@@ -1032,132 +863,5 @@ onUnmounted(() => {
   }
 }
 
-.show-select {
-  position: relative;
-  flex: 0 0 auto;
-  max-width: 100%;
-  z-index: 20;
-}
-.show-select.open {
-  z-index: 30;
-}
-.show-select-grow {
-  flex: 1 1 160px;
-}
-.show-select-grow .show-btn {
-  width: 100%;
-}
-.show-select-grow .show-menu {
-  min-width: 100%;
-}
-.show-btn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  max-width: 100%;
-  height: 34px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 9px;
-  background: var(--hw-bg);
-  color: var(--bs-secondary-color);
-  font-weight: 600;
-  transition: background-color 0.15s;
-}
-.show-btn:hover {
-  background: var(--bs-secondary-bg);
-}
-.show-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--hw-text);
-}
-.show-chevron {
-  flex: 0 0 auto;
-  font-size: 0.7rem;
-  transition: transform 0.25s ease;
-}
-.show-chevron.open {
-  transform: rotate(180deg);
-}
-.show-menu {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 0;
-  min-width: 170px;
-  max-width: min(320px, calc(100vw - 24px));
-  padding: 6px;
-  background: var(--hw-surface);
-  color: var(--hw-text);
-  border: 1px solid var(--bs-border-color);
-  border-radius: 14px;
-  box-shadow: 0 4px 16px rgb(0 0 0 / 0.22);
-}
-.show-menu.menu-end {
-  left: auto;
-  right: 0;
-}
-.filter-menu {
-  max-height: 260px;
-  overflow-y: auto;
-}
-.show-option {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 9px 12px;
-  border: 0;
-  border-radius: 9px;
-  background: transparent;
-  color: inherit;
-  font-size: 0.9rem;
-  text-align: left;
-  overflow-wrap: anywhere;
-  animation: option-in 0.2s ease both;
-  animation-delay: calc(var(--i) * 30ms);
-}
-.show-option:hover {
-  background: var(--hw-bg);
-}
-.show-option.active {
-  background: var(--bs-primary-bg-subtle);
-  color: var(--bs-primary-text-emphasis);
-  font-weight: 600;
-}
-.menu-enter-active,
-.menu-leave-active {
-  transition:
-    opacity 0.18s ease,
-    transform 0.18s ease;
-  transform-origin: top left;
-}
-.menu-enter-from,
-.menu-leave-to {
-  opacity: 0;
-  transform: translateY(-6px) scale(0.95);
-}
-@keyframes option-in {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .show-option {
-    animation: none;
-  }
-  .menu-enter-active,
-  .menu-leave-active,
-  .show-chevron {
-    transition: none;
-  }
-}
+/* The dropdown styles (.show-select, .show-btn, .show-menu, .show-option ...) moved into components/common/AppDropdown.vue */
 </style>

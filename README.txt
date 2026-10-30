@@ -34,6 +34,8 @@ RUN LOCALLY  (Node 22 or newer, pnpm installed)
          ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='at-least-8-chars' pnpm run seed:admin
          pnpm run seed:volunteers      (optional: 400 DEMO volunteers around Singapore, password DemoPass123!)
          pnpm run seed:volunteers --remove   (deletes the demo volunteers and their assignments again)
+         pnpm run seed:incidents       (optional: 60 DEMO incidents on the HQ board; needs volunteers assigned to schools first)
+         pnpm run seed:incidents -- --remove   (deletes the demo incidents again)
          pnpm run simulate:responses   (demo volunteers accept/decline their PUBLISHED assignments; --reset undoes it)
          pnpm run dev                  (http://localhost:8000)
      Schools: the "schools" collection must be loaded (data in server/data/primary_schools.json;
