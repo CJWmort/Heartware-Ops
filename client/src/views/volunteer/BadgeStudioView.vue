@@ -1,9 +1,10 @@
 <script setup>
 // Feature 5 – Badge Studio — owner: Hanafi
 // Spec: docs/FEATURES.md   ·   API calls: src/services/   ·   Tests: e2e/
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue' // watch: runs the OneMap lookup when the postal code changes
+import axios from 'axios' // used to call the existing /api/users/postal-lookup route
 import { onBeforeRouteLeave } from 'vue-router'
-import ConfirmDialog from '@/components/common/ConfirmDialog.vue' 
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 // FIX (C1): PageLoading was used in the template (line ~192) but never imported, so Vue
 // could not find it and the "Fetching Your Design..." overlay never showed. Importing it
 // here (same as MyBadgesView.vue does) lets <PageLoading v-if="loading"> render.
@@ -17,10 +18,10 @@ const ribbonText = ref('')
 const locked = ref(false)
 const secondaryColour = ref('#ffffff')
 function contrastColour(hex) {
-  const red = parseInt(hex.slice(1,3), 16)
-  const green = parseInt(hex.slice(3,5), 16)
-  const blue = parseInt(hex.slice(5,7), 16)
-  const brightness = 0.299 * red + 0.587 * green + 0.114 * blue  
+  const red = parseInt(hex.slice(1, 3), 16)
+  const green = parseInt(hex.slice(3, 5), 16)
+  const blue = parseInt(hex.slice(5, 7), 16)
+  const brightness = 0.299 * red + 0.587 * green + 0.114 * blue
   return brightness > 128 ? '#000000' : '#ffffff'
 }
 
@@ -29,15 +30,15 @@ const emblemColour = computed(() => contrastColour(colour.value))
 
 const emblem = ref('heart')
 const emblems = [
-  { key: 'heart',    label: 'Heart',    icon: 'bi-heart-fill',         glyph: '\uF415' },
-  { key: 'star',     label: 'Star',     icon: 'bi-star-fill',          glyph: '\uF586' },
-  { key: 'crescent', label: 'Crescent', icon: 'bi-moon-stars-fill',    glyph: '\uF495' },
-  { key: 'trophy',   label: 'Trophy',   icon: 'bi-trophy-fill',        glyph: '\uF5E6' },
-  { key: 'smile',    label: 'Smile',    icon: 'bi-emoji-smile-fill',   glyph: '\uF324' },
-  { key: 'balloon',  label: 'Balloon',  icon: 'bi-balloon-heart-fill', glyph: '\uF707' },
+  { key: 'heart', label: 'Heart', icon: 'bi-heart-fill', glyph: '\uF415' },
+  { key: 'star', label: 'Star', icon: 'bi-star-fill', glyph: '\uF586' },
+  { key: 'crescent', label: 'Crescent', icon: 'bi-moon-stars-fill', glyph: '\uF495' },
+  { key: 'trophy', label: 'Trophy', icon: 'bi-trophy-fill', glyph: '\uF5E6' },
+  { key: 'smile', label: 'Smile', icon: 'bi-emoji-smile-fill', glyph: '\uF324' },
+  { key: 'balloon', label: 'Balloon', icon: 'bi-balloon-heart-fill', glyph: '\uF707' },
 ]
-const selectedEmblem = computed(() => emblems.find(e => e.key === emblem.value) || emblems[0])
-const ribbonFontSize = computed(() => Math.min(16, 180/(ribbonText.value.length)))
+const selectedEmblem = computed(() => emblems.find((e) => e.key === emblem.value) || emblems[0])
+const ribbonFontSize = computed(() => Math.min(16, 180 / ribbonText.value.length))
 
 const errorMessage = ref('')
 const successMessage = ref('')
@@ -48,21 +49,71 @@ const showOrderForm = ref(false)
 const addressLine1 = ref('')
 const unit = ref('')
 const postalCode = ref('')
+const postalStatus = ref('idle') // 'idle' | 'loading' | 'found' | 'notfound' | 'error' (same states as RegisterView)
+let postalTimer = null // debounce timer: wait until the user stops typing before asking OneMap
 const submitting = ref(false)
 const statusLabels = {
-  placed: 'Placed', in_production: 'In production', shipped: 'Shipped', delivered: 'Delivered'
+  placed: 'Placed',
+  in_production: 'In production',
+  shipped: 'Shipped',
+  delivered: 'Delivered',
 }
 const shapes = [
-  { key: 'circle',  label: 'Circle' },
+  { key: 'circle', label: 'Circle' },
   { key: 'hexagon', label: 'Hexagon' },
-  { key: 'star',    label: 'Star' },
-  { key: 'shield',  label: 'Shield' },
+  { key: 'star', label: 'Star' },
+  { key: 'shield', label: 'Shield' },
 ]
 const statusSteps = ['placed', 'in_production', 'shipped', 'delivered']
-const postalCodeOk = computed(() => postalCode.value.match(/^\d{6}$/) ? true : false)
-const hasActiveOrder = computed (() => orders.value.some(order => order.status === 'placed' || order.status === 'in_production'  || order.status === 'shipped' ))
+const unitOk = computed(() => unit.value.trim().length > 0 && unit.value.trim().length <= 20) // required, free text (#01-234, 38, 38A)
+const hasActiveOrder = computed(() =>
+  orders.value.some(
+    (order) =>
+      order.status === 'placed' || order.status === 'in_production' || order.status === 'shipped',
+  ),
+)
 
-const orderInfoMissing = computed(() => !postalCodeOk.value || !addressLine1.value.trim())
+// Place order stays off until OneMap has confirmed the postal code (which fills the locked address) AND a unit is typed
+const orderInfoMissing = computed(
+  () => postalStatus.value !== 'found' || !addressLine1.value || !unitOk.value,
+)
+
+// Ask our server (which asks OneMap) for the address of this postal code, then fill the locked Address box
+async function lookupPostal(code) {
+  postalStatus.value = 'loading'
+  try {
+    const { data } = await axios.get('/api/users/postal-lookup', {
+      params: { postalCode: code },
+      timeout: 15000,
+    })
+    if (postalCode.value.trim() !== code) return // user typed something else while we waited: ignore this old answer
+    addressLine1.value = data.address // fill the locked address box from OneMap
+    postalStatus.value = 'found'
+  } catch (error) {
+    if (postalCode.value.trim() !== code) return
+    // 404 = OneMap has no such postal code; anything else = we could not reach OneMap
+    postalStatus.value = error.response?.status === 404 ? 'notfound' : 'error'
+  }
+}
+
+// "Try again" link, shown when OneMap could not be reached
+function retryPostal() {
+  const code = postalCode.value.trim()
+  if (/^\d{6}$/.test(code)) lookupPostal(code)
+}
+
+// Postal code typed -> clear the old address, then look up the new one
+watch(postalCode, (value) => {
+  clearTimeout(postalTimer) // cancel the lookup we were waiting to do
+  addressLine1.value = '' // the postal code changed, so the old address is no longer right
+  const code = value.trim()
+  if (!/^\d{6}$/.test(code)) {
+    postalStatus.value = 'idle' // not 6 digits yet: nothing to show
+    return
+  }
+  postalStatus.value = 'loading'
+  postalTimer = setTimeout(() => lookupPostal(code), 400) // debounce: look up only after 400 ms without typing
+})
 
 function stepIndex(status) {
   return statusSteps.indexOf(status)
@@ -71,16 +122,19 @@ function stepIndex(status) {
 function designFromPage() {
   return {
     shape: shape.value,
-    primaryColor: colour.value,  
-    secondaryColor: secondaryColour.value, 
+    primaryColor: colour.value,
+    secondaryColor: secondaryColour.value,
     emblem: emblem.value,
-    ribbonText: ribbonText.value, 
-    }
+    ribbonText: ribbonText.value,
+  }
 }
 
 const savedDesign = ref(null)
 const hasUnsavedChanges = computed(
-  () => !locked.value && savedDesign.value !== null && JSON.stringify(designFromPage()) !== savedDesign.value,
+  () =>
+    !locked.value &&
+    savedDesign.value !== null &&
+    JSON.stringify(designFromPage()) !== savedDesign.value,
 )
 
 // FIX (C10): show a success message, then clear it after 5 seconds so it does not hang around
@@ -92,12 +146,12 @@ function showSuccess(text) {
 }
 
 async function save() {
-  errorMessage.value = ''      
+  errorMessage.value = ''
   successMessage.value = ''
   try {
-    const design = designFromPage() 
+    const design = designFromPage()
     await saveMyDesign(design)
-    savedDesign.value = JSON.stringify(design) 
+    savedDesign.value = JSON.stringify(design)
     showSuccess('Design saved!')
   } catch (error) {
     errorMessage.value = error.friendlyMessage || 'Something went wrong. Please try again.'
@@ -106,17 +160,17 @@ async function save() {
 }
 
 async function placeMyOrder() {
-  errorMessage.value = ''      
+  errorMessage.value = ''
   successMessage.value = ''
   submitting.value = true
   try {
     const design = designFromPage()
     await saveMyDesign(design)
-    savedDesign.value = JSON.stringify(design) 
+    savedDesign.value = JSON.stringify(design)
 
     const newOrder = await placeOrder({
-      line1:      addressLine1.value,
-      unit:       unit.value,
+      line1: addressLine1.value, // display only: the server saves OneMap's own address for this postal code
+      unit: unit.value.trim(), // required, free text
       postalCode: postalCode.value,
     })
 
@@ -125,27 +179,27 @@ async function placeMyOrder() {
     locked.value = true
     showOrderForm.value = false
     showSuccess('Order placed!')
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    window.scrollTo({ top: 0, behavior: 'smooth' })
   } catch (error) {
     errorMessage.value = error.friendlyMessage || 'Something went wrong. Please try again.'
     console.error(error)
   } finally {
-    submitting.value = false 
+    submitting.value = false
   }
 }
 
 onMounted(async () => {
   try {
     const [saved, order] = await Promise.all([getMyDesign(), getMyOrders()])
-    if (saved) {                          
-      colour.value = saved.primaryColor   
+    if (saved) {
+      colour.value = saved.primaryColor
       shape.value = saved.shape
       ribbonText.value = saved.ribbonText
       secondaryColour.value = saved.secondaryColor
       emblem.value = saved.emblem
       locked.value = saved.locked
-    }                         
-    orders.value = order   
+    }
+    orders.value = order
   } catch (error) {
     errorMessage.value = error.friendlyMessage || 'Something went wrong. Please try again.'
     console.error(error)
@@ -153,11 +207,10 @@ onMounted(async () => {
     savedDesign.value = JSON.stringify(designFromPage())
     loading.value = false
   }
-  
 })
 
-const leaveDialog = ref(null) 
-let answerLeave = null 
+const leaveDialog = ref(null)
+let answerLeave = null
 
 onBeforeRouteLeave((to) => {
   if (!hasUnsavedChanges.value) return true
@@ -170,7 +223,7 @@ onBeforeRouteLeave((to) => {
     danger: true,
     icon: 'bi-exclamation-circle-fill',
   }
-  return new Promise((resolve) => (answerLeave = resolve)) 
+  return new Promise((resolve) => (answerLeave = resolve))
 })
 
 function onLeaveAnswer(leave) {
@@ -182,57 +235,116 @@ function onLeaveAnswer(leave) {
 function warnBeforeUnload(event) {
   if (!hasUnsavedChanges.value) return
   event.preventDefault()
-  event.returnValue = '' 
+  event.returnValue = ''
 }
 onMounted(() => window.addEventListener('beforeunload', warnBeforeUnload))
 onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', warnBeforeUnload)
   clearTimeout(successTimer) // C10: stop the message timer when leaving the page
+  clearTimeout(postalTimer) // stop a pending OneMap lookup when leaving the page
 })
 </script>
 
 <template>
   <section class="studio" :class="{ 'is-locked': locked, 'is-loading': loading }">
-    <div class="mb-3">
-      <RouterLink to="/volunteer/badges" class="btn btn-outline-secondary" data-testid="studio-back"><i class="bi bi-arrow-left me-1" aria-hidden="true"></i>Back to my badges</RouterLink>
-    </div>
- 
-    <div v-if="errorMessage" class="alert alert-danger d-flex align-items-start gap-2" role="alert" data-testid="studio-error">
+    <div
+      v-if="errorMessage"
+      class="alert alert-danger d-flex align-items-start gap-2"
+      role="alert"
+      data-testid="studio-error"
+    >
       <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
       <div>{{ errorMessage }}</div>
     </div>
- 
+
     <!-- NEW: overlay fades in/out while data is fetched (content below only shows once loading is false) -->
     <Transition name="loading-fade">
       <PageLoading v-if="loading" contained text="Fetching Your Design..." />
     </Transition>
- 
-    <div v-if="!loading" class="d-flex flex-column gap-4"> <!-- NEW: wait for the data (was v-else after the old spinner block) -->
+
+    <div v-if="!loading" class="d-flex flex-column gap-4">
+      <!-- NEW: wait for the data (was v-else after the old spinner block) -->
       <div class="row g-4">
         <!-- preview -->
         <div class="col-12 col-md-6 col-lg-5 preview-col">
           <div class="card-hw preview-card">
             <div class="preview-stage">
-              <svg viewBox="0 0 200 200" class="preview-svg" role="img" :aria-label="`Preview: ${shape} badge with a ${emblem} emblem`" data-testid="studio-preview">
-                <polygon data-part="primary" v-if="shape === 'hexagon'" points="180,100 140,169.3 60,169.3 20,100 60,30.7 140,30.7" :fill="colour" />
-                <polygon data-part="primary" v-else-if="shape === 'star'" points="100,5 128.2,61.2 190.4,70.6 145.7,114.8 155.8,176.9 100,148 44.2,176.9 54.3,114.8 9.6,70.6 71.8,61.2" :fill="colour" />
-                <path data-part="primary" v-else-if="shape === 'shield'" d="M 25 22 L 175 22 L 175 95 Q 175 155 100 182 Q 25 155 25 95 Z" :fill="colour" />
+              <svg
+                viewBox="0 0 200 200"
+                class="preview-svg"
+                role="img"
+                :aria-label="`Preview: ${shape} badge with a ${emblem} emblem`"
+                data-testid="studio-preview"
+              >
+                <polygon
+                  data-part="primary"
+                  v-if="shape === 'hexagon'"
+                  points="180,100 140,169.3 60,169.3 20,100 60,30.7 140,30.7"
+                  :fill="colour"
+                />
+                <polygon
+                  data-part="primary"
+                  v-else-if="shape === 'star'"
+                  points="100,5 128.2,61.2 190.4,70.6 145.7,114.8 155.8,176.9 100,148 44.2,176.9 54.3,114.8 9.6,70.6 71.8,61.2"
+                  :fill="colour"
+                />
+                <path
+                  data-part="primary"
+                  v-else-if="shape === 'shield'"
+                  d="M 25 22 L 175 22 L 175 95 Q 175 155 100 182 Q 25 155 25 95 Z"
+                  :fill="colour"
+                />
                 <circle data-part="primary" v-else cx="100" cy="100" r="80" :fill="colour" />
-                <rect data-part="secondary" x="0" y="125" width="200" height="30" rx="4" :fill="secondaryColour" />
-                <text x="100" y="145" text-anchor="middle" font-weight="600" :font-size="ribbonFontSize" :fill="textColour">{{ ribbonText }}</text>
-                <text x="100" y="112" text-anchor="middle" font-size="50" font-family="bootstrap-icons" :fill="emblemColour">{{ selectedEmblem.glyph }}</text>
+                <rect
+                  data-part="secondary"
+                  x="0"
+                  y="125"
+                  width="200"
+                  height="30"
+                  rx="4"
+                  :fill="secondaryColour"
+                />
+                <text
+                  x="100"
+                  y="145"
+                  text-anchor="middle"
+                  font-weight="600"
+                  :font-size="ribbonFontSize"
+                  :fill="textColour"
+                >
+                  {{ ribbonText }}
+                </text>
+                <text
+                  x="100"
+                  y="112"
+                  text-anchor="middle"
+                  font-size="50"
+                  font-family="bootstrap-icons"
+                  :fill="emblemColour"
+                >
+                  {{ selectedEmblem.glyph }}
+                </text>
               </svg>
             </div>
             <div class="preview-caption">
-              <template v-if="locked"><i class="bi bi-lock-fill me-1" aria-hidden="true"></i>Your ordered design</template>
-              <template v-else><i class="bi bi-eye me-1" aria-hidden="true"></i>Live preview</template>
+              <template v-if="locked"
+                ><i class="bi bi-lock-fill me-1" aria-hidden="true"></i>Your ordered
+                design</template
+              >
+              <template v-else
+                ><i class="bi bi-eye me-1" aria-hidden="true"></i>Live preview</template
+              >
             </div>
           </div>
         </div>
- 
+
         <div class="col-12 col-md-6 col-lg-7">
           <!-- After ordering -->
-          <div v-if="locked" class="card-hw summary-card p-3 p-lg-4 h-100" data-testid="studio-summary">
+          <div
+            v-if="locked"
+            class="card-hw summary-card p-3 p-lg-4 h-100"
+            data-testid="studio-summary"
+          >
             <div class="locked-note mb-2" role="status" data-testid="studio-locked">
               <i class="bi bi-lock-fill" aria-hidden="true"></i>
               <div>
@@ -244,11 +356,28 @@ onBeforeUnmount(() => {
               <dt>Shape</dt>
               <dd class="text-capitalize">{{ shape }}</dd>
               <dt>Emblem</dt>
-              <dd><i :class="['bi', selectedEmblem.icon, 'spec-icon']" aria-hidden="true"></i>{{ selectedEmblem.label }}</dd>
+              <dd>
+                <i :class="['bi', selectedEmblem.icon, 'spec-icon']" aria-hidden="true"></i
+                >{{ selectedEmblem.label }}
+              </dd>
               <dt>Badge colour</dt>
-              <dd><span class="swatch" :style="{ background: colour }" aria-hidden="true"></span><span class="font-monospace text-uppercase small fw-normal text-muted-hw">{{ colour }}</span></dd>
+              <dd>
+                <span class="swatch" :style="{ background: colour }" aria-hidden="true"></span
+                ><span class="font-monospace text-uppercase small fw-normal text-muted-hw">{{
+                  colour
+                }}</span>
+              </dd>
               <dt>Ribbon colour</dt>
-              <dd><span class="swatch" :style="{ background: secondaryColour }" aria-hidden="true"></span><span class="font-monospace text-uppercase small fw-normal text-muted-hw">{{ secondaryColour }}</span></dd>
+              <dd>
+                <span
+                  class="swatch"
+                  :style="{ background: secondaryColour }"
+                  aria-hidden="true"
+                ></span
+                ><span class="font-monospace text-uppercase small fw-normal text-muted-hw">{{
+                  secondaryColour
+                }}</span>
+              </dd>
               <dt>Ribbon text</dt>
               <dd>
                 <template v-if="ribbonText">"{{ ribbonText }}"</template>
@@ -256,22 +385,45 @@ onBeforeUnmount(() => {
               </dd>
             </dl>
           </div>
- 
+
           <!-- Before ordering -->
           <template v-else>
             <div class="card-hw p-3 p-lg-4">
               <fieldset>
                 <div class="studio-group">
                   <div id="shape-label" class="group-label">Shape</div>
-                  <div class="tile-grid tile-grid-4" role="radiogroup" aria-labelledby="shape-label">
+                  <div
+                    class="tile-grid tile-grid-4"
+                    role="radiogroup"
+                    aria-labelledby="shape-label"
+                  >
                     <template v-for="s in shapes" :key="s.key">
-                      <input :id="'shape-' + s.key" class="btn-check" type="radio" name="shape"
-                             :value="s.key" v-model="shape" :data-testid="'studio-shape-' + s.key" />
+                      <input
+                        :id="'shape-' + s.key"
+                        class="btn-check"
+                        type="radio"
+                        name="shape"
+                        :value="s.key"
+                        v-model="shape"
+                        :data-testid="'studio-shape-' + s.key"
+                      />
                       <label class="option-tile" :for="'shape-' + s.key">
                         <svg viewBox="0 0 200 200" class="tile-shape" aria-hidden="true">
-                          <polygon v-if="s.key === 'hexagon'" points="180,100 140,169.3 60,169.3 20,100 60,30.7 140,30.7" :fill="colour" />
-                          <polygon v-else-if="s.key === 'star'" points="100,5 128.2,61.2 190.4,70.6 145.7,114.8 155.8,176.9 100,148 44.2,176.9 54.3,114.8 9.6,70.6 71.8,61.2" :fill="colour" />
-                          <path v-else-if="s.key === 'shield'" d="M 25 22 L 175 22 L 175 95 Q 175 155 100 182 Q 25 155 25 95 Z" :fill="colour" />
+                          <polygon
+                            v-if="s.key === 'hexagon'"
+                            points="180,100 140,169.3 60,169.3 20,100 60,30.7 140,30.7"
+                            :fill="colour"
+                          />
+                          <polygon
+                            v-else-if="s.key === 'star'"
+                            points="100,5 128.2,61.2 190.4,70.6 145.7,114.8 155.8,176.9 100,148 44.2,176.9 54.3,114.8 9.6,70.6 71.8,61.2"
+                            :fill="colour"
+                          />
+                          <path
+                            v-else-if="s.key === 'shield'"
+                            d="M 25 22 L 175 22 L 175 95 Q 175 155 100 182 Q 25 155 25 95 Z"
+                            :fill="colour"
+                          />
                           <circle v-else cx="100" cy="100" r="80" :fill="colour" />
                         </svg>
                         <span>{{ s.label }}</span>
@@ -279,39 +431,66 @@ onBeforeUnmount(() => {
                     </template>
                   </div>
                 </div>
- 
+
                 <!-- Colours -->
                 <div class="studio-group">
                   <div class="group-label">Colours</div>
                   <div class="row g-2">
                     <div class="col-6">
                       <label for="primary-colour" class="colour-field">
-                        <input id="primary-colour" class="form-control form-control-color" type="color" v-model="colour" data-testid="studio-primary-color" />
+                        <input
+                          id="primary-colour"
+                          class="form-control form-control-color"
+                          type="color"
+                          v-model="colour"
+                          data-testid="studio-primary-color"
+                        />
                         <span>
                           <span class="d-block small fw-semibold">Badge</span>
-                          <span class="d-block small text-muted-hw font-monospace text-uppercase">{{ colour }}</span>
+                          <span class="d-block small text-muted-hw font-monospace text-uppercase">{{
+                            colour
+                          }}</span>
                         </span>
                       </label>
                     </div>
                     <div class="col-6">
                       <label for="ribbon-colour" class="colour-field">
-                        <input id="ribbon-colour" class="form-control form-control-color" type="color" v-model="secondaryColour" data-testid="studio-secondary-color" />
+                        <input
+                          id="ribbon-colour"
+                          class="form-control form-control-color"
+                          type="color"
+                          v-model="secondaryColour"
+                          data-testid="studio-secondary-color"
+                        />
                         <span>
                           <span class="d-block small fw-semibold">Ribbon</span>
-                          <span class="d-block small text-muted-hw font-monospace text-uppercase">{{ secondaryColour }}</span>
+                          <span class="d-block small text-muted-hw font-monospace text-uppercase">{{
+                            secondaryColour
+                          }}</span>
                         </span>
                       </label>
                     </div>
                   </div>
                 </div>
- 
+
                 <!-- Emblems -->
                 <div class="studio-group">
                   <div id="emblem-label" class="group-label">Emblem</div>
-                  <div class="tile-grid tile-grid-6" role="radiogroup" aria-labelledby="emblem-label">
+                  <div
+                    class="tile-grid tile-grid-6"
+                    role="radiogroup"
+                    aria-labelledby="emblem-label"
+                  >
                     <template v-for="e in emblems" :key="e.key">
-                      <input :id="'emblem-' + e.key" class="btn-check" type="radio" name="emblem"
-                             :value="e.key" v-model="emblem" :data-testid="'studio-emblem-' + e.key" />
+                      <input
+                        :id="'emblem-' + e.key"
+                        class="btn-check"
+                        type="radio"
+                        name="emblem"
+                        :value="e.key"
+                        v-model="emblem"
+                        :data-testid="'studio-emblem-' + e.key"
+                      />
                       <label class="option-tile" :for="'emblem-' + e.key">
                         <i :class="['bi', e.icon, 'tile-icon']" aria-hidden="true"></i>
                         <span>{{ e.label }}</span>
@@ -319,96 +498,200 @@ onBeforeUnmount(() => {
                     </template>
                   </div>
                 </div>
- 
+
                 <!-- Ribbon text -->
                 <div class="studio-group">
                   <div class="d-flex justify-content-between align-items-baseline">
                     <label for="ribbon-text" class="group-label">Ribbon text</label>
-                    <span class="small text-muted-hw" data-testid="studio-ribbon-count">{{ ribbonText.length }}/20</span>
+                    <span class="small text-muted-hw" data-testid="studio-ribbon-count"
+                      >{{ ribbonText.length }}/20</span
+                    >
                   </div>
-                  <input id="ribbon-text" class="form-control" type="text" v-model="ribbonText"
-                         placeholder="Your name or a short message" data-testid="studio-ribbon" maxlength="20" />
+                  <input
+                    id="ribbon-text"
+                    class="form-control"
+                    type="text"
+                    v-model="ribbonText"
+                    placeholder="Your name or a short message"
+                    data-testid="studio-ribbon"
+                    maxlength="20"
+                  />
                 </div>
               </fieldset>
- 
+
               <!-- Actions -->
               <div class="action-bar">
-                <button v-if="!showOrderForm" type="button" class="btn btn-brand px-4" data-testid="studio-lock" @click="showOrderForm = true">
+                <button
+                  v-if="!showOrderForm"
+                  type="button"
+                  class="btn btn-brand px-4"
+                  data-testid="studio-lock"
+                  @click="showOrderForm = true"
+                >
                   <i class="bi bi-bag-check me-2" aria-hidden="true"></i>Continue to order
                 </button>
-                <button type="button" class="btn btn-outline-secondary" data-testid="studio-save" @click="save">
+                <button
+                  type="button"
+                  class="btn btn-outline-secondary"
+                  data-testid="studio-save"
+                  @click="save"
+                >
                   <i class="bi bi-cloud-arrow-up me-2" aria-hidden="true"></i>Save design
                 </button>
-                <span v-if="hasUnsavedChanges" class="unsaved-note" role="status" data-testid="studio-unsaved">
+                <span
+                  v-if="hasUnsavedChanges"
+                  class="unsaved-note"
+                  role="status"
+                  data-testid="studio-unsaved"
+                >
                   <i class="bi bi-pencil-fill me-1" aria-hidden="true"></i>Unsaved changes
                 </span>
                 <span v-else-if="successMessage" class="save-note" role="status">
-                  <i class="bi bi-check-circle-fill me-1" aria-hidden="true"></i>{{ successMessage }}
+                  <i class="bi bi-check-circle-fill me-1" aria-hidden="true"></i
+                  >{{ successMessage }}
                 </span>
               </div>
             </div>
- 
+
             <!-- Order form -->
             <div v-if="showOrderForm" class="card-hw p-3 p-lg-4 mt-3" data-testid="order-form">
-              <h2 class="h6 mb-1"><i class="bi bi-truck me-2" aria-hidden="true"></i>Where should we send your badge?</h2>
+              <h2 class="h6 mb-1">
+                <i class="bi bi-truck me-2" aria-hidden="true"></i>Where should we send your badge?
+              </h2>
               <p class="small text-muted-hw mb-3">
-                You're ordering the badge in the preview<span class="d-md-none"> above</span><span class="d-none d-md-inline"> on the left</span>.
+                You're ordering the badge in the preview<span class="d-md-none"> above</span
+                ><span class="d-none d-md-inline"> on the left</span>.
                 <strong class="text-body">Once you place the order, your design is locked.</strong>
               </p>
- 
+
+              <!-- Postal code first: OneMap checks it and fills the locked address below -->
+              <div class="mb-3">
+                <label for="order-postal" class="form-label small fw-semibold">Postal code</label>
+                <input
+                  id="order-postal"
+                  class="form-control"
+                  :class="{
+                    'is-invalid': postalStatus === 'notfound' || postalStatus === 'error',
+                    'is-valid': postalStatus === 'found',
+                  }"
+                  type="text"
+                  v-model="postalCode"
+                  inputmode="numeric"
+                  maxlength="6"
+                  placeholder="e.g. 520201"
+                  autocomplete="postal-code"
+                  aria-describedby="order-postal-help"
+                  data-testid="order-postal"
+                />
+                <!-- one message at a time, depending on what OneMap said -->
+                <div id="order-postal-help" class="small mt-1" data-testid="order-postal-status">
+                  <span v-if="postalStatus === 'loading'" class="text-muted-hw">
+                    <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span
+                    >Checking your postal code...
+                  </span>
+                  <span v-else-if="postalStatus === 'notfound'" class="text-danger"
+                    >This postal code doesn't exist in Singapore. Please check it.</span
+                  >
+                  <span v-else-if="postalStatus === 'error'" class="text-danger">
+                    We can't check your postal code right now.
+                    <a href="#" @click.prevent="retryPostal" data-testid="order-postal-retry"
+                      >Try again</a
+                    >
+                  </span>
+                </div>
+              </div>
               <div class="mb-3">
                 <label for="order-line1" class="form-label small fw-semibold">Address</label>
-                <input id="order-line1" class="form-control" type="text" v-model="addressLine1"
-                       placeholder="e.g. Blk 201 Tampines St 21" autocomplete="address-line1" data-testid="order-address" />
+                <!-- readonly: always filled from the postal code, so the address and postal code can never disagree -->
+                <input
+                  id="order-line1"
+                  class="form-control"
+                  type="text"
+                  v-model="addressLine1"
+                  readonly
+                  placeholder="This will be updated once postal code is verified"
+                  autocomplete="address-line1"
+                  data-testid="order-address"
+                />
               </div>
-              <div class="row g-3 mb-4">
-                <div class="col-6">
-                  <label for="order-unit" class="form-label small fw-semibold">Unit <span class="fw-normal text-muted-hw">(optional)</span></label>
-                  <input id="order-unit" class="form-control" type="text" v-model="unit"
-                         placeholder="e.g. #05-123" autocomplete="address-line2" data-testid="order-unit" />
-                </div>
-                <div class="col-6">
-                  <label for="order-postal" class="form-label small fw-semibold">Postal code</label>
-                  <input id="order-postal" class="form-control" :class="{ 'is-invalid': postalCode && !postalCodeOk }"
-                         type="text" v-model="postalCode" inputmode="numeric" maxlength="6" placeholder="e.g. 520201"
-                         autocomplete="postal-code" aria-describedby="order-postal-help" data-testid="order-postal" />
-                  <div id="order-postal-help" class="invalid-feedback">Postal codes have 6 digits.</div>
-                </div>
+              <div class="mb-4">
+                <label for="order-unit" class="form-label small fw-semibold">Unit number</label>
+                <!-- required, free text: flats use #01-234, landed homes just use the house number such as 38 or 38A -->
+                <input
+                  id="order-unit"
+                  class="form-control"
+                  type="text"
+                  v-model="unit"
+                  maxlength="20"
+                  placeholder="e.g. #01-234/38A"
+                  autocomplete="address-line2"
+                  data-testid="order-unit"
+                />
               </div>
- 
+
               <div class="d-flex flex-wrap gap-2">
-                <button type="button" class="btn btn-brand px-4" :disabled="submitting || orderInfoMissing"
-                        @click="placeMyOrder" data-testid="order-submit" aria-describedby="order-submit-hint">
-                  <span v-if="submitting" class="spinner-border spinner-border-sm me-2" aria-hidden="true"></span>
+                <button
+                  type="button"
+                  class="btn btn-brand px-4"
+                  :disabled="submitting || orderInfoMissing"
+                  @click="placeMyOrder"
+                  data-testid="order-submit"
+                  aria-describedby="order-submit-hint"
+                >
+                  <span
+                    v-if="submitting"
+                    class="spinner-border spinner-border-sm me-2"
+                    aria-hidden="true"
+                  ></span>
                   {{ submitting ? 'Placing order...' : 'Place order' }}
                 </button>
-                <button type="button" class="btn btn-outline-secondary" :disabled="submitting" @click="showOrderForm = false" data-testid="order-cancel">Cancel</button>
-                <div v-if="!submitting && orderInfoMissing" id="order-submit-hint" class="order-hint w-100" data-testid="order-hint">
-                  <i class="bi bi-info-circle me-1" aria-hidden="true"></i>Add your address and a 6-digit postal code to place your order.
+                <button
+                  type="button"
+                  class="btn btn-outline-secondary"
+                  :disabled="submitting"
+                  @click="showOrderForm = false"
+                  data-testid="order-cancel"
+                >
+                  Cancel
+                </button>
+                <div
+                  v-if="!submitting && orderInfoMissing"
+                  id="order-submit-hint"
+                  class="order-hint w-100"
+                  data-testid="order-hint"
+                >
+                  <i class="bi bi-info-circle me-1" aria-hidden="true"></i>Enter a valid postal code
+                  and your unit number to place your order.
                 </div>
               </div>
             </div>
           </template>
         </div>
       </div>
- 
+
       <!-- Orders -->
-      <div class="card-hw p-3 p-lg-4" :class="{ 'order-first': hasActiveOrder }" data-testid="order-list">
+      <div
+        class="card-hw p-3 p-lg-4"
+        :class="{ 'order-first': hasActiveOrder }"
+        data-testid="order-list"
+      >
         <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-3">
           <h2 class="h6 mb-0"><i class="bi bi-box-seam me-2" aria-hidden="true"></i>My orders</h2>
           <span v-if="locked && successMessage" class="save-note" role="status">
             <i class="bi bi-check-circle-fill me-1" aria-hidden="true"></i>{{ successMessage }}
           </span>
         </div>
- 
+
         <div v-if="orders.length === 0" class="empty-orders">
           <i class="bi bi-bag" aria-hidden="true"></i>
           <div>
             <div class="fw-semibold">You haven't ordered a badge yet.</div>
-            <div class="small text-muted-hw">When your design is ready, choose Continue to order.</div>
+            <div class="small text-muted-hw">
+              When your design is ready, choose Continue to order.
+            </div>
           </div>
         </div>
- 
+
         <ul v-else class="list-unstyled mb-0">
           <li v-for="order in orders" :key="order._id" class="order-item">
             <div class="d-flex justify-content-between align-items-start gap-3">
@@ -418,16 +701,32 @@ onBeforeUnmount(() => {
                   <span :style="{ background: order.designSnapshot?.secondaryColor }"></span>
                 </span>
                 <div class="min-w-0">
-                  <div class="fw-semibold text-capitalize">{{ order.designSnapshot?.shape }} · {{ order.designSnapshot?.emblem }}</div>
-                  <div class="small text-muted-hw">Ordered {{ timeAgo(order.createdAt) }} · {{ order.address.line1 }}</div>
+                  <div class="fw-semibold text-capitalize">
+                    {{ order.designSnapshot?.shape }} · {{ order.designSnapshot?.emblem }}
+                  </div>
+                  <div class="small text-muted-hw">
+                    Ordered {{ timeAgo(order.createdAt) }} · {{ order.address.line1 }}
+                  </div>
                 </div>
               </div>
-              <span class="status-pill" data-testid="order-status">{{ statusLabels[order.status] || order.status }}</span>
+              <span class="status-pill" data-testid="order-status">{{
+                statusLabels[order.status] || order.status
+              }}</span>
             </div>
- 
-            <ol class="tracker" :aria-label="'Order progress: ' + (statusLabels[order.status] || order.status)">
-              <li v-for="(step, i) in statusSteps" :key="step" :style="{ '--i': i }"
-                :class="{ done: i < stepIndex(order.status) || order.status === 'delivered' , current: i === stepIndex(order.status) && order.status !== 'delivered' }">
+
+            <ol
+              class="tracker"
+              :aria-label="'Order progress: ' + (statusLabels[order.status] || order.status)"
+            >
+              <li
+                v-for="(step, i) in statusSteps"
+                :key="step"
+                :style="{ '--i': i }"
+                :class="{
+                  done: i < stepIndex(order.status) || order.status === 'delivered',
+                  current: i === stepIndex(order.status) && order.status !== 'delivered',
+                }"
+              >
                 <span class="dot" aria-hidden="true"></span>
                 <span class="step-label">{{ statusLabels[step] }}</span>
               </li>
@@ -436,26 +735,26 @@ onBeforeUnmount(() => {
         </ul>
       </div>
     </div>
-  <ConfirmDialog :dialog="leaveDialog" @answer="onLeaveAnswer" />
+    <ConfirmDialog :dialog="leaveDialog" @answer="onLeaveAnswer" />
   </section>
 </template>
- 
+
 <style scoped>
 .studio {
   position: relative;
-  --studio-navbar-h: 56px; 
-  --tint: rgb(20 33 61 / 0.08); 
-  --dash: #c3c8d2; 
-  --hover-bg: #fafbfd; 
-  --pulse: rgb(20 33 61 / 0.35); 
-  --glow: #ffffff; 
+  --studio-navbar-h: 56px;
+  --tint: rgb(20 33 61 / 0.08);
+  --dash: #c3c8d2;
+  --hover-bg: #fafbfd;
+  --pulse: rgb(20 33 61 / 0.35);
+  --glow: #ffffff;
 }
 [data-bs-theme='dark'] .studio {
-  --tint: rgb(255 255 255 / 0.08); 
+  --tint: rgb(255 255 255 / 0.08);
   --dash: #4a5570;
   --hover-bg: rgb(255 255 255 / 0.04);
   --pulse: rgb(230 234 242 / 0.35);
-  --glow: #24304d; 
+  --glow: #24304d;
 }
 
 /* ---------- Preview ---------- */
@@ -481,7 +780,7 @@ onBeforeUnmount(() => {
   color: var(--hw-muted);
   text-align: center;
 }
- 
+
 @media (min-width: 768px) {
   .studio:not(.is-locked) .preview-card {
     position: sticky;
@@ -507,7 +806,7 @@ onBeforeUnmount(() => {
     display: none;
   }
 }
- 
+
 .studio.is-loading {
   min-height: calc(100vh - 128px);
 }
@@ -520,7 +819,7 @@ onBeforeUnmount(() => {
   flex: 1;
 }
 .studio.is-locked .preview-svg {
-  max-width: 240px; 
+  max-width: 240px;
 }
 .studio .btn-outline-secondary {
   --bs-btn-color: var(--hw-text);
@@ -544,10 +843,10 @@ onBeforeUnmount(() => {
   font-size: 0.85rem;
   color: var(--hw-muted);
 }
- 
+
 /* ---------- Option groups ---------- */
 .studio-group + .studio-group {
-  margin-top: 1.5rem; 
+  margin-top: 1.5rem;
 }
 .group-label {
   display: block;
@@ -558,7 +857,7 @@ onBeforeUnmount(() => {
   text-transform: uppercase;
   color: var(--hw-muted);
 }
- 
+
 .tile-grid {
   display: grid;
   gap: 0.5rem;
@@ -590,7 +889,10 @@ onBeforeUnmount(() => {
   text-align: center;
   cursor: pointer;
   user-select: none;
-  transition: border-color 0.15s, background-color 0.15s, box-shadow 0.15s;
+  transition:
+    border-color 0.15s,
+    background-color 0.15s,
+    box-shadow 0.15s;
 }
 .option-tile:hover {
   border-color: var(--dash);
@@ -603,7 +905,7 @@ onBeforeUnmount(() => {
 .tile-icon {
   font-size: 1.5rem;
   line-height: 1;
-  color: var(--hw-heading); 
+  color: var(--hw-heading);
 }
 .btn-check:checked + .option-tile {
   border-color: var(--hw-red);
@@ -612,7 +914,7 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 .btn-check:checked + .option-tile::after {
-  content: '\f26a'; 
+  content: '\f26a';
   font-family: 'bootstrap-icons';
   position: absolute;
   top: 4px;
@@ -625,7 +927,7 @@ onBeforeUnmount(() => {
   outline: 2px solid var(--hw-heading);
   outline-offset: 2px;
 }
- 
+
 /* Colour fields */
 .colour-field {
   display: flex;
@@ -644,7 +946,7 @@ onBeforeUnmount(() => {
   border-radius: 0.5rem;
   flex-shrink: 0;
 }
- 
+
 /* ---------- Actions ---------- */
 .action-bar {
   display: flex;
@@ -665,10 +967,10 @@ onBeforeUnmount(() => {
 }
 @media (max-width: 575.98px) {
   .action-bar .btn {
-    flex: 1 1 auto; 
+    flex: 1 1 auto;
   }
 }
- 
+
 /* ---------- Locked summary ---------- */
 .locked-note {
   display: flex;
@@ -677,7 +979,7 @@ onBeforeUnmount(() => {
   padding: 0.75rem 1rem;
   border-radius: 0.6rem;
   background: var(--tint);
-  color: var(--hw-heading); 
+  color: var(--hw-heading);
 }
 .locked-note > i {
   font-size: 1.25rem;
@@ -715,7 +1017,7 @@ onBeforeUnmount(() => {
 .spec-icon {
   font-size: 1.1rem;
   line-height: 1;
-  color: var(--hw-heading); 
+  color: var(--hw-heading);
 }
 .swatch {
   width: 1.5rem;
@@ -724,7 +1026,7 @@ onBeforeUnmount(() => {
   border-radius: 0.4rem;
   box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.15);
 }
- 
+
 /* ---------- Orders ---------- */
 .empty-orders {
   display: flex;
@@ -766,12 +1068,12 @@ onBeforeUnmount(() => {
   padding: 0.25rem 0.65rem;
   border-radius: 999px;
   background: var(--tint);
-  color: var(--hw-heading); 
+  color: var(--hw-heading);
   font-size: 0.75rem;
   font-weight: 600;
   white-space: nowrap;
 }
- 
+
 /* Tracker */
 .tracker {
   display: grid;
@@ -835,21 +1137,21 @@ onBeforeUnmount(() => {
   background: var(--hw-success);
 }
 .tracker li.done .dot::after {
-  content: '\f26e'; 
+  content: '\f26e';
   font-family: 'bootstrap-icons';
   font-size: 0.75rem;
   line-height: 1;
   color: #fff;
 }
 .tracker li.current .dot {
-  border-color: var(--hw-heading); 
+  border-color: var(--hw-heading);
   background: var(--hw-heading);
-  box-shadow: 0 0 0 4px var(--tint); 
+  box-shadow: 0 0 0 4px var(--tint);
 }
 .tracker li.current .step-label {
   font-weight: 600;
 }
- 
+
 /* Motion */
 @media (prefers-reduced-motion: no-preference) {
   .tracker li.done::after,
@@ -865,9 +1167,7 @@ onBeforeUnmount(() => {
     animation:
       tracker-dot-in 0.3s ease-out both,
       tracker-pulse 2s ease-out infinite;
-    animation-delay:
-      calc(var(--i) * 0.3s),
-      calc(var(--i) * 0.3s + 0.3s);
+    animation-delay: calc(var(--i) * 0.3s), calc(var(--i) * 0.3s + 0.3s);
   }
 }
 @keyframes tracker-fill {

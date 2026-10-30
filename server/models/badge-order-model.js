@@ -15,7 +15,7 @@ const badgeOrderSchema = new mongoose.Schema(
         },
         address: {
             line1:      { type: String, required: true },
-            unit:       { type: String },
+            unit:       { type: String, required: true, maxlength: 20 }, // now required (free text: #01-234, 38, 38A), max 20 characters
             postalCode: { type: String, required: true, match: /^\d{6}$/ },
         },
         status:     { type: String, enum: statusList, default: 'placed' },

@@ -124,14 +124,27 @@ test.describe('F6 Badges', () => {
     await openStudio(page)
     await page.getByTestId('studio-lock').click()
 
-    // "Place order" stays off until there is an address AND a 6-digit postal code
+    // "Place order" stays off until OneMap confirms the postal code (which fills the locked address) AND a unit is typed
     const submit = page.getByTestId('order-submit')
     await expect(submit).toBeDisabled()
-    await page.getByTestId('order-address').fill('Blk 201 Tampines St 21')
-    await page.getByTestId('order-postal').fill('12')
-    await expect(page.getByText('Postal codes have 6 digits.')).toBeVisible()
+    await expect(page.getByTestId('order-address')).toHaveAttribute('readonly', '') // the address box cannot be typed in
+
+    // A postal code that does not exist is rejected by OneMap: message shown, address stays empty, button stays off
+    await page.getByTestId('order-postal').fill('000000')
+    await expect(page.getByText("This postal code doesn't exist in Singapore.")).toBeVisible()
+    await expect(page.getByTestId('order-address')).toHaveValue('')
+    await page.getByTestId('order-unit').fill('#05-123')
     await expect(submit).toBeDisabled()
+
+    // A real postal code: OneMap fills the address by itself (this needs the server to reach OneMap)
     await page.getByTestId('order-postal').fill('520201')
+    await expect(page.getByTestId('order-address')).not.toHaveValue('')
+    await expect(submit).toBeEnabled()
+
+    // The unit number is required, but any text is fine (flat "#01-234" or landed "38A")
+    await page.getByTestId('order-unit').fill('')
+    await expect(submit).toBeDisabled()
+    await page.getByTestId('order-unit').fill('38A')
     await expect(submit).toBeEnabled()
     await submit.click()
 
