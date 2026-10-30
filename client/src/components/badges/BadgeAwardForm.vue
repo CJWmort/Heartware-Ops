@@ -3,6 +3,7 @@
 // Layout and CSS: AI-generated (declared in README.txt). Logic in the TODOs below: Hanafi.
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import PageLoading from '@/components/common/PageLoading.vue' // NEW: fading "Fetching..." overlay
+import AppDropdown from '@/components/common/AppDropdown.vue' // NEW: the project's shared dropdown (replaces the hand-built ones)
 import { listBadges, listVolunteers, awardBadge } from '@/services/badges.js'
 import { getShows } from '@/services/assignment.js'
 import { getSavedFilter, saveFilter } from '@/services/selected-show'
@@ -53,31 +54,8 @@ const showOptions = computed(() => shows.value.map(s => ({ value: s.name, label:
 watch(badgeCode, (v) => saveFilter('awards-badge', v))
 watch(event, (v) => saveFilter('awards-event', v))
 
-const badgeMenuOpen = ref(false)
-const eventMenuOpen = ref(false)
-const badgeEl = ref(null)
-const eventEl = ref(null)
-
-const badgeFlat = computed(() => badgeOptions.value.flatMap((g) => g.options))
-
-function labelFor(options, value) {
-    return options.find((o) => o.value === value)?.label ?? ''
-}
-
-function chooseBadge(v) {
-    badgeMenuOpen.value = false
-    badgeCode.value = v
-}
-
-function chooseEvent(v) {
-    eventMenuOpen.value = false
-    event.value = v
-}
-
-function onDocPointerDown(e) {
-    if (badgeMenuOpen.value && badgeEl.value && !badgeEl.value.contains(e.target)) badgeMenuOpen.value = false
-    if (eventMenuOpen.value && eventEl.value && !eventEl.value.contains(e.target)) eventMenuOpen.value = false
-}
+// REMOVED: badgeMenuOpen / eventMenuOpen / refs / labelFor / chooseBadge / chooseEvent / onDocPointerDown.
+// AppDropdown now handles opening, closing, outside-click and the label itself.
 
 const selectedBadge = computed(() => {
     const badge = badges.value.find(badge => badge.code === badgeCode.value) 
@@ -139,14 +117,12 @@ function onPickerKeydown(e) {
 
 onMounted(() => {
     document.addEventListener('pointerdown', closeIfOutside)
-    document.addEventListener('pointerdown', onDocPointerDown)
     document.addEventListener('keydown', onPickerKeydown)
     document.addEventListener('focusin', closeIfOutside)
 })
 
 onBeforeUnmount(() => {
     document.removeEventListener('pointerdown', closeIfOutside)
-    document.removeEventListener('pointerdown', onDocPointerDown)
     document.removeEventListener('keydown', onPickerKeydown)
     document.removeEventListener('focusin', closeIfOutside)
 })
@@ -177,47 +153,17 @@ onMounted(loadData)
       <div class="row g-4">
         <div class="col-lg-5">
           <label for="award-badge" class="form-label field-label">Badge</label>
-          <div
-          ref="badgeEl"
-          class="show-select"
-          :class="{ open: badgeMenuOpen }"
-          @keydown.esc="badgeMenuOpen = false"
-        >
-          <button
-            id="award-badge"
-            type="button"
-            class="show-btn"
-            aria-haspopup="listbox"
-            :aria-expanded="badgeMenuOpen"
+          <!-- CHANGED: shared AppDropdown (grouped headings, grey placeholder); v-model keeps badgeCode in sync -->
+          <AppDropdown
+            v-model="badgeCode"
+            :groups="badgeOptions"
+            icon="bi-award"
+            placeholder="Choose a badge"
+            button-id="award-badge"
             aria-label="Choose a badge"
-            data-testid="awards-badge-select"
-            @click="badgeMenuOpen = !badgeMenuOpen"
-          >
-            <i class="bi bi-award" aria-hidden="true"></i>
-            <span class="show-name" :class="{ 'is-placeholder': !labelFor(badgeFlat, badgeCode) }">{{ labelFor(badgeFlat, badgeCode) || 'Choose a badge' }}</span>
-            <i class="bi bi-chevron-down show-chevron" :class="{ open: badgeMenuOpen }" aria-hidden="true"></i>
-          </button>
-          <Transition name="menu">
-            <div v-if="badgeMenuOpen" class="show-menu filter-menu" role="listbox">
-              <template v-for="group in badgeOptions" :key="group.label">
-                <div class="show-group">{{ group.label }}</div>
-                <button
-                  v-for="opt in group.options"
-                  :key="opt.value"
-                  type="button"
-                  class="show-option"
-                  :class="{ active: opt.value === badgeCode }"
-                  role="option"
-                  :aria-selected="opt.value === badgeCode"
-                  @click="chooseBadge(opt.value)"
-                >
-                  <span>{{ opt.label }}</span>
-                  <i v-if="opt.value === badgeCode" class="bi bi-check-lg" aria-hidden="true"></i>
-                </button>
-              </template>
-            </div>
-          </Transition>
-        </div>
+            testid="awards-badge-select"
+            grow
+          />
 
           <div v-if="selectedBadge" class="badge-preview">
             <span class="medal" aria-hidden="true"><i :class="['bi', selectedBadge.icon]"></i></span>
@@ -231,45 +177,17 @@ onMounted(loadData)
           </div>
 
           <label for="award-event" class="form-label field-label mt-3">For which show</label>
-          <div
-          ref="eventEl"
-          class="show-select"
-          :class="{ open: eventMenuOpen }"
-          @keydown.esc="eventMenuOpen = false"
-        >
-          <button
-            id="award-event"
-            type="button"
-            class="show-btn"
-            aria-haspopup="listbox"
-            :aria-expanded="eventMenuOpen"
+          <!-- CHANGED: shared AppDropdown; v-model keeps event in sync -->
+          <AppDropdown
+            v-model="event"
+            :options="showOptions"
+            icon="bi-calendar-event"
+            placeholder="Choose a show"
+            button-id="award-event"
             aria-label="Choose a show"
-            data-testid="awards-event-select"
-            @click="eventMenuOpen = !eventMenuOpen"
-          >
-            <i class="bi bi-calendar-event" aria-hidden="true"></i>
-            <span class="show-name" :class="{ 'is-placeholder': !labelFor(showOptions, event) }">{{ labelFor(showOptions, event) || 'Choose a show' }}</span>
-            <i class="bi bi-chevron-down show-chevron" :class="{ open: eventMenuOpen }" aria-hidden="true"></i>
-          </button>
-          <Transition name="menu">
-            <div v-if="eventMenuOpen" class="show-menu filter-menu" role="listbox">
-              <button
-                v-for="(opt, i) in showOptions"
-                :key="opt.value"
-                type="button"
-                class="show-option"
-                :class="{ active: opt.value === event }"
-                :style="{ '--i': i }"
-                role="option"
-                :aria-selected="opt.value === event"
-                @click="chooseEvent(opt.value)"
-              >
-                <span>{{ opt.label }}</span>
-                <i v-if="opt.value === event" class="bi bi-check-lg" aria-hidden="true"></i>
-              </button>
-            </div>
-          </Transition>
-        </div>
+            testid="awards-event-select"
+            grow
+          />
         </div>
 
         <div class="col-lg-7">
@@ -559,138 +477,5 @@ onMounted(loadData)
   }
 }
 
-.show-select {
-  position: relative;
-  width: 100%;
-  max-width: 100%;
-  z-index: 20;
-}
-.show-select.open {
-  z-index: 30;
-}
-.show-btn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  max-width: 100%;
-  height: 38px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 9px;
-  background: var(--hw-bg);
-  color: var(--bs-secondary-color);
-  font-weight: 600;
-  text-align: left;
-  transition: background-color 0.15s;
-}
-.show-btn:hover {
-  background: var(--bs-secondary-bg);
-}
-.show-btn:focus-visible {
-  outline: 2px solid var(--bs-primary);
-  outline-offset: 2px;
-}
-.show-name {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--hw-text);
-}
-.show-name.is-placeholder {
-  color: var(--hw-muted);
-  font-weight: 500;
-}
-.show-chevron {
-  flex: 0 0 auto;
-  font-size: 0.7rem;
-  transition: transform 0.25s ease;
-}
-.show-chevron.open {
-  transform: rotate(180deg);
-}
-.show-menu {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 0;
-  min-width: 100%;
-  max-width: min(360px, calc(100vw - 24px));
-  padding: 6px;
-  background: var(--hw-surface);
-  color: var(--hw-text);
-  border: 1px solid var(--bs-border-color);
-  border-radius: 14px;
-  box-shadow: 0 4px 16px rgb(0 0 0 / 0.22);
-}
-.filter-menu {
-  max-height: 260px;
-  overflow-y: auto;
-}
-.show-group {
-  padding: 8px 12px 4px;
-  font-size: 0.68rem;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--hw-muted);
-}
-.show-option {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 9px 12px;
-  border: 0;
-  border-radius: 9px;
-  background: transparent;
-  color: inherit;
-  font-size: 0.9rem;
-  text-align: left;
-  overflow-wrap: anywhere;
-  animation: option-in 0.2s ease both;
-  animation-delay: calc(var(--i) * 30ms);
-}
-.show-option:hover {
-  background: var(--hw-bg);
-}
-.show-option.active {
-  background: var(--bs-primary-bg-subtle);
-  color: var(--bs-primary-text-emphasis);
-  font-weight: 600;
-}
-.menu-enter-active,
-.menu-leave-active {
-  transition:
-    opacity 0.18s ease,
-    transform 0.18s ease;
-  transform-origin: top left;
-}
-.menu-enter-from,
-.menu-leave-to {
-  opacity: 0;
-  transform: translateY(-6px) scale(0.95);
-}
-@keyframes option-in {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .show-option {
-    animation: none;
-  }
-  .menu-enter-active,
-  .menu-leave-active,
-  .show-chevron {
-    transition: none;
-  }
-}
+/* REMOVED: the hand-built dropdown styles now live in components/common/AppDropdown.vue */
 </style>

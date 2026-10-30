@@ -18,6 +18,9 @@ const props = defineProps({
   grow: { type: Boolean, default: false }, // true = stretch to fill the free space in a flex row
   menuEnd: { type: Boolean, default: false }, // true = open the menu aligned to the right edge instead of the left
   optionTestidPrefix: { type: String, default: '' }, // e.g. 'alloc-show-option-' gives each option data-testid 'alloc-show-option-1', '-2', ...
+  placeholder: { type: String, default: '' }, // NEW: grey text shown when nothing is picked yet, e.g. 'Choose a show'
+  buttonId: { type: String, default: '' }, // NEW: becomes the button's id so a <label for="..."> can point at it
+  groups: { type: Array, default: null }, // NEW: [{ label, options: [{ value, label }] }] shows headings in the menu; used instead of `options`
 })
 
 // "update:modelValue" is the event name that v-model listens for on a component
@@ -27,9 +30,17 @@ const open = ref(false) // is the menu showing?
 const rootEl = ref(null) // the wrapper element, used to tell whether a click happened inside or outside
 
 // The text on the button: the label of the option whose value matches (empty string if nothing matches)
-const currentLabel = computed(
-  () => props.options.find((o) => o.value === props.modelValue)?.label ?? '',
-)
+// NEW: every option as one flat list, whether or not `groups` is used (the button label is searched in it)
+const allOptions = computed(() => (props.groups ? props.groups.flatMap((g) => g.options) : props.options))
+// CHANGED: searches allOptions instead of props.options, so grouped menus show their label too
+const currentLabel = computed(() => allOptions.value.find((o) => o.value === props.modelValue)?.label ?? '')
+
+// NEW: the menu as one list of rows: a heading row, or an option row (i = its position for the staggered fade-in)
+const rows = computed(() => {
+  if (!props.groups) return props.options.map((opt, i) => ({ opt, i })) // no groups: same rows as before
+  let i = 0 // keeps counting across groups so the fade-in flows down the whole menu
+  return props.groups.flatMap((g) => [{ heading: g.label }, ...g.options.map((opt) => ({ opt, i: i++ }))])
+})
 
 // Picking an option: close the menu, then tell the parent the new value
 function choose(value) {
@@ -60,6 +71,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', onDocPointerDown, 
     @keydown.esc="open = false"
   >
     <button
+      :id="buttonId || null"
       type="button"
       class="show-btn"
       aria-haspopup="listbox"
@@ -70,7 +82,8 @@ onUnmounted(() => document.removeEventListener('pointerdown', onDocPointerDown, 
     >
       <!-- v-if: the icon is optional -->
       <i v-if="icon" class="bi" :class="icon" aria-hidden="true"></i>
-      <span class="show-name">{{ currentLabel }}</span>
+      <!-- CHANGED: shows the grey placeholder while nothing is chosen -->
+      <span class="show-name" :class="{ 'is-placeholder': !currentLabel }">{{ currentLabel || placeholder }}</span>
       <!-- the chevron flips upside down while the menu is open -->
       <i class="bi bi-chevron-down show-chevron" :class="{ open }" aria-hidden="true"></i>
     </button>
@@ -78,21 +91,27 @@ onUnmounted(() => document.removeEventListener('pointerdown', onDocPointerDown, 
     <Transition name="menu">
       <div v-if="open" class="show-menu filter-menu" :class="{ 'menu-end': menuEnd }" role="listbox">
         <!-- "--i" is the option's position; the CSS uses it to stagger the fade-in one after another -->
-        <button
-          v-for="(opt, i) in options"
-          :key="opt.value === '' ? 'all' : opt.value"
-          type="button"
-          class="show-option"
-          :class="{ active: opt.value === modelValue }"
-          :style="{ '--i': i }"
-          role="option"
-          :aria-selected="opt.value === modelValue"
-          :data-testid="optionTestidPrefix ? optionTestidPrefix + (i + 1) : null"
-          @click="choose(opt.value)"
+        <!-- CHANGED: loops over `rows`: each row is either a group heading or an option (option markup is unchanged) -->
+        <template
+          v-for="row in rows"
+          :key="row.heading ? 'g-' + row.heading : row.opt.value === '' ? 'all' : row.opt.value"
         >
-          <span>{{ opt.label }}</span>
-          <i v-if="opt.value === modelValue" class="bi bi-check-lg" aria-hidden="true"></i>
-        </button>
+          <div v-if="row.heading" class="show-group">{{ row.heading }}</div>
+          <button
+            v-else
+            type="button"
+            class="show-option"
+            :class="{ active: row.opt.value === modelValue }"
+            :style="{ '--i': row.i }"
+            role="option"
+            :aria-selected="row.opt.value === modelValue"
+            :data-testid="optionTestidPrefix ? optionTestidPrefix + (row.i + 1) : null"
+            @click="choose(row.opt.value)"
+          >
+            <span>{{ row.opt.label }}</span>
+            <i v-if="row.opt.value === modelValue" class="bi bi-check-lg" aria-hidden="true"></i>
+          </button>
+        </template>
       </div>
     </Transition>
   </div>
@@ -131,18 +150,39 @@ onUnmounted(() => document.removeEventListener('pointerdown', onDocPointerDown, 
   background: var(--hw-bg);
   color: var(--bs-secondary-color);
   font-weight: 600;
+  text-align: left; /* NEW: keeps the label on the left when the button is wide */
   transition: background-color 0.15s;
 }
 .show-btn:hover {
   background: var(--bs-secondary-bg);
 }
+/* NEW: keyboard focus ring (the old Badges dropdowns had one) */
+.show-btn:focus-visible {
+  outline: 2px solid var(--bs-primary);
+  outline-offset: 2px;
+}
 /* Long labels are cut with "..." instead of stretching the button */
 .show-name {
+  flex: 1 1 auto; /* NEW: the label takes the free space, which pushes the arrow to the right edge */
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--hw-text);
+}
+/* NEW: grey, lighter text while nothing is chosen */
+.show-name.is-placeholder {
+  color: var(--hw-muted);
+  font-weight: 500;
+}
+/* NEW: small heading above a group of options (used by the Badge dropdown) */
+.show-group {
+  padding: 8px 12px 4px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--hw-muted);
 }
 .show-chevron {
   flex: 0 0 auto;
