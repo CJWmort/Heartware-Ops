@@ -1,24 +1,22 @@
+// The chat read-state database model: when each side last read a conversation.
+
 const mongoose = require("mongoose");
 
-// One small record per volunteer chat that remembers "read up to here" for each side.
-// The messages themselves stay in the messages collection; this only powers the unread badges.
-// All admins share ONE admin side: when any admin reads a chat, it counts as read for every admin.
 const ThreadStateSchema = new mongoose.Schema(
   {
-    volunteer: { 
-      type: mongoose.Schema.Types.ObjectId, 
-      ref: "Account", 
-      required: true, 
-      unique: true 
+    volunteer: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Account",
+      required: true,
+      unique: true
     },
-    // Epoch (1970) = "never read", so a brand new chat shows as unread for the person who did not send it
-    volunteerLastReadAt: { 
-      type: Date, 
-      default: () => new Date(0) 
+    volunteerLastReadAt: {
+      type: Date,
+      default: () => new Date(0)
     },
-    adminLastReadAt: { 
-      type: Date, 
-      default: () => new Date(0) 
+    adminLastReadAt: {
+      type: Date,
+      default: () => new Date(0)
     },
   },
   { timestamps: true },
@@ -26,9 +24,11 @@ const ThreadStateSchema = new mongoose.Schema(
 
 const ThreadState = mongoose.model("ThreadState", ThreadStateSchema, "threadstates");
 
+// get(volunteerId) - the read-state record of a chat, or null.
 exports.get = (volunteerId) => ThreadState.findOne({ volunteer: volunteerId });
 
-// side is "admin" or "volunteer". $max only ever moves the time forward, and upsert creates the record the first time.
+// markRead(volunteerId, side, upTo) - 1) pick the field (adminLastReadAt or volunteerLastReadAt) 2)
+// $max only ever moves the time FORWARD 3) upsert creates the record the first time.
 exports.markRead = (volunteerId, side, upTo) =>
   ThreadState.findOneAndUpdate(
     { volunteer: volunteerId },
@@ -36,13 +36,12 @@ exports.markRead = (volunteerId, side, upTo) =>
     { upsert: true, new: true, setDefaultsOnInsert: true },
   );
 
-// Runs once at startup. Chats created before ThreadState existed have messages but no read-state record,
-// and a missing record counts as "never read" (so every old chat would show as unread).
-// For each such chat we create a record marked read up to its latest message. Safe to run on every boot:
-// threads that already have a record are skipped, so it never overwrites real read times.
+// backfillLegacy() - runs once at startup to repair old chats. 1) find each chat's latest message time
+// 2) find chats that already have a read-state record 3) for the rest create a record marked "read up
+// to the latest message" so old chats do not all show as unread 4) any error is only logged (never
+// blocks startup).
 exports.backfillLegacy = async () => {
   try {
-    // Native collection used on purpose: requiring messages-model here would create a circular import.
     const messages = mongoose.connection.collection("messages");
     const latest = await messages
       .aggregate([{ $group: { _id: "$thread", lastAt: { $max: "$createdAt" } } }])
@@ -59,7 +58,6 @@ exports.backfillLegacy = async () => {
     );
     console.log(`ThreadState backfill: created ${missing.length} record(s)`);
   } catch (err) {
-    // A backfill problem should never stop the server from starting
     console.error("ThreadState backfill failed:", err.message);
   }
 };

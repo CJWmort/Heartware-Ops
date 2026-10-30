@@ -1,36 +1,22 @@
-// Scarcity-first volunteer matching.
-//
-// volunteers: [{ _id, name, postalCode, address, lat, lng }, ...]
-// locations:  [{ _id, name, postalCode, address, zone, lat, lng, p5Classes, ... }, ...]
-// returns:    [{ volunteer, school, show, distance }, ...]
-//             the same field names as the Assignments model:
-//             volunteer = volunteer _id, school = school _id,
-//             show = the school's show (e.g. "NE Show 4"), distance = km.
-//             `status` is left out so the model's default ("Pending") applies.
-//             one record for each (volunteer, school) pair that was matched.
-//             After those, one record for each volunteer who got no school,
-//             using the `show` argument (the show this run is for):
-//             { volunteer, school: null, name, show, distance: null, status: "Reserve" }.
-// show:       the show name this run is for (e.g. "NE Show 1").
-//             Schools left short simply have fewer records.
+// The main allocation method: schools and volunteers that are hardest to match are matched first, then
+// the rest by distance.
 
 const { haversine } = require("./haversine");
 
-// Distance in km between any two records that have `lat` and `lng`.
+// distanceBetween(a, b) - km between two records that have lat and lng.
 function distanceBetween(a, b) {
   return haversine([a.lat, a.lng], [b.lat, b.lng]);
 }
 
-// True if the value is a real, finite number (rejects undefined, null, "", NaN, Infinity).
-// Numeric strings such as "1.39" are rejected on purpose: they usually mean
-// the data was not parsed properly.
+// isFiniteNumber(value) - true only for real numbers (not null, "", NaN, Infinity or numeric text like
+// "1.39").
 function isFiniteNumber(value) {
   return typeof value === "number" && Number.isFinite(value);
 }
 
-// Check every record up front so bad data fails loudly instead of turning
-// into NaN distances that quietly break sorting and scoring.
-// Throws one Error listing every problem found.
+// validateInputs(volunteers, locations, show) - stops bad data BEFORE matching. 1) show must be a
+// non-empty string 2) every volunteer needs numeric lat/lng in range 3) every school needs numeric
+// lat/lng in range and p5Classes >= 0 4) any problem -> throw ONE error listing them all.
 function validateInputs(volunteers, locations, show) {
   const problems = [];
 
@@ -67,22 +53,19 @@ function validateInputs(volunteers, locations, show) {
   }
 }
 
-// Scarcity score of a location: the average of the shortest `need` distances
-// from the free volunteers to that location. Higher means harder to serve.
+// scarcityScore(location, freeVolunteers) - how hard a school is to staff (higher = harder). 1)
+// distance from every free volunteer to the school 2) sort ascending 3) keep the nearest k (k = places
+// needed, or fewer if not enough volunteers) 4) return the average of those k distances.
 function scarcityScore(location, freeVolunteers) {
-  // 1. Distance from every free volunteer to this location.
   const distances = [];
   for (const volunteer of freeVolunteers) {
     distances.push(distanceBetween(volunteer, location));
   }
 
-  // 2. Sort from smallest to largest.
   distances.sort((x, y) => x - y);
 
-  // 3. Only look at the nearest `need` (or fewer, if not enough volunteers are left).
   const k = Math.min(location.p5Classes, distances.length);
 
-  // 4. Average of those k distances.
   let total = 0;
   for (let i = 0; i < k; i++) {
     total += distances[i];
@@ -90,16 +73,21 @@ function scarcityScore(location, freeVolunteers) {
   return total / k;
 }
 
+// scarcityFirst(volunteers, locations, show) - the main allocation algorithm. Step by step: 1.
+// Validate the inputs. 2. Copy the volunteer list (the caller's list is never changed); keep schools
+// that need at least 1 person in a "todo" list. 3. Repeat while there are schools to fill AND free
+// volunteers: re-score every remaining school, pick the MOST scarce one, give it its nearest free
+// volunteers (as many as it needs), remove those volunteers and the school from the lists. 4. Build
+// one record per matched pair { volunteer, school, name, show, distance (km, 2 decimals) }. 5. Every
+// volunteer still free gets a Reserve record (no school, no distance). 6. Return all records.
 function scarcityFirst(volunteers, locations, show) {
   validateInputs(volunteers, locations, show);
 
-  // Work on copies so the lists passed in are not changed.
   let freeVolunteers = [];
   for (const volunteer of volunteers) {
     freeVolunteers.push(volunteer);
   }
 
-  // Locations still waiting to be filled (skip any that need nobody).
   let todo = [];
   for (const location of locations) {
     if (location.p5Classes > 0) {
@@ -107,14 +95,12 @@ function scarcityFirst(volunteers, locations, show) {
     }
   }
 
-  // Volunteers assigned so far, keyed by location _id.
   const assigned = {};
   for (const location of locations) {
     assigned[location._id] = [];
   }
 
   while (todo.length > 0 && freeVolunteers.length > 0) {
-    // Re-score every remaining location and find the most scarce one.
     let scarcestIndex = 0;
     let highestScore = -Infinity;
     for (let i = 0; i < todo.length; i++) {
@@ -126,7 +112,6 @@ function scarcityFirst(volunteers, locations, show) {
     }
     const location = todo[scarcestIndex];
 
-    // Sort a copy of the free volunteers from closest to farthest.
     const sorted = [];
     for (const volunteer of freeVolunteers) {
       sorted.push(volunteer);
@@ -135,20 +120,17 @@ function scarcityFirst(volunteers, locations, show) {
       (a, b) => distanceBetween(a, location) - distanceBetween(b, location)
     );
 
-    // The closest `need` volunteers go to this location.
     const count = Math.min(location.p5Classes, sorted.length);
     for (let i = 0; i < count; i++) {
       assigned[location._id].push(sorted[i]);
     }
 
-    // Everyone after them in the sorted list is still free.
     const stillFree = [];
     for (let i = count; i < sorted.length; i++) {
       stillFree.push(sorted[i]);
     }
     freeVolunteers = stillFree;
 
-    // This location is done, so take it off the todo list.
     const stillTodo = [];
     for (let i = 0; i < todo.length; i++) {
       if (i !== scarcestIndex) {
@@ -158,8 +140,6 @@ function scarcityFirst(volunteers, locations, show) {
     todo = stillTodo;
   }
 
-  // Build one record per (volunteer, school) pair, school by school in the
-  // same order as the locations passed in.
   const pairs = [];
   for (const location of locations) {
     for (const volunteer of assigned[location._id]) {
@@ -173,15 +153,11 @@ function scarcityFirst(volunteers, locations, show) {
     }
   }
 
-  // Add the volunteers who are still free, meaning they never got a school.
-  // Results are keyed on (volunteer, show), so each one gets a record for the
-  // show this run is for. They have no school and so no distance, so those
-  // two are null.
   for (const volunteer of freeVolunteers) {
     pairs.push({
       volunteer: volunteer._id,
       school: null,
-      name: volunteer.name, // FIX: the model requires `name`; without it the whole run failed whenever volunteers outnumbered places
+      name: volunteer.name,
       show,
       distance: null,
       status: "Reserve"
@@ -192,8 +168,6 @@ function scarcityFirst(volunteers, locations, show) {
 
 module.exports = { scarcityFirst };
 
-// Demo: run with `node scarcityFirst.js`
-// (the volunteers and schools are sample records in the same shape as your database)
 if (require.main === module) {
   const volunteers = [
     { _id: "6ac61321828145318364e844", name: "Charl", postalCode: "793472", address: "Blk 723C Hougang", lat: 1.39631552198212, lng: 103.881167314758 },

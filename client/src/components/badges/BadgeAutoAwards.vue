@@ -1,24 +1,31 @@
+<!-- Admin section on the Badge Awards page that hands out the automatic badges for one show in a
+     single click. -->
+
 <script setup>
-// Feature 5 – "Auto-awards" card on the coordinator page — owner: Hanafi
-// Layout and CSS: AI-generated (declared in README.txt). Logic in the TODOs below: Hanafi.
+// Loads the badge list and the shows, lets the admin pick a show, runs the automatic award on the
+// server and shows how many badges were given.
+
 import { ref, computed, onMounted, watch } from 'vue'
-import PageLoading from '@/components/common/PageLoading.vue' // NEW: fading "Fetching..." overlay
-import AppDropdown from '@/components/common/AppDropdown.vue' // NEW: the project's shared dropdown (replaces the hand-built one)
+import PageLoading from '@/components/common/PageLoading.vue'
+import AppDropdown from '@/components/common/AppDropdown.vue'
 import { listBadges, autoAward } from '@/services/badges.js'
 import { getShows, formatDate } from '@/services/assignment.js'
 import { getSavedFilter, saveFilter } from '@/services/selected-show'
 
-const shows = ref([]) // every show: [{ name: 'NE Show 1', date: '2027-06-27' }, ...]
-const badges = ref([]) // every badge from badges.json
+const shows = ref([])
+const badges = ref([])
 const loading = ref(true)
 const loadError = ref('')
 
-const event = ref(getSavedFilter('awards-auto-show')) // the show picked in the dropdown, e.g. 'NE Show 1'
+const event = ref(getSavedFilter('awards-auto-show'))
 const sending = ref(false)
 const runError = ref('')
-const result = ref(null) // the server's reply: { given: { FULL_ROUTE: 2, EARLY_BIRD: 0, SUPER_SUB: 1 }, skipped: 3 }
-const ranFor = ref('') // which show `result` belongs to
+const result = ref(null)
+const ranFor = ref('')
 
+// loadData() - 1) fetch the badge list and the show list together 2) store them 3) if the remembered
+// show no longer exists choose the first show (or empty) 4) on error show a friendly message and log
+// it 5) always stop loading.
 async function loadData() {
   try {
     const [badgeList, showList] = await Promise.all([listBadges(), getShows()])
@@ -34,6 +41,7 @@ async function loadData() {
   }
 }
 
+// showOptions (computed) - dropdown entries { value: show name, label: "NE Show 1 - 27 June 2027" }.
 const showOptions = computed(() =>
   shows.value.map((s) => ({
     value: s.name,
@@ -41,15 +49,19 @@ const showOptions = computed(() =>
   })),
 )
 
+// Whenever the chosen show changes, save it so the next visit starts on it.
 watch(event, (v) => saveFilter('awards-auto-show', v))
 
-// REMOVED: showMenuOpen / showEl / labelFor / chooseShow / onDocPointerDown.
-// AppDropdown now handles opening, closing, outside-click and the label itself.
-
+// autoBadges (computed) - only the badges whose awardType is "auto" (the ones the app can check
+// itself).
 const autoBadges = computed(() => badges.value.filter((badge) => badge.awardType === 'auto'))
 
+// canRun (computed) - true when a show is chosen and nothing is running.
 const canRun = computed(() => (event.value && !sending.value ? true : false))
 
+// runAuto() - 1) clear the old error and result 2) show "sending" 3) remember which show we ran for 4)
+// ask the server to hand out the automatic badges for that show 5) keep the reply 6) on error show a
+// message 7) always stop "sending".
 async function runAuto() {
   runError.value = ''
   result.value = null
@@ -67,8 +79,11 @@ async function runAuto() {
   }
 }
 
+// resultShown (computed) - the result is shown only while the dropdown still points at the show it was
+// run for.
 const resultShown = computed(() => (result.value && ranFor.value === event.value ? true : false))
 
+// totalGiven (computed) - the sum of all the counts in result.given (0 when there is no result).
 const totalGiven = computed(() => {
   if (!result.value) {
     return 0
@@ -81,10 +96,13 @@ const totalGiven = computed(() => {
   }
 })
 
-onMounted(loadData) // CHANGED: the outside-click listener is no longer needed (AppDropdown has its own)
+// onMounted - load the data when the section opens.
+onMounted(loadData)
 </script>
 
 <template>
+  <!-- The card with the show dropdown, the list of automatic badges, the Run button and the
+       result summary. -->
   <div class="card-hw auto-card" data-testid="awards-auto">
     <div class="section-head">
       <span class="head-icon" aria-hidden="true"><i class="bi bi-stars"></i></span>
@@ -96,8 +114,6 @@ onMounted(loadData) // CHANGED: the outside-click listener is no longer needed (
       </div>
     </div>
 
-    <!-- NEW: box with a contained overlay. No <Transition> on this box on purpose: if the box faded out while the content
-         appeared, both would take up space for 0.5s and the content would jump. -->
     <div v-if="loading" class="loading-area">
       <PageLoading contained text="Fetching Shows..." />
     </div>
@@ -112,10 +128,8 @@ onMounted(loadData) // CHANGED: the outside-click listener is no longer needed (
     </div>
 
     <div v-else-if="!loading" class="row g-4">
-      <!-- Left: the one decision (which show) and the one action (run), with its result right underneath -->
       <div class="col-md-5 col-lg-4">
         <label for="auto-show" class="form-label field-label">For which show</label>
-        <!-- CHANGED: shared AppDropdown; v-model keeps event in sync -->
         <AppDropdown
           v-model="event"
           :options="showOptions"
@@ -159,7 +173,6 @@ onMounted(loadData) // CHANGED: the outside-click listener is no longer needed (
         >
           <i class="bi bi-exclamation-triangle-fill" aria-hidden="true"></i>
           <div class="flex-grow-1">{{ runError }}</div>
-          <!-- FIX (A6): removed "btn-close-sm" - it is not a real Bootstrap class, so it did nothing -->
           <button
             type="button"
             class="btn-close"
@@ -197,7 +210,6 @@ onMounted(loadData) // CHANGED: the outside-click listener is no longer needed (
         </div>
       </div>
 
-      <!-- Right: what the app checks, and how many of each the last run gave (count sits next to its own badge) -->
       <div class="col-md-7 col-lg-8">
         <div class="form-label field-label" id="auto-rules-label">What the app checks</div>
         <ul class="rules" aria-labelledby="auto-rules-label">
@@ -227,7 +239,8 @@ onMounted(loadData) // CHANGED: the outside-click listener is no longer needed (
 </template>
 
 <style scoped>
-/* ---------- Colours that change in dark mode (same idea as main.css and the other badge cards) ---------- */
+/* Styles for the automatic awards card. */
+
 .auto-card {
   --tint: rgb(20 33 61 / 0.08);
   --line: rgb(20 33 61 / 0.1);
@@ -240,8 +253,8 @@ onMounted(loadData) // CHANGED: the outside-click listener is no longer needed (
 [data-bs-theme='dark'] .auto-card {
   --tint: rgb(255 255 255 / 0.07);
   --line: rgb(255 255 255 / 0.08);
-  --accent: var(--hw-landing-accent); /* brighter red, readable on navy */
-  --green: #4cc38a; /* the light-mode green is too dark to read on navy */
+  --accent: var(--hw-landing-accent);
+  --green: #4cc38a;
   --green-tint: rgb(76 195 138 / 0.14);
 }
 @media (min-width: 992px) {
@@ -250,7 +263,6 @@ onMounted(loadData) // CHANGED: the outside-click listener is no longer needed (
   }
 }
 
-/* ---------- Heading (same look as the other two cards on this page) ---------- */
 .section-head {
   display: flex;
   align-items: flex-start;
@@ -286,13 +298,11 @@ onMounted(loadData) // CHANGED: the outside-click listener is no longer needed (
   color: var(--hw-muted);
 }
 
-/* ---------- Left column: show + run ---------- */
 .run-btn {
   width: 100%;
   margin-top: 0.75rem;
   font-weight: 600;
 }
-/* main.css gives .btn-brand no "disabled" colours: keep it red, just faded (same fix as the Give-a-badge form) */
 .auto-card .btn-brand {
   --bs-btn-disabled-bg: var(--hw-red);
   --bs-btn-disabled-border-color: var(--hw-red);
@@ -312,7 +322,6 @@ onMounted(loadData) // CHANGED: the outside-click listener is no longer needed (
   color: var(--green);
 }
 
-/* ---------- Right column: the three rules as one grouped list (common region) ---------- */
 .rules {
   list-style: none;
   margin: 0;
@@ -330,7 +339,6 @@ onMounted(loadData) // CHANGED: the outside-click listener is no longer needed (
 .rule + .rule {
   border-top: 1px solid var(--line);
 }
-/* Same red medal as the Give-a-badge preview, so a badge looks the same everywhere (similarity) */
 .rule-medal {
   display: grid;
   place-items: center;
@@ -349,14 +357,13 @@ onMounted(loadData) // CHANGED: the outside-click listener is no longer needed (
   box-shadow: 0 0 0 3px rgb(214 0 28 / 0.15);
 }
 .rule-text {
-  flex: 1 1 12rem; /* when there is no room for the count beside it, the count drops to the next line */
+  flex: 1 1 12rem;
 }
 .rule-name {
   font-weight: 600;
   color: var(--hw-heading);
 }
 
-/* Result per badge: icon + words + colour (colour never carries the meaning alone) */
 .count-pill {
   display: inline-flex;
   align-items: center;
@@ -376,7 +383,6 @@ onMounted(loadData) // CHANGED: the outside-click listener is no longer needed (
   font-weight: 600;
 }
 
-/* ---------- Phones ---------- */
 @media (max-width: 575.98px) {
   .rule {
     padding: 0.75rem 0.85rem;
@@ -384,9 +390,7 @@ onMounted(loadData) // CHANGED: the outside-click listener is no longer needed (
   .count-pill {
     margin-left: calc(
       40px + 0.85rem
-    ); /* line the count up under the badge name, not under the medal */
+    );
   }
 }
-
-/* REMOVED: the hand-built dropdown styles now live in components/common/AppDropdown.vue */
 </style>

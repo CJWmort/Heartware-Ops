@@ -1,17 +1,18 @@
+<!-- The volunteer's form to report an incident: choose a type, severity, add a note and send. -->
+
 <script setup>
-// Feature 4 – Incident Reporting (volunteer side) — owner: Wei Ming
-// Spec: docs/FEATURES.md   ·   API calls: src/services/   ·   Tests: e2e/
+// Loads the incident types, fills in the address from the location, validates the form, asks for
+// confirmation and sends the report.
+
 import { computed, onMounted, ref, watch } from 'vue'
 import { listTemplates, reportIncident, getAddressAt } from '@/services/incidents'
 import ConfirmDialog from '../common/ConfirmDialog.vue'
 
-// PROP = data the parent (Tracking) hands DOWN to this component
 const props = defineProps({
-  location: { type: Object, default: null }, // { lat, lng, accuracy } or null
-  // FIX: school name sent in from TrackingView, so the admin card does not say "Unknown school"
+  location: { type: Object, default: null },
   school: { type: String, default: '' },
 })
-const emit = defineEmits(['close']) // EMIT = message sent UP to Tracking: 'close' tells it to hide this card
+const emit = defineEmits(['close'])
 
 const templates = ref([])
 const selectedType = ref(null)
@@ -19,16 +20,19 @@ const note = ref('')
 const submitting = ref(false)
 const submitted = ref(false)
 const errorMessage = ref('')
-const address = ref('') // address line to be pre-filled from GPS, volunteer can edit
-const confirmDialog = ref(null) // the card's content, or null while closed`
-let addressRequested = false // Tracking's location changes every few seconds; ask for the address only once
+const address = ref('')
+const confirmDialog = ref(null)
+let addressRequested = false
 
-// Turns the chosen incident's severity into a CSS class name, e.g. 'severity-high'.
-// Falls back to 'medium', the same default that submitReport() uses, so the colour always matches what is sent to HQ.
+// severityClass (computed) - "severity-high / medium / low" for the chosen type (default medium) so
+// the form colour matches what is sent to HQ.
 const severityClass = computed(
   () => `severity-${selectedTemplate.value?.defaultSeverity || 'medium'}`,
 )
 
+// fillAddress() - 1) stop if we already asked or the GPS position is unknown 2) mark as asked 3) look
+// up the street address of the position 4) if one came back and the box is still empty put it in 5)
+// ignore any failure (the volunteer can type it).
 function fillAddress() {
   if (addressRequested || !props.location) return
   addressRequested = true
@@ -38,106 +42,112 @@ function fillAddress() {
     })
     .catch(() => {})
 }
-watch(() => props.location, fillAddress) // the first GPS fix may arrive after the form opens
+// When the GPS position arrives or changes, try fillAddress (first fix may come after the form opens).
+watch(() => props.location, fillAddress)
 
-// FIX (C18): its own function so the "Try again" button can call it too
+// loadTemplates() - fetch the incident types from the server for the type picker; on failure show a
+// message.
 async function loadTemplates() {
   errorMessage.value = ''
   try {
     templates.value = await listTemplates()
   } catch (error) {
-    // fallback text so the red alert is never empty (same idea as C13)
     errorMessage.value = error.friendlyMessage || 'Could not load the incident types.'
   }
 }
 
+// onMounted - fill in the address and load the incident types when the form opens.
 onMounted(() => {
-  fillAddress() // GPS may already be known when the card opens
+  fillAddress()
   loadTemplates()
 })
 
-// The full template of the chosen type (label, icon, severity), used for the step-2 header
+// selectedTemplate (computed) - the full template (label, icon, severity) of the chosen type, or null.
 const selectedTemplate = computed(
   () => templates.value.find((t) => t.type === selectedType.value) || null,
 )
 
-// Back arrow in step 2: return to the type tiles (what the volunteer typed is kept)
+// backToTypes() - step 2 back arrow: forget the chosen type but keep the typed text.
 function backToTypes() {
   selectedType.value = null
 }
 
+// selectTemplate(template) - a tile was tapped: remember its type (this moves the card to step 2).
 function selectTemplate(template) {
-  selectedType.value = template.type // 1. remember which tile
+  selectedType.value = template.type
 }
 
-// null = dialog closed. Setting it to an object opens the card (same pattern as IncidentQueueView).
-
+// resetForm() - clear type, note and address, allow the address lookup again and run it for the next
+// report.
 function resetForm() {
   selectedType.value = null
   note.value = ''
   address.value = ''
-  addressRequested = false // allow the address to be pre-filled again for the next report
+  addressRequested = false
   fillAddress()
 }
 
+// answerConfirm(ok, text) - the "Report sent" popup was dismissed: 1) close the popup 2) clear
+// "submitted" 3) reset the form 4) tell TrackingView to hide the card. (The two arguments are not
+// used.)
 function answerConfirm(ok, text) {
   confirmDialog.value = null
   submitted.value = false
-  resetForm() // only reset form as the form has been submitted to the server
-  emit('close') // "Done" -> tell Tracking to hide this card
+  resetForm()
+  emit('close')
 }
 
+// submitReport() - 1) stop if no type, already submitting or already submitted 2) show busy and clear
+// the error 3) find the template 4) build the payload: type, severity (template default or "medium"),
+// note, trimmed address, school 5) add lat and lng only if the GPS position is known 6) POST it 7)
+// mark submitted and open the "Report sent!" popup with a green tick and only an OK button 8) on error
+// show the message 9) always clear busy.
 async function submitReport() {
-  if (!selectedType.value || submitting.value || submitted.value) return // selectedType is null or submitting is false
+  if (!selectedType.value || submitting.value || submitted.value) return
   submitting.value = true
   errorMessage.value = ''
 
   try {
     const template = templates.value.find((template) => template.type === selectedType.value)
 
-    // const { slotId, school, type, severity, note, lat, lng } = req.body;
     const payload = {
       type: selectedType.value,
-      severity: template?.defaultSeverity || 'medium', //either takes defaultSeverity or baseline medium
+      severity: template?.defaultSeverity || 'medium',
       note: note.value,
       address: address.value.trim(),
-      school: props.school, // FIX: send the school so the admin card shows it instead of "Unknown school"
+      school: props.school,
     }
 
     if (props.location) {
-      //only if location is ready
       payload.lat = props.location.lat
       payload.lng = props.location.lng
     }
 
     await reportIncident(payload)
-    submitted.value = true // blocks double-submits while the dialog is open
-    // confirmDialog sends a pop-up to notify volunteer that report has been sent successfully to HQ
+    submitted.value = true
     confirmDialog.value = {
       title: 'Report sent!',
       text: 'HQ has been notified.',
-      icon: 'bi-check-circle-fill', // a green tick instead of the default question mark
+      icon: 'bi-check-circle-fill',
       confirmText: 'Ok',
       hideCancel: true,
     }
   } catch (error) {
     errorMessage.value = error.friendlyMessage
   } finally {
-    submitting.value = false // this will re-enable Submit button
+    submitting.value = false
   }
 }
 </script>
 
 <template>
-  <!-- Two steps in one card: STEP 1 = pick a type (small card), STEP 2 = the larger form for that type.
-       selectedType decides the step: null = step 1, a value = step 2. -->
+  <!-- Step one shows the incident type tiles; step two shows the severity, address, note and
+       Send button. -->
   <section
     class="rep-card"
     :class="{ 'rep-card--large': selectedType }"
     aria-label="Report an incident"
   >
-    <!-- No '&& !submitted' checks here: while the 'Report sent' popup is open the card keeps its step-2 look instead of shrinking behind it -->
-    <!-- Header: step 1 shows the title; step 2 shows a back arrow + the chosen type -->
     <div class="d-flex justify-content-between align-items-center mb-2 gap-2">
       <div class="d-flex align-items-center gap-2 rep-title">
         <button
@@ -167,17 +177,14 @@ async function submitReport() {
       </button>
     </div>
 
-    <!-- Only this part scrolls when the content is taller than the card -->
     <div class="rep-scroll">
       <div v-if="errorMessage" class="alert alert-danger d-flex align-items-center justify-content-between gap-2">
         <span>{{ errorMessage }}</span>
-        <!-- FIX (C18): only when the type tiles failed to load (nothing to pick from); a failed submit has its own message -->
         <button v-if="!templates.length" type="button" class="btn btn-sm btn-outline-danger flex-shrink-0" @click="loadTemplates">
           Try again
         </button>
       </div>
 
-      <!-- STEP 1: the type tiles -->
       <div v-if="!selectedType" class="rep-tiles" role="group" aria-label="Incident type">
         <button
           v-for="template in templates"
@@ -193,8 +200,6 @@ async function submitReport() {
         </button>
       </div>
 
-      <!-- STEP 2: the larger form for the chosen type -->
-      <!-- :class adds e.g. "severity-high" to the form, so the CSS below can pick the colour -->
       <form v-else class="rep-form" :class="severityClass" @submit.prevent="submitReport">
         <label for="note" class="form-label mb-1">Details for Incident:</label>
         <textarea
@@ -215,7 +220,6 @@ async function submitReport() {
           class="form-control rep-field mb-3"
           placeholder="Postal code, building or road name"
         />
-        <!-- FIX (U6): btn-brand (red) like every other main action, was grey btn-secondary -->
         <button
           class="btn btn-brand w-100"
           type="submit"
@@ -231,12 +235,11 @@ async function submitReport() {
 </template>
 
 <style scoped>
-/* Same look as the other floating cards in the project (IncidentFocusCard, Allocation board): the shared design
-   tokens from assets/main.css, so light / dark theme and radius stay consistent. Left card on tablet/desktop,
-   bottom sheet on phones. */
+/* Styles for the type tiles and severity buttons. */
+
 .rep-card {
   position: absolute;
-  z-index: 1110; /* above Leaflet (1000) and the route sheet (1050), below the notice (1150) */
+  z-index: 1110;
   top: 12px;
   left: 12px;
   width: min(340px, calc(100% - 24px));
@@ -251,15 +254,14 @@ async function submitReport() {
   overflow: hidden;
   transition: width 0.2s ease;
 }
-/* Step 2: a wider card for the form */
 .rep-card--large {
   width: min(520px, calc(100% - 24px));
 }
 .rep-title {
-  min-width: 0; /* lets the title shrink instead of pushing the X out */
+  min-width: 0;
 }
 .rep-scroll {
-  min-height: 0; /* lets this flex child scroll instead of growing */
+  min-height: 0;
   overflow-y: auto;
 }
 @media (max-width: 767.98px) {
@@ -274,18 +276,17 @@ async function submitReport() {
   }
   .rep-card--large {
     width: auto;
-    max-height: 90vh; /* nearly full height in step 2, so the form and the keyboard have room */
+    max-height: 90vh;
   }
 }
 
-/* Type tiles: 2 columns. Colour by severity, using Bootstrap colours. */
 .rep-tiles {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
 }
 .rep-tile {
-  --severity: var(--bs-primary); /* default = low = blue */
+  --severity: var(--bs-primary);
   display: flex;
   align-items: center;
   gap: 8px;
@@ -293,7 +294,7 @@ async function submitReport() {
   background: var(--hw-surface);
   color: var(--hw-text);
   border: 1px solid var(--bs-border-color);
-  border-left: 4px solid var(--severity); /* the severity stripe */
+  border-left: 4px solid var(--severity);
   border-radius: var(--hw-radius);
   font-size: 0.9rem;
   font-weight: 600;
@@ -323,28 +324,23 @@ async function submitReport() {
   outline: 2px solid var(--bs-primary);
   outline-offset: 2px;
 }
-/* Severity colour for the step-2 textboxes. Same --severity trick as .rep-tile above,
-   so the colours match the tiles and the map pins. */
 .rep-form {
-  --severity: var(--bs-primary); /* default = low = blue */
+  --severity: var(--bs-primary);
 }
 .rep-form.severity-high {
-  --severity: var(--bs-danger); /* red */
+  --severity: var(--bs-danger);
 }
 .rep-form.severity-medium {
-  --severity: var(--bs-warning); /* amber */
+  --severity: var(--bs-warning);
 }
 .rep-form.severity-low {
-  --severity: var(--bs-primary); /* blue */
+  --severity: var(--bs-primary);
 }
 
-/* Resting state: coloured border plus a very light tint (6% severity colour mixed into the card colour,
-   so it still looks right in dark mode). */
 .rep-field.form-control {
   border: 2px solid var(--severity);
   background: color-mix(in srgb, var(--severity) 6%, var(--hw-surface));
 }
-/* While typing: replace Bootstrap's default blue glow with a glow in the severity colour */
 .rep-field.form-control:focus {
   border-color: var(--severity);
   box-shadow: 0 0 0 0.2rem color-mix(in srgb, var(--severity) 25%, transparent);

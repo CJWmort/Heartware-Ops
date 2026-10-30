@@ -1,8 +1,11 @@
+<!-- The admin Badge Awards page (F6): award badges, run the automatic awards and move volunteers'
+     badge orders forward. -->
+
 <script setup>
-// Feature 5 – Awards + orders (coordinator) — owner: Hanafi
-// Layout and CSS: AI-generated (declared in README.txt). Logic in the functions below: Hanafi.
+// Loads all orders and moves an order to its next status (placed, in production, delivered).
+
 import { ref, onMounted } from 'vue'
-import PageLoading from '@/components/common/PageLoading.vue' // NEW: fading "Fetching..." overlay
+import PageLoading from '@/components/common/PageLoading.vue'
 import { listAllOrders, updateOrderStatus } from '@/services/badges.js'
 import { timeAgo } from '@/utils/time.js'
 import BadgeAwardForm from '@/components/badges/BadgeAwardForm.vue'
@@ -14,10 +17,12 @@ const statusIcons = { placed: 'bi-receipt', in_production: 'bi-tools', shipped: 
 
 const orders = ref([])
 const loading = ref(true)
-const error = ref('') 
-const actionError = ref('') 
-const savingId = ref(null) 
+const error = ref('')
+const actionError = ref('')
+const savingId = ref(null)
 
+// loadOrders() - 1) show loading and clear the error 2) fetch every order (admin endpoint) 3) store
+// them 4) on failure show a friendly message and log it 5) always stop loading.
 async function loadOrders() {
     loading.value = true
     error.value = ''
@@ -32,36 +37,43 @@ async function loadOrders() {
     }
 }
 
+// nextStatus(order) - the step after the order's current one, or null when it is already delivered.
+// (The Mark-as button is hidden when null.)
 function nextStatus(order) {
-    const current = statusSteps.indexOf(order.status)   
-    const next = statusSteps[current + 1]      
-    return next ? next : null            
+    const current = statusSteps.indexOf(order.status)
+    const next = statusSteps[current + 1]
+    return next ? next : null
 }
 
+// advance(order) - moves an order one step on. 1) work out the next status 2) remember which order is
+// saving and clear the old error 3) ask the server to set that status 4) copy the new status into the
+// row 5) on error reload all orders (so the screen matches the server) and show the message 6) always
+// clear savingId.
 async function advance(order) {
-    const target = nextStatus(order) 
-    savingId.value = order._id            
-    actionError.value = ''          
+    const target = nextStatus(order)
+    savingId.value = order._id
+    actionError.value = ''
     try {
-        const updated = await updateOrderStatus(savingId.value, target)   
-        order.status = updated.status                   
+        const updated = await updateOrderStatus(savingId.value, target)
+        order.status = updated.status
     } catch (e) {
-        await loadOrders()                           
+        await loadOrders()
         actionError.value = e.friendlyMessage || 'Something went wrong. Please try again.'
-        console.error(e)               
+        console.error(e)
     } finally {
-        savingId.value = null                  
+        savingId.value = null
   }
 }
 
+// Load the orders when the page opens. (The two cards above load their own data.)
 onMounted(loadOrders)
 </script>
 
 <template>
+  <!-- The award form, the automatic awards card and the order list with its action buttons. -->
   <section class="awards-page">
     <BadgeAutoAwards />
 
-    <!-- Badge orders -->
     <BadgeAwardForm />
     <div class="card-hw orders-card" data-testid="orders-card">
       <div class="section-head">
@@ -85,7 +97,6 @@ onMounted(loadOrders)
         <button type="button" class="btn-close btn-close-sm" aria-label="Dismiss" @click="actionError = ''"></button>
       </div>
 
-      <!-- NEW: overlay fades in/out while data is fetched (content below only shows once loading is false) -->
       <Transition name="loading-fade">
         <PageLoading v-if="loading" text="Fetching Orders..." />
       </Transition>
@@ -166,23 +177,23 @@ onMounted(loadOrders)
 </template>
 
 <style scoped>
-/* ---------- Colours that change in dark mode (same idea as main.css and the volunteer badge pages) ---------- */
+/* Styles for the order list and its status chips. */
+
 .awards-page {
-  --tint: rgb(20 33 61 / 0.08); /* soft fill behind pills, count bubbles and hovered rows */
-  --line: rgb(20 33 61 / 0.1); /* thin lines between rows */
-  --amber: #8a5a00; /* in production */
-  --blue: #1d5fbf; /* shipped */
-  --green: var(--hw-success); /* delivered */
+  --tint: rgb(20 33 61 / 0.08);
+  --line: rgb(20 33 61 / 0.1);
+  --amber: #8a5a00;
+  --blue: #1d5fbf;
+  --green: var(--hw-success);
 }
 [data-bs-theme='dark'] .awards-page {
   --tint: rgb(255 255 255 / 0.07);
   --line: rgb(255 255 255 / 0.08);
-  --amber: #f2b84b; /* brighter versions: the light-mode ones are too dark to read on navy */
+  --amber: #f2b84b;
   --blue: #7fb2ff;
   --green: #4cc38a;
 }
 
-/* ---------- Card + heading ---------- */
 .orders-card {
   padding: 1.25rem;
 }
@@ -211,7 +222,7 @@ onMounted(loadOrders)
   font-size: 1.15rem;
 }
 [data-bs-theme='dark'] .head-icon {
-  color: var(--hw-landing-accent); /* the brighter red, readable on navy */
+  color: var(--hw-landing-accent);
 }
 .section-title {
   display: flex;
@@ -234,10 +245,9 @@ onMounted(loadOrders)
   font-weight: 700;
 }
 .min-w-0 {
-  min-width: 0; /* lets long names shrink and truncate inside flex rows */
+  min-width: 0;
 }
 
-/* Quiet secondary button (Refresh): visible, but doesn't compete with the row buttons */
 .btn-quiet {
   --bs-btn-color: var(--hw-text);
   --bs-btn-border-color: var(--bs-border-color);
@@ -249,7 +259,6 @@ onMounted(loadOrders)
   --bs-btn-disabled-border-color: var(--bs-border-color);
 }
 
-/* ---------- Empty state ---------- */
 .empty-state {
   display: flex;
   align-items: flex-start;
@@ -264,7 +273,6 @@ onMounted(loadOrders)
   color: var(--hw-muted);
 }
 
-/* ---------- Table ---------- */
 .orders-table {
   width: 100%;
   border-collapse: collapse;
@@ -284,7 +292,7 @@ onMounted(loadOrders)
   padding: 0.85rem 0.75rem;
   border-bottom: 1px solid var(--line);
   vertical-align: middle;
-  max-width: 220px; /* long emails / addresses truncate instead of stretching the table */
+  max-width: 220px;
 }
 .orders-table tbody tr:last-child td {
   border-bottom: 0;
@@ -304,7 +312,6 @@ onMounted(loadOrders)
   white-space: nowrap;
 }
 
-/* Badge colours, shown as two overlapping dots (same as the volunteer's "My orders" card) */
 .snapshot-dots {
   display: inline-flex;
   flex-shrink: 0;
@@ -320,7 +327,6 @@ onMounted(loadOrders)
   margin-left: -7px;
 }
 
-/* ---------- Status: icon + words + colour (colour never carries the meaning alone) ---------- */
 .status-pill {
   display: inline-flex;
   align-items: center;
@@ -361,7 +367,6 @@ onMounted(loadOrders)
   background: var(--green);
 }
 
-/* ---------- Row button: one clear next step ---------- */
 .btn-step {
   --bs-btn-color: var(--hw-heading);
   --bs-btn-border-color: var(--bs-border-color);
@@ -385,10 +390,9 @@ onMounted(loadOrders)
   color: var(--green);
 }
 
-/* ---------- Phones & Tablets: each row becomes a small card, with the column name written beside each value ---------- */
 @media (max-width: 991.98px) {
   .orders-table thead {
-    position: absolute; /* hidden, but screen readers still get the column names */
+    position: absolute;
     width: 1px;
     height: 1px;
     overflow: hidden;
@@ -423,17 +427,16 @@ onMounted(loadOrders)
     display: grid;
     grid-template-columns: 6.5rem minmax(0, 1fr);
     column-gap: 0.75rem;
-    row-gap: 0.15rem; /* lines inside one cell stay close together (proximity) */
+    row-gap: 0.15rem;
     align-items: start;
   }
-  /* everything in a cell sits in the right-hand column, under each other; the label sits on the left */
   .orders-table td[data-label] > * {
     grid-column: 2;
     justify-self: start;
     max-width: 100%;
   }
   .orders-table td[data-label] .text-truncate {
-    white-space: normal; /* phones: wrap long names and emails instead of cutting them off */
+    white-space: normal;
     overflow-wrap: anywhere;
   }
   .orders-table td[data-label]::before {
@@ -452,7 +455,7 @@ onMounted(loadOrders)
     text-align: left;
   }
   .action-cell .btn-step {
-    width: 100%; /* big tap target on phones */
+    width: 100%;
     padding-block: 0.5rem;
   }
 }

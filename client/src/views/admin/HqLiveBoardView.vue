@@ -1,35 +1,38 @@
+<!-- The admin HQ Live Board (F4): a live map of every volunteer on the day with their journey
+     stage, zone arrivals and departures, and a bell for alerts. -->
+
 <script setup>
+// Loads volunteer positions, listens for live updates over the socket, glides the pins, works out the
+// zone and stage of each volunteer, follows a selected volunteer and records zone alerts.
+
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import axios from 'axios'
 import BaseMap from '@/components/map/BaseMap.vue'
 import MapLoading from '@/components/map/MapLoading.vue'
 import MapNotice from '@/components/map/MapNotice.vue'
+import AppDropdown from '@/components/common/AppDropdown.vue'
 import { createVolIcon, createSchoolIcon, volTip, schoolTip, bindTip } from '@/utils/map-icons'
 import { useZoneEventsStore, MAX_EVENTS } from '@/services/zone-events'
 import { useChatStore } from '@/services/chat'
 import { getSavedShow, saveShow } from '@/services/selected-show'
 import { SINGAPORE_CENTER, INNER_RING, OUTER_RING, JOURNEY_STAGES } from '@/utils/constants'
 
-/* ------------------------------------------------------------------ */
-/* Settings                                                            */
-/* ------------------------------------------------------------------ */
-const POLL_MS = 5000 // how often the board is refreshed
-const TICK_MS = 30000 // how often "x min ago" text is recalculated
-const LIVE_MS = 2 * 60 * 1000 // updated within 2 min = live
-const STALE_MS = 10 * 60 * 1000 // within 2-10 min = stale, older = not reporting
-const FOCUS_ZOOM = 17 // max zoom when focusing a volunteer
+const POLL_MS = 5000
+const TICK_MS = 30000
+const LIVE_MS = 2 * 60 * 1000
+const STALE_MS = 10 * 60 * 1000
+const FOCUS_ZOOM = 17
 const SOLO_ZOOM = 15
-const GLIDE_MS = 2000 // how long a marker takes to glide to its new position
-const BIG_JUMP_M = 500 // jumps larger than this snap instead of gliding
+const GLIDE_MS = 2000
+const BIG_JUMP_M = 500
 
 const STATUS = {
-  live: { label: 'Live' }, // < 2min since last updated location
-  stale: { label: 'Stale' }, // > 2min since last updated location
-  offline: { label: 'Not reporting' }, // > 10min since last updated location
-  none: { label: 'Not started' }, // confirmed, but no location received yet
+  live: { label: 'Live' },
+  stale: { label: 'Stale' },
+  offline: { label: 'Not reporting' },
+  none: { label: 'Not started' },
 }
 
-// The zone bands shown as chips (each volunteer is in exactly one)
 const ZONES = [
   { key: 'inner', label: 'Inner', hint: 'Inside the inner ring' },
   { key: 'outer', label: 'Outer', hint: 'Inside the outer ring, outside the inner ring' },
@@ -37,26 +40,27 @@ const ZONES = [
   { key: 'none', label: 'Not started', hint: 'No location received yet' },
 ]
 
-const IMMEDIATE_M = 10 // alert on the first sighting if this far (in metres) past a ring edge (or the GPS accuracy, if larger)
-const MAX_TOASTS = 3 // alert cards visible at once
+const IMMEDIATE_M = 10
+const MAX_TOASTS = 3
 const EVENT_FILTERS = [
   { key: 'all', label: 'All' },
   { key: 'enter', label: 'Arrivals' },
   { key: 'leave', label: 'Departures' },
 ]
-const TOAST_MS = 8000 // how long an alert card stays
-const ZONE_RANK = { outside: 0, outer: 1, inner: 2 } // higher = closer to the venue
+const TOAST_MS = 8000
+const ZONE_RANK = { outside: 0, outer: 1, inner: 2 }
 
-/* ------------------------------------------------------------------ */
-/* Vue state (reactive, used by the template)                          */
-/* ------------------------------------------------------------------ */
-const shows = ref([]) // e.g. ['NE Show 1', ...] for the dropdown
+const shows = ref([])
+// showOptions (computed) - the shows in the shape AppDropdown expects: a list of { value, label }.
+const showOptions = computed(() => shows.value.map((s) => ({ value: s, label: s })))
 const selectedShow = ref('')
-watch(selectedShow, (s) => s && saveShow(s)) // remember the pick for this session
-const volunteers = ref([]) // raw board data from the server
+// watch(selectedShow) - remember the chosen show.
+watch(selectedShow, (s) => s && saveShow(s))
+const volunteers = ref([])
 const loading = ref(true)
 
 const error = ref('')
+// errorNotice (computed) - turns the error text into the popup object MapNotice shows.
 const errorNotice = computed(() =>
   error.value
     ? {
@@ -68,21 +72,21 @@ const errorNotice = computed(() =>
     : null,
 )
 
-const query = ref('') // search text (name only)
-const searchOpen = ref(false) // is the result list showing
-const showMenuOpen = ref(false) // is the show dropdown open
-const showEl = ref(null) // the dropdown wrapper (for outside-click detection)
-const selectedId = ref(null) // volunteer currently selected
-const now = ref(Date.now()) // ticks so "x min ago" stays current
+const query = ref('')
+const searchOpen = ref(false)
+const selectedId = ref(null)
+const now = ref(Date.now())
 const cardEl = ref(null)
 const barEl = ref(null)
-const following = ref(false) // map keeps the selected volunteer centred
-const cardH = ref(0) // height of the bottom card on mobile (moves map controls up)
+const following = ref(false)
+const cardH = ref(0)
 
-let clockOffset = 0 // server time minus browser time, so a wrong phone clock can't skew freshness
+let clockOffset = 0
+// serverNow (computed) - the current time corrected by the offset between this device's clock and the
+// server's clock.
 const serverNow = computed(() => now.value + clockOffset)
 
-// "Just now" / "5 min ago" / "2 h ago" from a number of milliseconds
+// ageText(ms) - "Just now", "5 min ago" or "2 h ago" from a number of milliseconds.
 function ageText(ms) {
   const mins = Math.floor(ms / 60000)
   if (mins < 1) return 'Just now'
@@ -90,13 +94,14 @@ function ageText(ms) {
   return `${Math.floor(mins / 60)} h ago`
 }
 
-// Time since the volunteer's last update, as text
+// agoText(v) - how long ago this volunteer last reported, as text; empty if never.
 function agoText(v) {
   if (!v.updatedAt) return ''
   return ageText(serverNow.value - new Date(v.updatedAt).getTime())
 }
 
-// live / stale / offline / none, based on how old the last update is
+// statusOf(v) - live, stale, offline or none from the age of the last update and the LIVE_MS /
+// STALE_MS limits.
 function statusOf(v) {
   if (!v.updatedAt) return 'none'
   const age = serverNow.value - new Date(v.updatedAt).getTime()
@@ -105,8 +110,9 @@ function statusOf(v) {
   return 'offline'
 }
 
-// True if the point is inside the ring (ray casting). ring = [[lat, lng], ...]
-// Ray casting: stand at the volunteer’s spot, shoot a straight line to the right forever, and count how many times it crosses the polygon’s edge
+// inRing(lat, lng, ring) - true if the point is inside the polygon (ray casting). Steps: 1) start with
+// "outside" 2) for each edge of the polygon, check whether a line going right from the point crosses
+// it 3) every crossing flips inside and outside 4) an odd number of crossings means inside.
 function inRing(lat, lng, ring) {
   let inside = false
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
@@ -119,29 +125,29 @@ function inRing(lat, lng, ring) {
   return inside
 }
 
-// Which band a volunteer is in: inner takes priority, so nobody is counted twice
+// zoneOf(v) - which band a volunteer is in: none (no location), inner, outer, or outside. Inner is
+// tested first so nobody is counted twice.
 function zoneOf(v) {
   if (v.lat == null || v.lng == null) return 'none'
-  if (inRing(v.lat, v.lng, INNER_RING)) return 'inner' // First test, the ray is counted against the inner ring’s edges ONLY
-  if (inRing(v.lat, v.lng, OUTER_RING)) return 'outer' // Second test, only if the first test failed. If the count is odd, the volunteer is inside the outer ring
-  return 'outside' // Both counts were even means the volunteer is Outside.
+  if (inRing(v.lat, v.lng, INNER_RING)) return 'inner'
+  if (inRing(v.lat, v.lng, OUTER_RING)) return 'outer'
+  return 'outside'
 }
 
-// Shortest distance in metres from a point to the edge of a ring.
-// Works in a flat local grid (metres), which is accurate enough at this size.
+// distToRing(lat, lng, ring) - shortest distance in metres from the point to the ring's edge. Steps:
+// 1) convert degrees to metres around the volunteer 2) for each edge, find the closest point on that
+// segment (clamped between its two ends) 3) keep the smallest distance.
 function distToRing(lat, lng, ring) {
-  const mLat = 111320 // metres per degree of latitude
-  const mLng = 111320 * Math.cos((lat * Math.PI) / 180) // metres per degree of longitude here
+  const mLat = 111320
+  const mLng = 111320 * Math.cos((lat * Math.PI) / 180)
   let best = Infinity
 
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
-    // The edge from point j to point i, measured from the volunteer at (0, 0)
     const ax = (ring[j][1] - lng) * mLng
     const ay = (ring[j][0] - lat) * mLat
     const dx = (ring[i][1] - lng) * mLng - ax
     const dy = (ring[i][0] - lat) * mLat - ay
 
-    // Closest point on that edge to the volunteer
     const len2 = dx * dx + dy * dy
     const t = len2 ? Math.max(0, Math.min(1, -(ax * dx + ay * dy) / len2)) : 0
     best = Math.min(best, Math.hypot(ax + t * dx, ay + t * dy))
@@ -149,28 +155,31 @@ function distToRing(lat, lng, ring) {
   return best
 }
 
-// How far a volunteer is from the ring edge that decides their zone
+// zoneDepth(v) - how far inside their current zone the volunteer is, measured to the nearest ring edge
+// that decides the zone (inner: the inner ring; outer: the closer of the two rings; outside: the outer
+// ring).
 function zoneDepth(v) {
   if (v.zone === 'inner') return distToRing(v.lat, v.lng, INNER_RING)
   if (v.zone === 'outer') {
     return Math.min(distToRing(v.lat, v.lng, INNER_RING), distToRing(v.lat, v.lng, OUTER_RING))
   }
-  return distToRing(v.lat, v.lng, OUTER_RING) // outside
+  return distToRing(v.lat, v.lng, OUTER_RING)
 }
 
-// Board data plus the computed status and "ago" text
+// rows (computed) - the board data plus the work out values: status, "ago" text, zone and the journey
+// chip text. Everything on screen reads from rows.
 const rows = computed(() =>
   volunteers.value.map((v) => ({
     ...v,
     status: statusOf(v),
     ago: agoText(v),
     zone: zoneOf(v),
-    stageLabel: v.stage > 0 ? JOURNEY_STAGES[v.stage - 1].short : 'Not started', // journey chip text
+    stageLabel: v.stage > 0 ? JOURNEY_STAGES[v.stage - 1].short : 'Not started',
   })),
 )
 
-// Search results: filtered by name only. Shows everyone when the box is empty
-// or still holds the selected volunteer's name.
+// results (computed) - the search results: by name only; everyone when the box is empty or still holds
+// the selected volunteer's own name.
 const results = computed(() => {
   const q = query.value.trim().toLowerCase()
   const sel = selected.value
@@ -178,18 +187,23 @@ const results = computed(() => {
   return rows.value.filter((v) => v.name.toLowerCase().includes(q))
 })
 
+// selected, liveCount, locatedCount (computed) - the selected volunteer's row, how many are live, and
+// how many have a location.
 const selected = computed(() => rows.value.find((v) => v.volunteerId === selectedId.value) ?? null)
+// liveCount (computed) - how many volunteers are live.
 const liveCount = computed(() => rows.value.filter((v) => v.status === 'live').length)
+// locatedCount (computed) - how many volunteers have a known position.
 const locatedCount = computed(() => rows.value.filter((v) => v.lat != null).length)
 
-// How many volunteers are in each band
+// zoneCounts (computed) - how many volunteers are in each zone chip.
 const zoneCounts = computed(() => {
   const c = { inner: 0, outer: 0, outside: 0, none: 0 }
   rows.value.forEach((v) => c[v.zone]++)
   return c
 })
 
-// Small message shown when there is nothing to see on the map
+// emptyMsg (computed) - the red message when the map has nothing to show: no confirmed volunteers, or
+// nobody has shared a location yet.
 const emptyMsg = computed(() => {
   if (loading.value) return ''
   if (!rows.value.length) return `No confirmed volunteers for ${selectedShow.value}.`
@@ -197,32 +211,29 @@ const emptyMsg = computed(() => {
   return ''
 })
 
-/* ------------------------------------------------------------------ */
-/* Non-reactive state (Leaflet objects and bookkeeping)                */
-/* ------------------------------------------------------------------ */
 let map = null
-let L = null // Leaflet library, passed in by BaseMap
+let L = null
 let zoneLayer = null
 let volunteerLayer = null
 let baseBounds = null
-let schoolMarker = null // marker for the selected volunteer's school
-let pinnedId = null // volunteer whose tooltip is pinned open while selected
-const markers = new Map() // volunteerId -> { marker, status, frame }
+let schoolMarker = null
+let pinnedId = null
+const markers = new Map()
 
-let needFit = false // fit the map to all volunteers once the next board arrives
-let boardLoaded = false // true once data for the current show has arrived
-let hasFitted = false // false until the first fit: the very first fit jumps straight there, no animation
-let requestId = 0 // guards against slow responses overwriting newer ones
+let needFit = false
+let boardLoaded = false
+let hasFitted = false
+let requestId = 0
 let pollTimer = null
 let tickTimer = null
 
+// isDesktop() - true at 992px and wider (Bootstrap "lg"); the layout and camera padding differ on
+// phones.
 const isDesktop = () => window.matchMedia('(min-width: 992px)').matches
 
-/* ------------------------------------------------------------------ */
-/* Map setup                                                           */
-/* ------------------------------------------------------------------ */
-
-// Runs once BaseMap has created the map
+// onMapReady(m, leaflet) - BaseMap is ready: keep the map, create the layers, remember the max bounds,
+// allow quarter zoom steps, move the zoom buttons bottom right, dragging stops follow mode, a tap on
+// the map closes the bell and deselects; then draw the rings, the markers and fit the view.
 function onMapReady(m, leaflet) {
   map = m
   L = leaflet
@@ -231,56 +242,53 @@ function onMapReady(m, leaflet) {
 
   baseBounds = map.options.maxBounds
   map.options.zoomSnap = 0.25
+  // map zoomend / resize - keep the map inside its allowed area.
   map.on('zoomend resize', () => limitView())
 
-  map.zoomControl?.setPosition('bottomright') // move +/- buttons to the bottom right
-  map.on('dragstart', () => (following.value = false)) // dragging the map takes control back
+  map.zoomControl?.setPosition('bottomright')
+  // map dragstart - when the admin drags the map, stop following the selected volunteer.
+  map.on('dragstart', () => (following.value = false))
+  // map click - clicking empty map stops following, closes the bell panel and clears the selection.
   map.on('click', () => {
     following.value = false
-    bellOpen.value = false // tapping the map closes the panel
-    if (selectedId.value) clearSelection() // and deselects, zooming back out to show everyone (same as the card's X button)
+    bellOpen.value = false
+    if (selectedId.value) clearSelection()
   })
 
   drawZones()
-  drawMarkers() // in case the board arrived before the map
+  drawMarkers()
   applyFit()
 }
 
-// Map: draw the inner and outer zones
+// drawZones() - draws the outer ring (blue, dashed) then the inner ring (purple, solid) on top of it.
 function drawZones() {
   zoneLayer.clearLayers()
 
-  // Outer zone: strong blue, dashed border, so it reads as the "wider" area
   L.polygon(OUTER_RING, {
-    color: '#2563eb', // CHANGED: vivid blue border (was grey, which blended into the map)
-    weight: 3, // CHANGED: thicker border (was 1.5) so the edge is easy to see
-    dashArray: '8 6', // ADDED: dashed line, so outer and inner differ by shape and not only colour
+    color: '#2563eb',
+    weight: 3,
+    dashArray: '8 6',
     fillColor: '#2563eb',
-    fillOpacity: 0.14, // CHANGED: slightly stronger tint (was 0.1)
+    fillOpacity: 0.14,
   }).addTo(zoneLayer)
 
-  // Inner zone: purple, solid border. Drawn after the outer one, so it sits on top
   L.polygon(INNER_RING, {
-    color: '#7c3aed', // CHANGED: purple (was the same blue as the outer zone); avoids red, which the offline marker uses
+    color: '#7c3aed',
     weight: 3,
     fillColor: '#7c3aed',
-    fillOpacity: 0.22, // CHANGED: stronger tint so the inner zone is clearly the focus
+    fillOpacity: 0.22,
   }).addTo(zoneLayer)
 }
 
-/* ------------------------------------------------------------------ */
-/* Volunteer markers                                                   */
-/* ------------------------------------------------------------------ */
-
-// Brings the map in line with the board: adds new markers, glides moved ones,
-// recolours changed ones and removes volunteers who are gone. Markers are
-// updated in place, never redrawn from scratch.
+// drawMarkers() - makes the map match the board: a new volunteer gets a marker (clicking selects
+// them); a changed status recolours it and updates its tooltip; a moved one glides; a volunteer who
+// left the board is removed. Markers are updated in place, never redrawn.
 function drawMarkers() {
   if (!map) return
   const seen = new Set()
 
   rows.value.forEach((v) => {
-    if (v.lat == null || v.lng == null) return // not started: no marker
+    if (v.lat == null || v.lng == null) return
     seen.add(v.volunteerId)
     const entry = markers.get(v.volunteerId)
 
@@ -288,7 +296,7 @@ function drawMarkers() {
       const marker = L.marker([v.lat, v.lng], {
         icon: createVolIcon(v.status),
         zIndexOffset: 500,
-        keyboard: false, // not focusable, so a focus/blur can't close the pinned tooltip
+        keyboard: false,
       })
         .on('click', () => selectVolunteer(v.volunteerId))
         .addTo(volunteerLayer)
@@ -299,13 +307,12 @@ function drawMarkers() {
 
     if (entry.status !== v.status) {
       entry.marker.setIcon(createVolIcon(v.status))
-      entry.marker.setTooltipContent(volTip(v)) // badge colour follows the new status
+      entry.marker.setTooltipContent(volTip(v))
       entry.status = v.status
     }
     glideTo(entry, v.lat, v.lng)
   })
 
-  // Remove markers for volunteers no longer on the board
   markers.forEach((entry, id) => {
     if (seen.has(id)) return
     cancelAnimationFrame(entry.frame)
@@ -313,11 +320,11 @@ function drawMarkers() {
     markers.delete(id)
   })
 
-  applyFocus() // new or recoloured markers get the right shade
+  applyFocus()
 }
 
-// With a volunteer selected, every other marker gets a lighter shade and the selected one sits above the rest,
-// so it is easy to find in a crowd. Done by toggling a class (not by redrawing), so pinned tooltips are untouched.
+// applyFocus() - with someone selected, every other marker gets a lighter shade and the selected one
+// goes on top (by toggling a class, so tooltips are untouched).
 function applyFocus() {
   markers.forEach((entry, id) => {
     const isSelected = id === selectedId.value
@@ -329,9 +336,10 @@ function applyFocus() {
   })
 }
 
-let followFlying = false // true while the zoom-in animation of follow mode is running
+let followFlying = false
 
-// Map centre that puts a point in the middle of the uncovered part of the map (clear of the top bar and bottom card)
+// followTarget(latlng, zoom) - the map centre that puts a point in the middle of the uncovered area
+// (on phones the bottom card covers part of the map).
 function followTarget(latlng, zoom) {
   let dy = 0
   if (!isDesktop() && cardEl.value) {
@@ -342,14 +350,16 @@ function followTarget(latlng, zoom) {
   return map.unproject(pt, zoom)
 }
 
-// Keeps the selected volunteer centred while follow mode is on
+// followIfSelected(entry) - while follow mode is on, keep the selected volunteer centred as the marker
+// moves.
 function followIfSelected(entry) {
   if (!following.value || followFlying || !map || markers.get(selectedId.value) !== entry) return
   const zoom = map.getZoom()
   map.setView(followTarget(entry.marker.getLatLng(), zoom), zoom, { animate: false })
 }
 
-// Zooms all the way in on the selected volunteer, centred in the visible area
+// followZoomIn() - zoom all the way in on the selected volunteer (blocks other camera moves for the
+// flight; a timer is the fallback if the end event never fires).
 function followZoomIn() {
   const entry = markers.get(selectedId.value)
   if (!entry || !map) return
@@ -357,16 +367,20 @@ function followZoomIn() {
   const zoom = Number.isFinite(max) ? max : 19
   limitView(zoom)
   followFlying = true
+  // map moveend (once) - the follow fly-to has finished, so clear the flying flag.
   map.once('moveend', () => (followFlying = false))
-  setTimeout(() => (followFlying = false), 1500) // fallback in case moveend never fires
+  setTimeout(() => (followFlying = false), 1500)
   map.flyTo(followTarget(entry.marker.getLatLng(), zoom), zoom, { duration: 0.6 })
 }
 
+// toggleFollow() - the crosshair button: turn follow mode on (and zoom in) or off.
 function toggleFollow() {
   following.value = !following.value
   if (following.value) followZoomIn()
 }
 
+// watch(cardH) - when the bottom card changes height, re-centre the followed volunteer in the new free
+// area.
 watch(cardH, async () => {
   if (!following.value || !map) return
   await nextTick()
@@ -377,7 +391,8 @@ watch(cardH, async () => {
   map.setView(followTarget(entry.marker.getLatLng(), zoom), zoom, { animate: false })
 })
 
-// Animates a marker to a new position so it glides instead of jumping
+// glideTo(entry, lat, lng) - moves a marker smoothly: ignore moves under 1 m, snap for jumps over 500
+// m, otherwise animate over 2 seconds with requestAnimationFrame (progress 0 to 1).
 function glideTo(entry, lat, lng) {
   const from = entry.marker.getLatLng()
   const to = L.latLng(lat, lng)
@@ -392,8 +407,10 @@ function glideTo(entry, lat, lng) {
   }
 
   const start = performance.now()
+  // step(t) - one animation frame of a marker glide: moves the marker part of the way, keeps the map
+  // on it if it is selected, and asks for the next frame until done.
   const step = (t) => {
-    const p = Math.min((t - start) / GLIDE_MS, 1) // progress from 0 to 1
+    const p = Math.min((t - start) / GLIDE_MS, 1)
     entry.marker.setLatLng([from.lat + (to.lat - from.lat) * p, from.lng + (to.lng - from.lng) * p])
     followIfSelected(entry)
     if (p < 1) entry.frame = requestAnimationFrame(step)
@@ -401,18 +418,14 @@ function glideTo(entry, lat, lng) {
   entry.frame = requestAnimationFrame(step)
 }
 
-// Keep the map in step with the data (new positions, status colours changing with time)
+// Keep the map in step with the data (new positions, status colours changing with time) Watches:
+// redraw markers when rows change; re-shade markers when the selection changes.
 watch(rows, drawMarkers)
-watch(selectedId, applyFocus) // selecting / deselecting a volunteer re-shades the markers
+// watch(selectedId) - when a volunteer is selected or cleared, apply the map focus.
+watch(selectedId, applyFocus)
 
-/* ------------------------------------------------------------------ */
-/* Camera                                                              */
-/* ------------------------------------------------------------------ */
-
-// Show every volunteer who has a location. mode:
-//   'fly'    : flyTo animation (it zooms OUT then back IN; fine for the deselect button, where we come from a close zoom)
-//   'smooth' : straight pan/zoom to the target, no out-and-in arc (used when switching show)
-//   'jump'   : no animation at all (used for the first fit when the board opens)
+// fitAll(mode) - fit the camera to every volunteer who has a location. fly = animated arc, smooth =
+// straight move, jump = no animation. With nobody located it shows Singapore.
 function fitAll(mode = 'fly') {
   if (!map) return
   const pts = rows.value.filter((v) => v.lat != null).map((v) => [v.lat, v.lng])
@@ -426,14 +439,16 @@ function fitAll(mode = 'fly') {
   else map.fitBounds(pts, { ...padding, animate: mode === 'smooth' })
 }
 
-// Fit to everyone, but only once per show, and only after both the map and data exist
+// applyFit() - fit to everyone, but only once per show and only when both the map and data exist.
 function applyFit() {
   if (!map || !boardLoaded || !needFit) return
   needFit = false
-  fitAll(hasFitted ? 'smooth' : 'jump') // first time: jump (no zoom-out-and-in); later shows: smooth
+  fitAll(hasFitted ? 'smooth' : 'jump')
   hasFitted = true
 }
 
+// coveredInsets() - measures how much of the map is covered: the top bar at the top, the bottom card
+// at the bottom, and the free height between.
 function coveredInsets() {
   const box = map.getContainer().getBoundingClientRect()
   const top = barEl.value ? barEl.value.getBoundingClientRect().bottom - box.top : 0
@@ -441,12 +456,16 @@ function coveredInsets() {
   return { top, bottom: box.height - cardTop, free: cardTop - top }
 }
 
+// mobileInsets(maxRoom) - extra padding for phones so the pins stay clear of the bar and the card.
 function mobileInsets(maxRoom = 90) {
   const { top, bottom, free } = coveredInsets()
   const room = Math.max(20, Math.min(maxRoom, (free - 100) / 2))
   return { top: top + room, bottom: bottom + room }
 }
 
+// limitView(zoom) - keeps the map within Singapore. With no selection (or on desktop) use the base
+// bounds; on phones with a card, enlarge the bounds by the covered part so the pins can reach the
+// visible area.
 function limitView(zoom) {
   if (!map || !baseBounds) return
   if (!selectedId.value || isDesktop()) {
@@ -463,6 +482,8 @@ function limitView(zoom) {
   map.setMaxBounds(L.latLngBounds(map.unproject(sw, z), map.unproject(ne, z)))
 }
 
+// cameraFor(pts, padTL, padBR, maxZoom) - the zoom and centre that fit the points inside the uncovered
+// area (also in the Allocation board).
 function cameraFor(pts, padTL, padBR, maxZoom) {
   const bounds = L.latLngBounds(pts)
   const zoom = Math.min(map.getBoundsZoom(bounds, false, padTL.add(padBR)), maxZoom)
@@ -473,6 +494,7 @@ function cameraFor(pts, padTL, padBR, maxZoom) {
   return { zoom, target }
 }
 
+// isClear(pt, camera, padTL, padBR) - true if a point would be in the uncovered area with that camera.
 function isClear(pt, camera, padTL, padBR) {
   const size = map.getSize()
   const p = map
@@ -482,6 +504,8 @@ function isClear(pt, camera, padTL, padBR) {
   return p.x >= padTL.x && p.x <= size.x - padBR.x && p.y >= padTL.y && p.y <= size.y - padBR.y
 }
 
+// flyIfMoved(camera, duration) - fly to the camera only if the map is not already there (within 10 px
+// at the same zoom).
 function flyIfMoved(camera, duration) {
   const closeEnough =
     map.getZoom() === camera.zoom &&
@@ -490,7 +514,8 @@ function flyIfMoved(camera, duration) {
   map.flyTo(camera.target, camera.zoom, { duration })
 }
 
-// Zoom so the volunteer and their school are both in view
+// focusOn(v) - zoom so the volunteer and their school are both in view; if the volunteer would be
+// hidden, zoom to the volunteer alone.
 function focusOn(v) {
   if (!map) return
   const pts = []
@@ -500,7 +525,7 @@ function focusOn(v) {
 
   limitView()
   const inset = isDesktop() ? { top: 150, bottom: 70 } : mobileInsets()
-  const left = isDesktop() ? 440 : 60 // on desktop, stay clear of the top-left cards
+  const left = isDesktop() ? 440 : 60
   const padTL = L.point(left, inset.top)
   const padBR = L.point(60, inset.bottom)
 
@@ -512,10 +537,9 @@ function focusOn(v) {
   flyIfMoved(camera, 0.5)
 }
 
-// Quick view: fly the map so one whole ring fits on screen.
-// A ring is already a list of [lat, lng] points, so Leaflet can use it directly as the area to fit.
+// viewRing(ring) - the Inner / Outer buttons: fly so the whole ring fits.
 function viewRing(ring) {
-  if (!map) return // map not ready yet
+  if (!map) return
   const inset = isDesktop() ? { top: 70, bottom: cardH.value + 20 } : mobileInsets(20)
   const padTL = L.point(isDesktop() ? 300 : 20, inset.top)
   const padBR = L.point(20, inset.bottom)
@@ -524,18 +548,14 @@ function viewRing(ring) {
   flyIfMoved(camera, 0.6)
 }
 
-/* ------------------------------------------------------------------ */
-/* Selecting a volunteer                                               */
-/* ------------------------------------------------------------------ */
-
-// Pins tooltips on the selected volunteer and their school
+// showSchool(v) - pins tooltips on the volunteer and their school marker. The marker further north
+// gets its tooltip above and the other below, so they never overlap.
 function showSchool(v) {
   clearSchool()
   const s = v.school
   const entry = markers.get(v.volunteerId)
   const hasSchool = s?.lat != null && s?.lng != null
 
-  // The marker further north gets its tooltip above and the other below, so they never overlap
   const schoolNorth = hasSchool && (v.lat == null || s.lat >= v.lat)
 
   if (entry) {
@@ -549,7 +569,7 @@ function showSchool(v) {
   bindTip(schoolMarker, schoolTip(s), { pinned: true, direction: schoolNorth ? 'top' : 'bottom' })
 }
 
-// Removes the school marker, and turns the volunteer's tooltip back into hover-only
+// clearSchool() - removes the school marker and makes the volunteer's tooltip hover-only again.
 function clearSchool() {
   if (schoolMarker) volunteerLayer.removeLayer(schoolMarker)
   schoolMarker = null
@@ -560,22 +580,21 @@ function clearSchool() {
   pinnedId = null
 }
 
-// Unread chat messages from the selected volunteer (shown on the Chat button)
+// selectedUnread (computed) - unread chat messages from the selected volunteer (the red number on the
+// Chat button).
 const selectedUnread = computed(
   () => chat.threads.find((t) => t.volunteerId === String(selectedId.value))?.unreadAdmin ?? 0,
 )
 
-// Opens the chat panel on the selected volunteer's conversation
+// openChatWithSelected() - open the chat panel on the selected volunteer's conversation.
 function openChatWithSelected() {
   if (selectedId.value) chat.openThread(selectedId.value)
 }
 
-// Selects a volunteer (from the list or by tapping their marker)
-// Journey: the card's chip opens a list of the checkpoints with the time each was clocked
 const timesOpen = ref(false)
 
-// One row per checkpoint. `link` = the line down to the next row is solid (both reached); `flow` = it is the line the
-// volunteer is currently travelling along (animated downwards).
+// journeyTimes(v) - one row per checkpoint with the time it was clocked (from the history), plus link
+// (both ends reached, solid line) and flow (the line currently being travelled, animated).
 function journeyTimes(v) {
   return JOURNEY_STAGES.map((s) => ({
     ...s,
@@ -585,6 +604,7 @@ function journeyTimes(v) {
   }))
 }
 
+// formatStageTime(at) - a clock time such as "8:15 AM" in Singapore time.
 function formatStageTime(at) {
   return new Date(at).toLocaleTimeString('en-SG', {
     hour: 'numeric',
@@ -593,40 +613,47 @@ function formatStageTime(at) {
   })
 }
 
-// The mobile card sits at the bottom and moves the map controls up, so re-measure it whenever its height changes
+// measureCard() - after the card renders, store its height plus 12 px so the map controls move above
+// it. Re-run when the times list opens or the stage changes.
 async function measureCard() {
   await nextTick()
   if (selectedId.value && cardEl.value) cardH.value = cardEl.value.offsetHeight + 12
 }
+// watch(timesOpen) - when the times section opens or closes, re-measure the card height.
 watch(timesOpen, measureCard)
+// watch(cardH) - when the card height changes, keep the map inside its allowed area.
 watch(cardH, () => limitView())
+// watch(selected stage) - when the selected volunteer's stage changes, re-measure the card.
 watch(() => selected.value?.stage, measureCard)
 
+// selectVolunteer(id) - select someone (from the list or a marker). Steps: close the phone keyboard,
+// close the times list if it is a different person, set the selection and search text, if it was
+// already selected just re-centre, otherwise pin the tooltips, wait for the card, measure it and fly
+// to the volunteer.
 async function selectVolunteer(id) {
   const v = rows.value.find((r) => r.volunteerId === id)
   if (!v) return
 
-  inputEl.value?.blur() // closes the on-screen keyboard on mobile
+  inputEl.value?.blur()
   const alreadySelected = selectedId.value === id
-  if (!alreadySelected) timesOpen.value = false // a different volunteer: start with the list closed
+  if (!alreadySelected) timesOpen.value = false
   selectedId.value = id
   query.value = v.name
   searchOpen.value = false
 
-  // Same volunteer tapped again: keep the pins and card as they are,
-  // and only re-centre if they have wandered out of the usual framing.
   if (alreadySelected) {
     focusOn(v)
     return
   }
 
   showSchool(v)
-  await nextTick() // wait for the card to render so its height can be measured
+  await nextTick()
   cardH.value = cardEl.value ? cardEl.value.offsetHeight + 12 : 0
   focusOn(v)
 }
 
-// Deselects: hides the card and school marker. fit = true also zooms back out.
+// clearSelection(fit) - deselect: stop following, hide the card and school marker, and zoom back out
+// when fit is true.
 function clearSelection(fit = true) {
   following.value = false
   selectedId.value = null
@@ -638,78 +665,62 @@ function clearSelection(fit = true) {
   if (fit) fitAll()
 }
 
-// If the selected volunteer drops off the board (e.g. no longer confirmed), clear the card
+// watch(selected) - if the selected volunteer drops off the board, clear the card.
 watch(selected, (v) => {
   if (!v && selectedId.value) clearSelection(false)
 })
 
-/* ------------------------------------------------------------------ */
-/* Show dropdown                                                       */
-/* ------------------------------------------------------------------ */
-
-// Opens or closes the menu (and closes the other dropdowns)
-function toggleShowMenu() {
-  showMenuOpen.value = !showMenuOpen.value
-  if (showMenuOpen.value) {
-    searchOpen.value = false
-    bellOpen.value = false
-    clearSelection(false) // opening the show menu closes the selected volunteer's card (desktop and mobile)
-  }
+// onShowMenuOpen() - the show dropdown just opened: close the search list and the bell, and close the
+// selected volunteer's card.
+function onShowMenuOpen() {
+  searchOpen.value = false
+  bellOpen.value = false
+  clearSelection(false)
 }
 
-// Picks a show and loads it (does nothing if it's already the current one)
+// chooseShow(s) - a show was picked in the dropdown: ignore it if it is already the current show,
+// otherwise store it and load that show (AppDropdown closes its own menu).
 function chooseShow(s) {
-  showMenuOpen.value = false
   if (s === selectedShow.value) return
   selectedShow.value = s
   onShowChange()
 }
 
-// Closes the menu when tapping anywhere outside it
-function onDocPointerDown(e) {
-  if (showMenuOpen.value && showEl.value && !showEl.value.contains(e.target)) {
-    showMenuOpen.value = false
-  }
-}
-
-/* ------------------------------------------------------------------ */
-/* Search box                                                          */
-/* ------------------------------------------------------------------ */
 const inputEl = ref(null)
 
+// onSearchFocus(e) - open the results, close the bell and select the text so typing replaces the name.
 function onSearchFocus(e) {
   searchOpen.value = true
-  bellOpen.value = false // only one dropdown at a time
-  e.target.select() // so typing replaces the selected name
+  bellOpen.value = false
+  e.target.select()
 }
 
-// Enter picks the first match
+// pickFirst() - Enter picks the first search result.
 function pickFirst() {
   if (results.value[0]) selectVolunteer(results.value[0].volunteerId)
 }
 
-// The X inside the search box
+// clearQuery() - the X in the search box: deselect, clear the text and keep focus in the box.
 function clearQuery() {
   if (selectedId.value) clearSelection()
   query.value = ''
   inputEl.value?.focus()
 }
 
-/* ------------------------------------------------------------------ */
-/* Zone alerts                                                         */
-/* ------------------------------------------------------------------ */
-const toasts = ref([]) // alert cards currently showing, newest first
-const toastTimers = new Map() // toast id -> its auto-dismiss timer
+const toasts = ref([])
+const toastTimers = new Map()
 let toastSeq = 0
 
-// Bell list: events live in a Pinia store (survives refreshes, cleared on logout)
 const chat = useChatStore()
 const zoneEvents = useZoneEventsStore()
 const bellOpen = ref(false)
-const eventFilter = ref('all') // 'all' | 'enter' | 'leave'
+const eventFilter = ref('all')
 
-// Events and unread count for the show being viewed
+// showEvents and unread (computed) - events and the unread count for the show being viewed; eventRows
+// (below) applies the All / Arrivals / Departures filter and adds the "ago" text; emptyEventsMsg
+// explains an empty list.
 const showEvents = computed(() => zoneEvents.byShow[selectedShow.value] ?? [])
+// unread (computed) - number of unread zone events for the selected show.
 const unread = computed(() => zoneEvents.unreadByShow[selectedShow.value] ?? 0)
 
 // Events matching the toggle, with their "x min ago" text
@@ -719,69 +730,72 @@ const eventRows = computed(() =>
     .map((e) => ({ ...e, ago: ageText(now.value - e.at) })),
 )
 
+// emptyEventsMsg (computed) - the text shown when the events list is empty (no activity yet, or no
+// arrivals / departures yet for the chosen filter).
 const emptyEventsMsg = computed(() => {
   if (!showEvents.value.length) return 'No zone activity yet.'
   return `No ${eventFilter.value === 'enter' ? 'arrivals' : 'departures'} yet.`
 })
 
-// Saves an event; it counts as unread if the panel is closed
+// recordEvent(a) - saves an event in the store; it counts as unread when the panel is closed.
 function recordEvent(a) {
   zoneEvents.add(selectedShow.value, a, !bellOpen.value)
 }
 
-// Opens or closes the panel. Opening marks everything as read.
+// toggleBell() - open or close the alerts panel; opening marks all as read, closes the search and
+// volunteer card, and removes the floating cards.
 function toggleBell() {
   bellOpen.value = !bellOpen.value
   if (bellOpen.value) {
     zoneEvents.markRead(selectedShow.value)
-    searchOpen.value = false // only one dropdown at a time
-    clearSelection(false) // close the volunteer card so it can't cover the panel
+    searchOpen.value = false
+    clearSelection(false)
     clearToasts()
   }
 }
 
-// Tapping an event selects that volunteer
+// openEvent(e) - tapping an event selects that volunteer.
 function openEvent(e) {
   bellOpen.value = false
   selectVolunteer(e.volunteerId)
 }
 
-const lastZone = new Map() // volunteerId -> zone we last confirmed
-const pendingZone = new Map() // volunteerId -> new zone seen once, waiting for a second sighting
+const lastZone = new Map()
+const pendingZone = new Map()
 
-// Compares every volunteer's zone with the last confirmed one and raises an alert
-// when it has really changed. Called after every board refresh.
+// detectZoneChanges() - after every refresh, compare each volunteer's zone with the last confirmed
+// one. 1) skip those without a location 2) first sighting: just record it 3) same zone: forget any
+// pending change (it was a wobble) 4) a change far enough past the edge (more than 10 m or the GPS
+// accuracy) alerts at once 5) a change near the edge needs a second sighting on the next refresh 6)
+// forget volunteers no longer on the board.
 function detectZoneChanges() {
   const seen = new Set()
 
   rows.value.forEach((v) => {
     seen.add(v.volunteerId)
-    if (v.zone === 'none') return // no location yet: nothing to compare
+    if (v.zone === 'none') return
 
     const last = lastZone.get(v.volunteerId)
     if (last === undefined) {
-      lastZone.set(v.volunteerId, v.zone) // first time seen: record it, no alert
+      lastZone.set(v.volunteerId, v.zone)
       return
     }
     if (v.zone === last) {
-      pendingZone.delete(v.volunteerId) // back where they were, so it was just a wobble
+      pendingZone.delete(v.volunteerId)
       return
     }
-    // Far enough past the edge that GPS wobble can't explain it: alert on the first sighting
     const clearCut = zoneDepth(v) > Math.max(IMMEDIATE_M, v.accuracy ?? 0)
 
     if (!clearCut && pendingZone.get(v.volunteerId) !== v.zone) {
-      pendingZone.set(v.volunteerId, v.zone) // close to the edge: wait for a second sighting
+      pendingZone.set(v.volunteerId, v.zone)
       return
     }
 
-    // Seen in the new zone on two refreshes in a row: it's real
     pendingZone.delete(v.volunteerId)
     lastZone.set(v.volunteerId, v.zone)
     addAlert(v, last, v.zone)
   })
 
-  // Forget volunteers who are no longer on the board
   ;[lastZone, pendingZone].forEach((m) =>
     m.forEach((_, id) => {
       if (!seen.has(id)) m.delete(id)
@@ -789,10 +803,11 @@ function detectZoneChanges() {
   )
 }
 
-// Turns a zone change into an alert card and a bell-list event
+// addAlert(v, from, to) - build the alert (arrival if the new zone is closer to the venue; text such
+// as "Entered the inner ring") and show a card and save an event.
 function addAlert(v, from, to) {
   const enter = ZONE_RANK[to] > ZONE_RANK[from]
-  const ring = enter ? to : to === 'outer' ? 'inner' : 'outer' // the ring that was entered or left
+  const ring = enter ? to : to === 'outer' ? 'inner' : 'outer'
   const alert = {
     volunteerId: v.volunteerId,
     name: v.name,
@@ -803,7 +818,8 @@ function addAlert(v, from, to) {
   recordEvent(alert)
 }
 
-// Adds a card to the top of the stack and drops the oldest if there are too many
+// showToast(t) - put a new card at the top, drop (and stop the timers of) cards beyond MAX_TOASTS and
+// start the 8 second auto-dismiss timer.
 function showToast(t) {
   const toast = { id: ++toastSeq, ...t }
   const next = [toast, ...toasts.value]
@@ -819,45 +835,46 @@ function showToast(t) {
   )
 }
 
+// dismissToast(id) - remove one card and its timer.
 function dismissToast(id) {
   clearTimeout(toastTimers.get(id))
   toastTimers.delete(id)
   toasts.value = toasts.value.filter((t) => t.id !== id)
 }
 
-// Tapping a card selects that volunteer
+// openToast(t) - tapping a card dismisses it and selects the volunteer.
 function openToast(t) {
   dismissToast(t.id)
   selectVolunteer(t.volunteerId)
 }
 
+// clearToasts() - remove all cards and stop their timers.
 function clearToasts() {
   toastTimers.forEach((timer) => clearTimeout(timer))
   toastTimers.clear()
   toasts.value = []
 }
 
-/* ------------------------------------------------------------------ */
-/* Loading data                                                        */
-/* ------------------------------------------------------------------ */
-
-// Fetches the board for the selected show (one API call: names, schools and last locations)
+// loadBoard() - fetch the board for the selected show. Numbers each request so a slow older answer is
+// ignored; then correct the clock offset, store the volunteers, check zone changes, clear the error,
+// mark loaded, and fit the map once. On error show the message (the old data stays). The overlay is
+// cleared only by the latest request.
 async function loadBoard() {
   if (!selectedShow.value) return
   const myId = ++requestId
 
   try {
     const res = await axios.get('/api/locations/board', { params: { show: selectedShow.value } })
-    if (myId !== requestId) return // a newer request replaced this one
+    if (myId !== requestId) return
 
     clockOffset = new Date(res.data.serverTime).getTime() - Date.now()
     now.value = Date.now()
     volunteers.value = res.data.volunteers
-    detectZoneChanges() // zone alerts
+    detectZoneChanges()
     error.value = ''
     boardLoaded = true
 
-    await nextTick() // let the markers update first
+    await nextTick()
     applyFit()
   } catch (err) {
     if (myId !== requestId) return
@@ -867,10 +884,11 @@ async function loadBoard() {
   }
 }
 
-// Admin picked a different show: reset and load it
+// onShowChange() - a different show: deselect, forget the old zone baseline (so no alerts on the first
+// load), clear cards and data, show the overlay and load.
 function onShowChange() {
   clearSelection(false)
-  lastZone.clear() // new show: start from a fresh baseline, so no alerts for the first load
+  lastZone.clear()
   pendingZone.clear()
   clearToasts()
   bellOpen.value = false
@@ -881,18 +899,18 @@ function onShowChange() {
   loadBoard()
 }
 
-// Refresh straight away when the admin comes back to the tab
+// onVisibilityChange() - refresh at once when the tab becomes visible again.
 function onVisibilityChange() {
   if (document.visibilityState === 'visible') loadBoard()
 }
 
-let disposed = false // FIX: true once the admin left the page, so timers are never started after the awaits below
+let disposed = false
+// onMounted - load the show list (and reopen the show picked earlier), load the first board, then
+// start the 5 second poll, the 30 second clock and the visibility listener.
 onMounted(async () => {
-  document.addEventListener('pointerdown', onDocPointerDown, true)
   try {
-    const res = await axios.get('/api/locations/shows') // Fetch all existing shows
+    const res = await axios.get('/api/locations/shows')
     shows.value = res.data
-    // reopen on the show picked earlier this session, if it still exists
     selectedShow.value = shows.value.includes(getSavedShow())
       ? getSavedShow()
       : (shows.value[0] ?? '')
@@ -902,12 +920,11 @@ onMounted(async () => {
     return
   }
 
-  if (disposed) return // left the page while the show list was loading
+  if (disposed) return
   needFit = true
   await loadBoard()
-  if (disposed) return // left the page while the board was loading: do not start polling
+  if (disposed) return
 
-  // Poll for new positions while the tab is visible
   pollTimer = setInterval(() => {
     if (document.visibilityState === 'visible') loadBoard()
   }, POLL_MS)
@@ -915,9 +932,9 @@ onMounted(async () => {
   document.addEventListener('visibilitychange', onVisibilityChange)
 })
 
+// onUnmounted - stop timers, listeners, marker animations and cards.
 onUnmounted(() => {
   disposed = true
-  document.removeEventListener('pointerdown', onDocPointerDown, true)
   clearInterval(pollTimer)
   clearInterval(tickTimer)
   document.removeEventListener('visibilitychange', onVisibilityChange)
@@ -927,11 +944,12 @@ onUnmounted(() => {
 </script>
 
 <template>
+  <!-- The map, the volunteer list and filters, the selected-volunteer card, the alerts bell and
+       the popups. -->
   <div class="map-page">
     <div class="map-stage" :style="{ '--map-inset-bottom': cardH + 'px', '--notice-top': '96px' }">
       <BaseMap :center="SINGAPORE_CENTER" :zoom="11" testid="hq-map" @ready="onMapReady" />
 
-      <!-- Quick views: jump the camera to the inner or outer ring -->
       <div class="ring-views" role="group" aria-label="Quick map views">
         <button type="button" class="ring-btn" @click="viewRing(INNER_RING)">
           <i class="bi bi-bullseye" aria-hidden="true"></i> Inner
@@ -941,52 +959,21 @@ onUnmounted(() => {
         </button>
       </div>
 
-      <!-- Top bar: show dropdown + name search -->
       <div ref="barEl" class="board-bar">
         <div class="bar-row">
-          <div ref="showEl" class="show-select" @keydown.esc="showMenuOpen = false">
-            <!-- E2E: data-testid="hq-show-select" lets Playwright find this element (see e2e/f4-tracking-live.spec.js) -->
-            <button
-              type="button"
-              class="show-btn"
-              aria-haspopup="listbox"
-              :aria-expanded="showMenuOpen"
-              aria-label="Show"
-              data-testid="hq-show-select"
-              @click="toggleShowMenu"
-            >
-              <i class="bi bi-calendar-event" aria-hidden="true"></i>
-              <span class="show-name">{{ selectedShow || 'Show' }}</span>
-              <i
-                class="bi bi-chevron-down show-chevron"
-                :class="{ open: showMenuOpen }"
-                aria-hidden="true"
-              ></i>
-            </button>
-
-            <Transition name="menu">
-              <div v-if="showMenuOpen" class="show-menu" role="listbox">
-                <button
-                  v-for="(s, i) in shows"
-                  :key="s"
-                  type="button"
-                  class="show-option"
-                  :class="{ active: s === selectedShow }"
-                  :style="{ '--i': i }"
-                  role="option"
-                  :aria-selected="s === selectedShow"
-                  @click="chooseShow(s)"
-                >
-                  <span>{{ s }}</span>
-                  <i v-if="s === selectedShow" class="bi bi-check-lg" aria-hidden="true"></i>
-                </button>
-              </div>
-            </Transition>
-          </div>
+          <AppDropdown
+            :model-value="selectedShow"
+            :options="showOptions"
+            icon="bi-calendar-event"
+            placeholder="Show"
+            aria-label="Show"
+            testid="hq-show-select"
+            @update:model-value="chooseShow"
+            @open="onShowMenuOpen"
+          />
 
           <div class="search-box">
             <i class="bi bi-search" aria-hidden="true"></i>
-            <!-- E2E: data-testid="hq-search" lets Playwright find this element (see e2e/f4-tracking-live.spec.js) -->
             <input
               ref="inputEl"
               v-model="query"
@@ -1012,7 +999,6 @@ onUnmounted(() => {
             </button>
           </div>
 
-          <!-- E2E: data-testid="hq-bell" lets Playwright find this element (see e2e/f4-tracking-live.spec.js) -->
           <button
             type="button"
             class="bell-btn"
@@ -1027,18 +1013,15 @@ onUnmounted(() => {
           </button>
         </div>
 
-        <!-- Zone counts -->
         <div v-if="rows.length" class="zone-row" aria-label="Volunteers by zone">
           <span v-for="z in ZONES" :key="z.key" class="zone-chip" :title="z.hint">
             <span class="zone-dot" :class="z.key"></span>{{ z.label }}
-            <!-- E2E: hq-zone-count-<inner|outer|outside|none> lets Playwright read how many volunteers are in each zone -->
             <strong :data-testid="'hq-zone-count-' + z.key">{{ zoneCounts[z.key] }}</strong>
           </span>
         </div>
 
         <div v-if="searchOpen" class="results" role="listbox">
           <div class="results-head">{{ liveCount }} live · {{ rows.length }} volunteers</div>
-          <!-- E2E: data-testid="hq-result" lets Playwright find this element (see e2e/f4-tracking-live.spec.js) -->
           <button
             v-for="v in results"
             :key="v.volunteerId"
@@ -1060,7 +1043,6 @@ onUnmounted(() => {
           <div v-if="!results.length" class="results-empty">No volunteers found.</div>
         </div>
 
-        <!-- Zone activity panel (last 50 events) -->
         <div v-if="bellOpen" class="activity">
           <div class="activity-head">
             <div class="activity-title">Zone activity</div>
@@ -1083,7 +1065,6 @@ onUnmounted(() => {
           </div>
 
           <div class="activity-list">
-            <!-- E2E: data-testid="hq-event" lets Playwright find this element (see e2e/f4-tracking-live.spec.js) -->
             <button
               v-for="e in eventRows"
               :key="e.id"
@@ -1110,7 +1091,6 @@ onUnmounted(() => {
         </div>
       </div>
 
-      <!-- Selected volunteer: status, school and P5 classes -->
       <Transition name="card">
         <div v-if="selected" ref="cardEl" class="vol-card">
           <div class="vol-card-head">
@@ -1119,7 +1099,6 @@ onUnmounted(() => {
             </div>
             <div class="vol-card-title">
               <div class="vol-name">{{ selected.name }}</div>
-              <!-- E2E: vol-card-status lets Playwright read Live / Stale / Not reporting -->
               <div class="vol-status" data-testid="vol-card-status">
                 <span class="status-dot" :class="selected.status"></span>
                 {{ STATUS[selected.status].label
@@ -1158,7 +1137,6 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <!-- Journey: current checkpoint as a chip; tap it for the time each checkpoint was clocked today -->
           <div class="vol-journey">
             <button
               type="button"
@@ -1194,7 +1172,6 @@ onUnmounted(() => {
             </ol>
           </div>
 
-          <!-- data-chat-toggle: the chat panel's click-outside-to-close ignores this button, so switching volunteers doesn't flicker -->
           <button
             type="button"
             class="btn btn-primary btn-sm w-100 mt-2 position-relative chat-btn"
@@ -1211,7 +1188,6 @@ onUnmounted(() => {
         </div>
       </Transition>
 
-      <!-- Zone alerts -->
       <TransitionGroup name="toast" tag="div" class="toast-stack">
         <div
           v-for="t in toasts"
@@ -1240,10 +1216,8 @@ onUnmounted(() => {
         </div>
       </TransitionGroup>
 
-      <!-- FIX (U5): neutral dark pill (was bg-danger red) - "nobody has shared a location yet" is a normal waiting state, not an error -->
       <div v-if="emptyMsg" class="empty-pill bg-dark text-white">{{ emptyMsg }}</div>
 
-      <!-- NEW: <Transition> makes the overlay fade in/out instead of popping -->
       <Transition name="loading-fade">
         <MapLoading v-if="loading" text="Fetching Volunteer Data..." />
       </Transition>
@@ -1254,13 +1228,14 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-/* Top bar */
+/* Styles for the live board panels, pins and cards (the map and its panels stay light). */
+
 .board-bar {
   position: absolute;
   top: 12px;
   left: 12px;
   right: 12px;
-  z-index: 1060; /* above Leaflet controls (1000), below the loading overlay (1100) */
+  z-index: 1060;
 }
 
 .bar-row {
@@ -1269,7 +1244,7 @@ onUnmounted(() => {
   gap: 3px;
   padding: 4px;
   background: #fff;
-  color: #1f2430; /* CHANGED: dark text on this fixed-white panel; without it the text follows the dark theme and turns pale */
+  color: #1f2430;
   border-radius: 12px;
   box-shadow: 0 2px 12px rgb(0 0 0 / 0.2);
 }
@@ -1322,13 +1297,12 @@ onUnmounted(() => {
   height: 26px;
 }
 
-/* Search results list */
 .results {
   margin-top: 6px;
   max-height: 50vh;
   overflow-y: auto;
   background: #fff;
-  color: #1f2430; /* CHANGED: dark text on this fixed-white panel; without it the text follows the dark theme and turns pale */
+  color: #1f2430;
   border-radius: 14px;
   box-shadow: 0 2px 12px rgb(0 0 0 / 0.2);
 }
@@ -1387,7 +1361,6 @@ onUnmounted(() => {
   color: #888;
 }
 
-/* Status colours (live / stale / offline / not started) */
 .status-dot {
   flex: 0 0 auto;
   display: inline-block;
@@ -1410,7 +1383,6 @@ onUnmounted(() => {
   background: #d3d6da;
 }
 
-/* Selected volunteer card (bottom on mobile) */
 .vol-card {
   position: absolute;
   left: 12px;
@@ -1476,7 +1448,6 @@ onUnmounted(() => {
   color: #666;
 }
 
-/* School and P5 classes cards */
 .vol-card-body {
   display: grid;
   grid-template-columns: 1.5fr 1fr;
@@ -1484,7 +1455,6 @@ onUnmounted(() => {
   margin-top: 12px;
 }
 
-/* Journey chip + checkpoint times */
 .vol-journey {
   margin-top: 10px;
 }
@@ -1541,7 +1511,6 @@ onUnmounted(() => {
   font-size: 0.8rem;
   color: #aaa;
 }
-/* Line from this checkpoint's dot down to the next one */
 .stage-times li:not(:last-child)::after {
   content: '';
   position: absolute;
@@ -1554,13 +1523,11 @@ onUnmounted(() => {
 .stage-times li.link::after {
   background: #2563eb;
 }
-/* The line the volunteer is travelling along: dashes keep flowing top to bottom */
 .stage-times li.flow::after {
   background: repeating-linear-gradient(180deg, #2563eb 0 5px, #bcd0fb 5px 10px);
   background-size: 100% 10px;
   animation: stage-flow 0.8s linear infinite;
 }
-/* Dismissal reached: every point and line turns green */
 .stage-times.complete li.reached .stage-times-dot,
 .stage-times.complete li.link::after {
   background: #16a34a;
@@ -1580,7 +1547,7 @@ onUnmounted(() => {
 }
 .stage-times-dot {
   position: relative;
-  z-index: 1; /* above the connecting line */
+  z-index: 1;
   flex: 0 0 auto;
   width: 8px;
   height: 8px;
@@ -1617,7 +1584,6 @@ onUnmounted(() => {
   opacity: 0;
 }
 
-/* Message when there is nothing on the map */
 .empty-pill {
   position: absolute;
   left: 50%;
@@ -1634,13 +1600,12 @@ onUnmounted(() => {
   text-align: center;
 }
 
-/* Zone count chips */
 .zone-row {
   display: flex;
   gap: 6px;
   margin-top: 6px;
   overflow-x: auto;
-  scrollbar-width: none; /* scrolls sideways on very narrow phones */
+  scrollbar-width: none;
 }
 
 .zone-row::-webkit-scrollbar {
@@ -1648,7 +1613,7 @@ onUnmounted(() => {
 }
 
 .zone-chip {
-  flex: 1 1 auto; /* share the row evenly instead of overflowing */
+  flex: 1 1 auto;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1668,7 +1633,6 @@ onUnmounted(() => {
   color: #222;
 }
 
-/* Dots match the rings drawn on the map */
 .zone-dot {
   box-sizing: border-box;
   width: 10px;
@@ -1688,18 +1652,17 @@ onUnmounted(() => {
   border: 2px solid #9aa0a6;
 }
 
-/* Zone alert cards */
 .toast-stack {
   position: absolute;
-  top: 96px; /* just below the top bar and zone chips */
+  top: 96px;
   left: 12px;
   right: 12px;
-  z-index: 1055; /* below the top bar (1060) so the search list covers them */
+  z-index: 1055;
   display: flex;
   flex-direction: column;
-  align-items: center; /* centres the cards left/right (top-centre) */
+  align-items: center;
   gap: 8px;
-  pointer-events: none; /* only the cards take clicks */
+  pointer-events: none;
 }
 
 .toast-card {
@@ -1711,7 +1674,7 @@ onUnmounted(() => {
   max-width: 340px;
   padding: 8px 6px 8px 8px;
   background: #fff;
-  color: #1f2430; /* CHANGED: dark text on this fixed-white panel; without it the text follows the dark theme and turns pale */
+  color: #1f2430;
   border-radius: 14px;
   box-shadow: 0 2px 12px rgb(0 0 0 / 0.2);
   cursor: pointer;
@@ -1767,7 +1730,6 @@ onUnmounted(() => {
   opacity: 0;
 }
 
-/* Bell button */
 .bell-btn {
   position: relative;
   flex: 0 0 auto;
@@ -1806,11 +1768,10 @@ onUnmounted(() => {
   text-align: center;
 }
 
-/* Activity panel */
 .activity {
   margin-top: 6px;
   background: #fff;
-  color: #1f2430; /* CHANGED: dark text on this fixed-white panel; without it the text follows the dark theme and turns pale */
+  color: #1f2430;
   border-radius: 14px;
   box-shadow: 0 2px 12px rgb(0 0 0 / 0.2);
   overflow: hidden;
@@ -1828,7 +1789,6 @@ onUnmounted(() => {
   font-weight: 600;
 }
 
-/* All / Arrivals / Departures toggle */
 .seg {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -1926,7 +1886,6 @@ onUnmounted(() => {
   border-top: 1px solid #eceef1;
 }
 
-/* Desktop: the bar and the volunteer card stack at the top left */
 @media (min-width: 992px) {
   .board-bar {
     right: auto;
@@ -1941,130 +1900,14 @@ onUnmounted(() => {
   .empty-pill {
     bottom: 24px;
   }
-  /* CHANGED: removed the desktop .toast-stack override (top 12px, left auto, right 12px, width 340px = top-right corner).
-     The base .toast-stack rule already centres the alert cards sideways, so they stay top-centre. */
 }
 
-/* Show dropdown */
-.show-select {
-  position: relative;
-  flex: 0 0 auto;
-}
-
-.show-btn {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 34px;
-  padding: 0 10px;
-  border: 0;
-  border-radius: 9px;
-  background: #f1f3f6;
-  color: #555;
-  font-weight: 600;
-  transition: background-color 0.15s;
-}
-
-.show-btn:hover {
-  background: #e8ebf0;
-}
-
-.show-name {
-  color: #222;
-}
-
-.show-chevron {
-  font-size: 0.7rem;
-  transition: transform 0.25s ease;
-}
-
-.show-chevron.open {
-  transform: rotate(180deg);
-}
-
-.show-menu {
-  position: absolute;
-  top: calc(100% + 8px);
-  left: 0;
-  min-width: 170px;
-  padding: 6px;
-  background: #fff;
-  color: #1f2430; /* CHANGED: dark text on this fixed-white panel; without it the text follows the dark theme and turns pale */
-  border-radius: 14px;
-  box-shadow: 0 4px 16px rgb(0 0 0 / 0.22);
-}
-
-.show-option {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 9px 12px;
-  border: 0;
-  border-radius: 9px;
-  background: transparent;
-  color: #222;
-  font-size: 0.9rem;
-  text-align: left;
-  animation: option-in 0.2s ease both;
-  animation-delay: calc(var(--i) * 30ms);
-}
-
-.show-option:hover {
-  background: #f5f7fa;
-}
-
-.show-option.active {
-  background: #eef3ff;
-  color: #2563eb;
-  font-weight: 600;
-}
-
-/* The menu grows out of the button */
-.menu-enter-active,
-.menu-leave-active {
-  transition:
-    opacity 0.18s ease,
-    transform 0.18s ease;
-  transform-origin: top left;
-}
-.menu-enter-from,
-.menu-leave-to {
-  opacity: 0;
-  transform: translateY(-6px) scale(0.95);
-}
-
-/* Options fade in one after another */
-@keyframes option-in {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .show-option {
-    animation: none;
-  }
-  .menu-enter-active,
-  .menu-leave-active,
-  .show-chevron {
-    transition: none;
-  }
-}
-
-/* Phones: compact chips that share the row evenly so all four fit */
 @media (max-width: 575.98px) {
   .zone-row {
     gap: 4px;
   }
   .zone-chip {
-    flex: 1 1 auto; /* grow to fill the row instead of leaving a gap at the end */
+    flex: 1 1 auto;
     justify-content: center;
     gap: 4px;
     height: 26px;
@@ -2080,21 +1923,19 @@ onUnmounted(() => {
   }
 }
 
-/* Very narrow phones: drop the dots to save space */
 @media (max-width: 359.98px) {
   .zone-dot {
     display: none;
   }
 }
 
-/* Floating button pair, bottom-right above the zoom +/- buttons */
 .ring-views {
   position: absolute;
   right: 10px;
   bottom: calc(
     var(--map-inset-bottom) + 120px
-  ); /* sits above the zoom buttons, moves up with the bottom card */
-  z-index: 1000; /* above the map tiles, same layer as Leaflet's own controls */
+  );
+  z-index: 1000;
   display: flex;
   flex-direction: column;
   gap: 6px;

@@ -1,39 +1,24 @@
-// Feature 6 – Badges (Badge Studio, badge orders, badge awards)
-//   volunteer side: BadgeStudioView.vue + MyBadgesView.vue     admin side: BadgeAwardsView.vue ("Badges & orders")
-// One story with ONE demo volunteer, 5 end-to-end tests:
-//   1 the Studio preview updates live -> 2 Save keeps the design -> 3 Lock in and order -> 4 HQ moves the order to
-//   Delivered -> 5 HQ gives the volunteer a Heart of Gold badge and it shows on their badge wall
-//
-// IMPORTANT – this feature cannot be reset: once a volunteer orders a badge their design is locked FOREVER and the app
-// never deletes orders. So the setup (not one of the 5 tests) picks a demo volunteer who has NO order yet, and every run
-// uses up one of them (there are about 400). The same goes for the Heart of Gold badge in test 5.
-//
-// What must be running first: the SERVER, the seeded admin and the demo volunteers (seed:volunteers).
-// Run just this file:  pnpm exec playwright test f6-badges
+// Browser tests (Playwright) for feature F6: Badges.
+
 import { test, expect } from '@playwright/test'
 import { ACCOUNTS, DEMO_PASSWORD, loginWithCredentials } from './helpers'
 
-const DEMO_EMAIL = /^demo\.volunteer\d+@demo\.sg$/ // only demo accounts (their password is known)
+const DEMO_EMAIL = /^demo\.volunteer\d+@demo\.sg$/
 
-// The design the volunteer saves in test 2 and orders in test 3
 const DESIGN = { shape: 'shield', emblem: 'trophy', primary: '#0055aa', secondary: '#ffcc00', ribbon: 'E2E badge' }
 const THANK_YOU = 'E2E thank you for staying calm today!'
 
-// Filled in by the setup step
 let volunteer = { email: '', name: '' }
-
-// ---------------------------------------------------------------------------
-// Small helpers used only by this file
-// ---------------------------------------------------------------------------
 
 // Opens the Badge Studio as our volunteer
 async function openStudio(page) {
   await loginWithCredentials(page, { email: volunteer.email, password: DEMO_PASSWORD })
   await page.goto('/volunteer/badge-studio')
-  await expect(page.getByTestId('studio-preview')).toBeVisible() // the page loads the saved design in the background
+  await expect(page.getByTestId('studio-preview')).toBeVisible()
 }
 
-// Opens a SECOND browser window logged in as our volunteer, so one test can use admin and volunteer side by side
+// Opens a SECOND browser window logged in as our volunteer, so one test can use admin and volunteer
+// side by side
 async function volunteerWindow(browser, testInfo) {
   const context = await browser.newContext(testInfo.project.use)
   const page = await context.newPage()
@@ -47,17 +32,16 @@ async function openAdminBadges(page) {
   await page.goto('/admin/badges')
 }
 
-// The admin table row that belongs to our volunteer (the table lists everybody's orders, so we pick ours by email)
+// The admin table row that belongs to our volunteer (the table lists everybody's orders, so we pick
+// ours by email)
 function ourOrderRow(page) {
   return page.getByTestId('orders-row').filter({ hasText: volunteer.email })
 }
 
-// ---------------------------------------------------------------------------
-// Setup + the 5 tests
-// ---------------------------------------------------------------------------
-
+// F6 tests - the 5 browser tests for the Badge Studio, orders and admin awards. They run one after
+// another (serial) and set up their own data first.
 test.describe('F6 Badges', () => {
-  test.describe.configure({ mode: 'serial' }) // run in order (each test builds on the one before)
+  test.describe.configure({ mode: 'serial' })
 
   // SETUP (not a test): find a demo volunteer who has not ordered a badge yet.
   test.beforeAll(async ({ playwright }, testInfo) => {
@@ -81,18 +65,15 @@ test.describe('F6 Badges', () => {
     await openStudio(page)
     const preview = page.getByTestId('studio-preview')
 
-    // The shape / emblem choices are hidden radio buttons, so we tick them with force
     await page.getByTestId('studio-shape-hexagon').check({ force: true })
     await page.getByTestId('studio-emblem-star').check({ force: true })
     await expect(preview).toHaveAttribute('aria-label', /hexagon badge with a star emblem/)
 
-    // Colour pickers: the preview's badge and ribbon take the new colours straight away
     await page.getByTestId('studio-primary-color').fill('#00aa55')
     await page.getByTestId('studio-secondary-color').fill('#112233')
     await expect(preview.locator('[data-part="primary"]')).toHaveAttribute('fill', '#00aa55')
     await expect(preview.locator('[data-part="secondary"]')).toHaveAttribute('fill', '#112233')
 
-    // Ribbon text: typing 25 letters only keeps 20, the counter says 20/20 and the preview shows the 20
     await page.getByTestId('studio-ribbon').pressSequentially('ABCDEFGHIJKLMNOPQRSTUVWXY')
     await expect(page.getByTestId('studio-ribbon')).toHaveValue('ABCDEFGHIJKLMNOPQRST')
     await expect(page.getByTestId('studio-ribbon-count')).toHaveText('20/20')
@@ -110,7 +91,6 @@ test.describe('F6 Badges', () => {
     await page.getByTestId('studio-save').click()
     await expect(page.getByText('Design saved!').first()).toBeVisible()
 
-    // The design now comes back from the server, not from the page
     await page.reload()
     await expect(page.getByTestId('studio-ribbon')).toHaveValue(DESIGN.ribbon)
     await expect(page.getByTestId(`studio-shape-${DESIGN.shape}`)).toBeChecked()
@@ -119,40 +99,35 @@ test.describe('F6 Badges', () => {
     await expect(page.getByTestId('studio-secondary-color')).toHaveValue(DESIGN.secondary)
   })
 
-  // TEST 3 – Lock in and order: the design can no longer be changed
+  // Test 3 - ordering needs a valid address (postal code and unit) and then locks the design for good,
+  // so it can no longer be changed.
   test('ordering needs a valid address and then locks the design for good', async ({ page }) => {
     await openStudio(page)
     await page.getByTestId('studio-lock').click()
 
-    // "Place order" stays off until OneMap confirms the postal code (which fills the locked address) AND a unit is typed
     const submit = page.getByTestId('order-submit')
     await expect(submit).toBeDisabled()
-    await expect(page.getByTestId('order-address')).toHaveAttribute('readonly', '') // the address box cannot be typed in
+    await expect(page.getByTestId('order-address')).toHaveAttribute('readonly', '')
 
-    // A postal code that does not exist is rejected by OneMap: message shown, address stays empty, button stays off
     await page.getByTestId('order-postal').fill('000000')
     await expect(page.getByText("This postal code doesn't exist in Singapore.")).toBeVisible()
     await expect(page.getByTestId('order-address')).toHaveValue('')
     await page.getByTestId('order-unit').fill('#05-123')
     await expect(submit).toBeDisabled()
 
-    // A real postal code: OneMap fills the address by itself (this needs the server to reach OneMap)
     await page.getByTestId('order-postal').fill('520201')
     await expect(page.getByTestId('order-address')).not.toHaveValue('')
     await expect(submit).toBeEnabled()
 
-    // The unit number is required, but any text is fine (flat "#01-234" or landed "38A")
     await page.getByTestId('order-unit').fill('')
     await expect(submit).toBeDisabled()
     await page.getByTestId('order-unit').fill('38A')
     await expect(submit).toBeEnabled()
     await submit.click()
 
-    // The design is now locked and the order shows as Placed
     await expect(page.getByTestId('studio-locked')).toBeVisible()
     await expect(page.getByTestId('order-status').first()).toHaveText('Placed')
 
-    // After a reload it is still locked (it comes from the server), and the editing form is gone
     await page.reload()
     await expect(page.getByTestId('studio-locked')).toBeVisible()
     await expect(page.getByTestId('studio-ribbon')).toHaveCount(0)
@@ -162,18 +137,16 @@ test.describe('F6 Badges', () => {
   test('HQ can move the order from Placed to Delivered and the volunteer sees it', async ({ page, browser }, testInfo) => {
     await openAdminBadges(page)
     const row = ourOrderRow(page)
-    await expect(row).toHaveCount(1) // the table loads in the background, so this waits for it
+    await expect(row).toHaveCount(1)
     await expect(row.getByTestId('orders-status')).toContainText('Placed')
 
-    // Each click offers only the NEXT step (the server refuses to skip one)
     for (const label of ['In production', 'Shipped', 'Delivered']) {
       await row.getByTestId('orders-advance').click()
       await expect(row.getByTestId('orders-status')).toContainText(label)
     }
-    await expect(row).toContainText('Complete') // nothing left to do
+    await expect(row).toContainText('Complete')
     await expect(row.getByTestId('orders-advance')).toHaveCount(0)
 
-    // The volunteer's own Studio shows the same status
     const { context, page: volPage } = await volunteerWindow(browser, testInfo)
     await volPage.goto('/volunteer/badge-studio')
     await expect(volPage.getByTestId('order-status').first()).toHaveText('Delivered')
@@ -182,21 +155,21 @@ test.describe('F6 Badges', () => {
 
   // TEST 5 – HQ gives a thank-you badge and it appears on the volunteer's badge wall
   test('a badge given by HQ shows up as earned, with the thank-you note', async ({ page, browser }, testInfo) => {
-    // Before: the volunteer has not earned Heart of Gold yet
     const { context, page: volPage } = await volunteerWindow(browser, testInfo)
     await volPage.goto('/volunteer/badges')
     await volPage.getByTestId('badge-HEART_OF_GOLD').click()
     await expect(volPage.getByTestId('badge-modal')).toContainText('Not earned yet')
     await volPage.getByTestId('badge-modal-close').click()
 
-    // HQ fills in the "Give a badge" form
     await openAdminBadges(page)
     const form = page.getByTestId('awards-form')
     await expect(form).toBeVisible()
     await form.getByTestId('awards-badge-select').click()
     await form.getByRole('option', { name: 'Heart of Gold' }).click()
-    const show = (await form.getByTestId('awards-event-select').innerText()).trim() // the show the badge is "for"
+    const show = (await form.getByTestId('awards-event-select').innerText()).trim()
 
+    // giveBadge() - the admin finds the volunteer by email in the award form, picks them, types the
+    // thank-you message and sends the badge.
     const giveBadge = async () => {
       await form.getByTestId('awards-volunteer-search').fill(volunteer.email)
       await form.getByTestId('awards-volunteer-result').filter({ hasText: volunteer.email }).click()
@@ -206,11 +179,9 @@ test.describe('F6 Badges', () => {
     await giveBadge()
     await expect(form.getByTestId('awards-success')).toContainText('Heart of Gold given to 1 volunteer(s)')
 
-    // The same badge for the same show cannot be given twice: HQ is told the volunteer already had it
     await giveBadge()
     await expect(form.getByTestId('awards-success')).toContainText(`Already had it for ${show}`)
 
-    // After: the badge is earned, the counter went up and the popup shows the note
     await volPage.reload()
     await expect(volPage.getByText('1 badge earned')).toBeVisible()
     await volPage.getByTestId('badge-HEART_OF_GOLD').click()

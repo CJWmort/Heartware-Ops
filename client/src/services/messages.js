@@ -1,15 +1,16 @@
-// axios calls for the HQ <-> volunteer chat. Each returns the response data (or throws – show error.friendlyMessage).
+// The API calls for chat messages, the admin inbox, the unread count and the read state.
+
 import axios from 'axios'
 const BASE_URL = '/api/messages'
 
-// Turns an axios error into text we can show the user
+// addFriendlyMessage(error) - puts a readable text on error.friendlyMessage.
 function addFriendlyMessage(error) {
   error.friendlyMessage =
     error.response?.data?.message || error.message || 'Something went wrong. Please try again.'
   return error
 }
 
-// volunteerId is only needed when HQ is reading a chat; volunteers leave it out
+// listMessages(volunteerId) - GET a chat's messages (volunteers omit the id).
 export async function listMessages(volunteerId) {
   try {
     const { data } = await axios.get(BASE_URL, { params: { volunteerId }, timeout: 15000 })
@@ -19,6 +20,7 @@ export async function listMessages(volunteerId) {
   }
 }
 
+// sendMessage(text, volunteerId) - POST a new chat message and return it.
 export async function sendMessage(text, volunteerId) {
   try {
     const { data } = await axios.post(BASE_URL, { text, volunteerId }, { timeout: 15000 })
@@ -28,7 +30,7 @@ export async function sendMessage(text, volunteerId) {
   }
 }
 
-// HQ only: every volunteer with their latest message and unread count
+// listThreads() - HQ only: GET every volunteer with latest message and unread count.
 export async function listThreads() {
   try {
     const { data } = await axios.get(`${BASE_URL}/threads`, { timeout: 15000 })
@@ -38,7 +40,7 @@ export async function listThreads() {
   }
 }
 
-// Number for the navbar badge (volunteer: their chat, HQ: all chats). Returns a number.
+// getUnreadCount() - GET the unread number for the navbar badge.
 export async function getUnreadCount() {
   try {
     const { data } = await axios.get(`${BASE_URL}/unread`, { timeout: 15000 })
@@ -48,7 +50,7 @@ export async function getUnreadCount() {
   }
 }
 
-// When each side last read the chat: { volunteerLastReadAt, adminLastReadAt } (used for "Seen")
+// getReadState(volunteerId) - GET when each side last read the chat (for "Seen").
 export async function getReadState(volunteerId) {
   try {
     const { data } = await axios.get(`${BASE_URL}/read-state`, { params: { volunteerId }, timeout: 15000 })

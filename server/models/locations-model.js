@@ -1,16 +1,14 @@
-const mongoose = require('mongoose');
-// This model handles one document per volunteer with their latest position ONLY
-// How long a last-known position is kept after the volunteer's final update
-const KEEP_SECONDS = 60 * 60 * 24; // 1 day
+// The live location database model (one latest position per volunteer).
 
-// Create a new 'location' schema
-// One document = the latest known position of one volunteer (overwritten on every update)
+const mongoose = require('mongoose');
+const KEEP_SECONDS = 60 * 60 * 24;
+
 const LocationsSchema = new mongoose.Schema({
   volunteer: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Account',
     required: true,
-    unique: true, // one document per volunteer
+    unique: true,
   },
   lat: {
     type: Number,
@@ -24,12 +22,10 @@ const LocationsSchema = new mongoose.Schema({
     min: [-180, 'Longitude must be between -180 and 180'],
     max: [180, 'Longitude must be between -180 and 180'],
   },
-  // GPS accuracy radius in metres (optional)
   accuracy: {
     type: Number,
     min: [0, 'Accuracy cannot be negative'],
   },
-  // Set by the server (never trust the phone's clock). Also drives the auto-delete below.
   updatedAt: {
     type: Date,
     required: true,
@@ -37,17 +33,12 @@ const LocationsSchema = new mongoose.Schema({
   },
 });
 
-// MongoDB deletes a document automatically KEEP_SECONDS after its updatedAt
 LocationsSchema.index({ updatedAt: 1 }, { expireAfterSeconds: KEEP_SECONDS });
 
-// 'location' refer to the 'locations' collection in our database
 const Locations = mongoose.model('Locations', LocationsSchema, 'locations');
 
-
-// ===== CREATE / UPDATE =====
-
-// Save a volunteer's latest position: creates their document the first time,
-// overwrites it afterwards. fix = { lat, lng, accuracy? }
+// upsert(volunteerId, fix) - saves the latest position: 1) find this volunteer's document 2) $set the
+// new lat/lng/accuracy and updatedAt = now 3) upsert = create it the first time 4) validators run.
 exports.upsert = function (volunteerId, fix) {
   return Locations.findOneAndUpdate(
     { volunteer: volunteerId },

@@ -1,69 +1,68 @@
+<!-- The shared dropdown used on the Allocation, Incident Queue and Badges pages (and others). It
+     replaces the browser's own select so every dropdown looks the same. -->
+
 <script setup>
-// ---------------------------------------------------------------------------------------------------
-// AppDropdown: the project's reusable custom dropdown (same look and animation as the old "show-select").
-//
-// How to use it in any page:
-//   <AppDropdown v-model="sortBy" :options="sortOptions" icon="bi-sort-down" aria-label="Sort incidents" />
-//   - v-model  : the currently chosen option's `value` (the parent owns the state; this component only edits it)
-//   - options  : [{ value: 'newest', label: 'Newest first' }, ...]
-// ---------------------------------------------------------------------------------------------------
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+// Holds the open/closed state, works out the label of the chosen option, handles choosing, keyboard
+// use and closing on an outside click.
+
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 
 const props = defineProps({
-  modelValue: { type: [String, Number], default: '' }, // the selected option's value (works with v-model)
-  options: { type: Array, required: true }, // list of { value, label }
-  icon: { type: String, default: '' }, // optional Bootstrap icon class on the button, e.g. 'bi-tag'
-  ariaLabel: { type: String, default: 'Choose an option' }, // spoken by screen readers (the button shows no label text)
-  testid: { type: String, default: '' }, // becomes data-testid on the button so the E2E tests can find it
-  grow: { type: Boolean, default: false }, // true = stretch to fill the free space in a flex row
-  menuEnd: { type: Boolean, default: false }, // true = open the menu aligned to the right edge instead of the left
-  optionTestidPrefix: { type: String, default: '' }, // e.g. 'alloc-show-option-' gives each option data-testid 'alloc-show-option-1', '-2', ...
-  placeholder: { type: String, default: '' }, // NEW: grey text shown when nothing is picked yet, e.g. 'Choose a show'
-  buttonId: { type: String, default: '' }, // NEW: becomes the button's id so a <label for="..."> can point at it
-  groups: { type: Array, default: null }, // NEW: [{ label, options: [{ value, label }] }] shows headings in the menu; used instead of `options`
+  modelValue: { type: [String, Number], default: '' },
+  options: { type: Array, required: true },
+  icon: { type: String, default: '' },
+  ariaLabel: { type: String, default: 'Choose an option' },
+  testid: { type: String, default: '' },
+  grow: { type: Boolean, default: false },
+  menuEnd: { type: Boolean, default: false },
+  optionTestidPrefix: { type: String, default: '' },
+  placeholder: { type: String, default: '' },
+  buttonId: { type: String, default: '' },
+  groups: { type: Array, default: null },
 })
 
-// "update:modelValue" is the event name that v-model listens for on a component
-const emit = defineEmits(['update:modelValue'])
+const emit = defineEmits(['update:modelValue', 'open'])
 
-const open = ref(false) // is the menu showing?
-const rootEl = ref(null) // the wrapper element, used to tell whether a click happened inside or outside
+const open = ref(false)
+// watch(open) - when the menu opens, tell the page with an "open" event (optional: a page can listen
+// to close its own other popups).
+watch(open, (isOpen) => {
+  if (isOpen) emit('open')
+})
+const rootEl = ref(null)
 
-// The text on the button: the label of the option whose value matches (empty string if nothing matches)
-// NEW: every option as one flat list, whether or not `groups` is used (the button label is searched in it)
+// allOptions (computed) - every option as one flat list (the groups are merged if grouped).
 const allOptions = computed(() => (props.groups ? props.groups.flatMap((g) => g.options) : props.options))
-// CHANGED: searches allOptions instead of props.options, so grouped menus show their label too
+// currentLabel (computed) - the label of the chosen option, or empty if none matches.
 const currentLabel = computed(() => allOptions.value.find((o) => o.value === props.modelValue)?.label ?? '')
 
-// NEW: the menu as one list of rows: a heading row, or an option row (i = its position for the staggered fade-in)
+// rows (computed) - the rows to draw in the list: group headings and options, each option with its
+// position index (used by the keyboard).
 const rows = computed(() => {
-  if (!props.groups) return props.options.map((opt, i) => ({ opt, i })) // no groups: same rows as before
-  let i = 0 // keeps counting across groups so the fade-in flows down the whole menu
+  if (!props.groups) return props.options.map((opt, i) => ({ opt, i }))
+  let i = 0
   return props.groups.flatMap((g) => [{ heading: g.label }, ...g.options.map((opt) => ({ opt, i: i++ }))])
 })
 
-// Picking an option: close the menu, then tell the parent the new value
+// choose(value) - an option was picked: close the list and tell the parent the new value.
 function choose(value) {
   open.value = false
   emit('update:modelValue', value)
 }
 
-// Close when the user taps anywhere outside this dropdown. This also means opening another
-// dropdown closes this one, so only one menu is ever open at a time.
+// onDocPointerDown(e) - a click or tap anywhere: if it is outside this dropdown, close it.
 function onDocPointerDown(e) {
   if (open.value && rootEl.value && !rootEl.value.contains(e.target)) open.value = false
 }
 
-// Register the outside-click listener once when the component appears, and remove it when it goes
-// away (otherwise the listener would leak after leaving the page).
-// The `true` means "capture phase": we hear the click before any other element (e.g. the Leaflet map) can stop it,
-// so tapping the map still closes an open menu. The same `true` must be used when removing the listener.
+// onMounted - start listening for clicks anywhere on the page.
 onMounted(() => document.addEventListener('pointerdown', onDocPointerDown, true))
+// onUnmounted - stop listening for those clicks.
 onUnmounted(() => document.removeEventListener('pointerdown', onDocPointerDown, true))
 </script>
 
 <template>
-  <!-- @keydown.esc closes the menu from the keyboard. The "open" class lifts this dropdown above its neighbours. -->
+  <!-- A button showing the chosen label and the pop-up list of options (optionally in groups). -->
   <div
     ref="rootEl"
     class="show-select"
@@ -80,18 +79,13 @@ onUnmounted(() => document.removeEventListener('pointerdown', onDocPointerDown, 
       :data-testid="testid || null"
       @click="open = !open"
     >
-      <!-- v-if: the icon is optional -->
       <i v-if="icon" class="bi" :class="icon" aria-hidden="true"></i>
-      <!-- CHANGED: shows the grey placeholder while nothing is chosen -->
       <span class="show-name" :class="{ 'is-placeholder': !currentLabel }">{{ currentLabel || placeholder }}</span>
-      <!-- the chevron flips upside down while the menu is open -->
       <i class="bi bi-chevron-down show-chevron" :class="{ open }" aria-hidden="true"></i>
     </button>
 
     <Transition name="menu">
       <div v-if="open" class="show-menu filter-menu" :class="{ 'menu-end': menuEnd }" role="listbox">
-        <!-- "--i" is the option's position; the CSS uses it to stagger the fade-in one after another -->
-        <!-- CHANGED: loops over `rows`: each row is either a group heading or an option (option markup is unchanged) -->
         <template
           v-for="row in rows"
           :key="row.heading ? 'g-' + row.heading : row.opt.value === '' ? 'all' : row.opt.value"
@@ -118,17 +112,17 @@ onUnmounted(() => document.removeEventListener('pointerdown', onDocPointerDown, 
 </template>
 
 <style scoped>
-/* Wrapper: positioned so the menu can sit directly under the button */
+/* Styles for the dropdown button and its pop-up list, using the --hw-* colours. */
+
 .show-select {
   position: relative;
   flex: 0 0 auto;
   max-width: 100%;
-  z-index: 20; /* keeps the open menu above the chips and cards underneath */
+  z-index: 20;
 }
 .show-select.open {
   z-index: 30;
 }
-/* "grow" variant: fills the free space in a flex row, and the menu is as wide as the button */
 .show-select-grow {
   flex: 1 1 160px;
 }
@@ -150,32 +144,28 @@ onUnmounted(() => document.removeEventListener('pointerdown', onDocPointerDown, 
   background: var(--hw-bg);
   color: var(--bs-secondary-color);
   font-weight: 600;
-  text-align: left; /* NEW: keeps the label on the left when the button is wide */
+  text-align: left;
   transition: background-color 0.15s;
 }
 .show-btn:hover {
   background: var(--bs-secondary-bg);
 }
-/* NEW: keyboard focus ring (the old Badges dropdowns had one) */
 .show-btn:focus-visible {
   outline: 2px solid var(--bs-primary);
   outline-offset: 2px;
 }
-/* Long labels are cut with "..." instead of stretching the button */
 .show-name {
-  flex: 1 1 auto; /* NEW: the label takes the free space, which pushes the arrow to the right edge */
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--hw-text);
 }
-/* NEW: grey, lighter text while nothing is chosen */
 .show-name.is-placeholder {
   color: var(--hw-muted);
   font-weight: 500;
 }
-/* NEW: small heading above a group of options (used by the Badge dropdown) */
 .show-group {
   padding: 8px 12px 4px;
   font-size: 0.68rem;
@@ -197,7 +187,7 @@ onUnmounted(() => document.removeEventListener('pointerdown', onDocPointerDown, 
   top: calc(100% + 8px);
   left: 0;
   min-width: 170px;
-  max-width: min(320px, calc(100vw - 24px)); /* never wider than a phone screen */
+  max-width: min(320px, calc(100vw - 24px));
   padding: 6px;
   background: var(--hw-surface);
   color: var(--hw-text);
@@ -209,7 +199,6 @@ onUnmounted(() => document.removeEventListener('pointerdown', onDocPointerDown, 
   left: auto;
   right: 0;
 }
-/* A long list scrolls inside the menu instead of running off the screen */
 .filter-menu {
   max-height: 260px;
   overflow-y: auto;
@@ -239,7 +228,6 @@ onUnmounted(() => document.removeEventListener('pointerdown', onDocPointerDown, 
   color: var(--bs-primary-text-emphasis);
   font-weight: 600;
 }
-/* The menu grows out of the button */
 .menu-enter-active,
 .menu-leave-active {
   transition:
@@ -252,7 +240,6 @@ onUnmounted(() => document.removeEventListener('pointerdown', onDocPointerDown, 
   opacity: 0;
   transform: translateY(-6px) scale(0.95);
 }
-/* Options fade in one after another */
 @keyframes option-in {
   from {
     opacity: 0;
@@ -263,7 +250,6 @@ onUnmounted(() => document.removeEventListener('pointerdown', onDocPointerDown, 
     transform: translateY(0);
   }
 }
-/* Respect users who ask their device for less motion */
 @media (prefers-reduced-motion: reduce) {
   .show-option {
     animation: none;

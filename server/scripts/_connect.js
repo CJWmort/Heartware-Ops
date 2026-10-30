@@ -1,8 +1,11 @@
-// Shared helper for scripts: loads config.env and connects to MongoDB.
+// Shared helper for the scripts: connect to and disconnect from MongoDB.
+
 const path = require('path')
 require('dotenv').config({ path: path.join(__dirname, '..', 'config.env') })
 const mongoose = require('mongoose')
 
+// connect() - 1) stop with a message if DB is missing in config.env 2) connect Mongoose to MongoDB 3)
+// print "Connected to MongoDB".
 async function connect() {
   if (!process.env.DB) {
     console.error('No DB found in server/config.env.')
@@ -12,6 +15,7 @@ async function connect() {
   console.log('Connected to MongoDB')
 }
 
+// disconnect() - closes the MongoDB connection so the script can exit.
 async function disconnect() {
   await mongoose.disconnect()
 }

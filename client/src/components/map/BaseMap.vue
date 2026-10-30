@@ -1,23 +1,19 @@
+<!-- The shared Leaflet map used by every map page: it creates the map, the base tiles and the zoom
+     limits, and tells the parent when it is ready. -->
+
 <script setup>
-// Reusable Leaflet map with the OneMap basemap (F1b allocation map, F2 radius map, F3 HQ live board, F4 incident map).
-// Leaflet docs: https://leafletjs.com/reference.html
-//
-// Usage:
-//   <BaseMap :center="{ lat: 1.35, lng: 103.82 }" :zoom="11" @ready="onMapReady" />
-//   function onMapReady(map, L) { L.marker([lat, lng]).addTo(map) }
-//
-// The parent gets the Leaflet `map` and `L` objects via @ready and adds its own
-// markers / circles / lines – this component only creates and cleans up the map.
+// Creates the Leaflet map on mount, works out the minimum zoom so the map always fills the box, and
+// removes the map on leave.
+
 import { onMounted, onBeforeUnmount, ref } from 'vue'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import '@/assets/map-ui.css' // shared map look & feel (tooltips, markers, notice-ready overrides)
+import '@/assets/map-ui.css'
 import markerIcon2x from 'leaflet/dist/images/marker-icon-2x.png'
 import markerIcon from 'leaflet/dist/images/marker-icon.png'
 import markerShadow from 'leaflet/dist/images/marker-shadow.png'
 import { SINGAPORE_CENTER } from '@/utils/constants'
 
-// Stop Leaflet from guessing the image path, then point it at the bundled assets
 delete L.Icon.Default.prototype._getIconUrl
 L.Icon.Default.mergeOptions({
   iconRetinaUrl: markerIcon2x,
@@ -29,8 +25,6 @@ const props = defineProps({
   center: { type: Object, default: () => SINGAPORE_CENTER },
   zoom: { type: Number, default: 16 },
   testid: { type: String, default: 'map' },
-  // ADDED: true (default) = can't zoom out past the point where Singapore fills the view (no grey margins).
-  // false = may zoom out to the base minimum (11), so a tall map can still show the whole island.
   fillBounds: { type: Boolean, default: true },
 })
 const emit = defineEmits(['ready'])
@@ -39,43 +33,45 @@ const el = ref(null)
 let map = null
 let resizeObserver = null
 
+// onMounted - builds the map. 1) create the Leaflet map in the div and set the start view 2) add the
+// OneMap tile layer (zoom 11 to 19, retina aware, with the required OneMap attribution) 3) set a
+// Singapore bounding box as the hard pan limit (maxBoundsViscosity 1 = cannot drag outside) 4) work
+// out the minimum zoom 5) recalculate it on resize 6) start a ResizeObserver that calls invalidateSize
+// so tiles redraw when the box changes size 7) emit "ready" so the parent can add markers, circles and
+// lines.
 onMounted(() => {
   map = L.map(el.value).setView([props.center.lat, props.center.lng], props.zoom)
-  // OneMap basemap (Singapore Land Authority). Docs: https://www.onemap.gov.sg/docs/maps/
-  // Styles: Default, Original, Grey, GreyLite, Night, LandLot – swap "Original" in the URL.
   L.tileLayer('https://www.onemap.gov.sg/maps/tiles/Default/{z}/{x}/{y}.png', {
     detectRetina: true,
     maxZoom: 19,
     minZoom: 11,
-    /** DO NOT REMOVE the OneMap attribution below **/
     attribution:
       '<img src="https://www.onemap.gov.sg/web-assets/images/logo/om_logo.png" style="height:20px;width:20px;"/>&nbsp;<a href="https://www.onemap.gov.sg/" target="_blank" rel="noopener noreferrer">OneMap</a>&nbsp;&copy;&nbsp;contributors&nbsp;&#124;&nbsp;<a href="https://www.sla.gov.sg/" target="_blank" rel="noopener noreferrer">Singapore Land Authority</a>',
   }).addTo(map)
 
-  // OneMap only covers Singapore – stop users panning off the map
-  // Mainland Singapore only – Tuas (west) to Changi (east), Southern coast to Woodlands (north)
   const MAINLAND_SG = L.latLngBounds([1.235, 103.59], [1.475, 104.05])
   map.setMaxBounds(MAINLAND_SG)
-  map.options.maxBoundsViscosity = 1.0 // 1.0 = hard edge, can't drag outside at all
+  map.options.maxBoundsViscosity = 1.0
 
-  // Don't let the user zoom out so far that the bounds no longer fill the screen.
-  // On tall phone screens this raises the minimum zoom above 11.
   const BASE_MIN_ZOOM = 11
+  // fitMinZoom() - 1) ask Leaflet which zoom makes the Singapore box cover the whole view 2) if
+  // fillBounds is on set the minimum zoom to the larger of that and 11, otherwise to 11. On tall phone
+  // screens this raises the minimum so no grey edge appears.
   function fitMinZoom() {
-    const fillZoom = map.getBoundsZoom(MAINLAND_SG, true) // true = bounds must cover the whole view
-    // CHANGED: only apply the "fill the view" rule when fillBounds is on (the default, so other maps are unchanged)
+    const fillZoom = map.getBoundsZoom(MAINLAND_SG, true)
     map.setMinZoom(props.fillBounds ? Math.max(BASE_MIN_ZOOM, fillZoom) : BASE_MIN_ZOOM)
   }
   fitMinZoom()
-  map.on('resize', fitMinZoom) // recalculate on rotate / window resize
+  map.on('resize', fitMinZoom)
 
-  // Tell Leaflet when the container changes size (e.g. layout settles or the navbar changes height)
   resizeObserver = new ResizeObserver(() => map?.invalidateSize())
   resizeObserver.observe(el.value)
 
-  emit('ready', map, L) // BaseMap emits "ready" and hands over map and L data, Views catches this emitting event, '<BaseMap @ready="onMapReady" />'
+  emit('ready', map, L)
 })
 
+// onBeforeUnmount - when the component goes away: stop the ResizeObserver and remove the Leaflet map
+// (frees its events and memory).
 onBeforeUnmount(() => {
   resizeObserver?.disconnect()
   resizeObserver = null
@@ -85,11 +81,13 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
+  <!-- One div that Leaflet draws into. -->
   <div ref="el" class="map-container" :data-testid="testid"></div>
 </template>
 
 <style scoped>
-/* Attribution: small translucent pill */
+/* Styles for the map container and the light map look. */
+
 .map-container :deep(.leaflet-control-attribution) {
   max-width: calc(100vw - 20px);
   padding: 2px 8px;
@@ -112,7 +110,6 @@ onBeforeUnmount(() => {
   text-decoration: underline;
 }
 
-/* Shrink the OneMap logo (it has an inline 20px size, so !important is needed) */
 .map-container :deep(.leaflet-control-attribution img) {
   height: 12px !important;
   width: 12px !important;

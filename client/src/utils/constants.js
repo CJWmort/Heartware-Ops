@@ -1,7 +1,5 @@
-// Shared values. Keep in sync with server/utils/constants.js
+// Shared fixed values: the Singapore map centre, the journey stages, the schedule and other limits.
 
-// The 8 checkpoints a volunteer clocks during an NE Show day, in order (stage 1-8; 0 = not started).
-// Leg 'out' = going to Padang, leg 'back' = returning to school. Used by the volunteer sheet and the HQ Live Board.
 export const JOURNEY_STAGES = Object.freeze([
   { stage: 1, label: 'Reached allocated school', short: 'At school', leg: 'out' },
   { stage: 2, label: 'Departed from school', short: 'Left school', leg: 'out' },

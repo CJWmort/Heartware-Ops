@@ -1,13 +1,9 @@
+<!-- The big card showing the selected incident with its details, history and action buttons
+     (Acknowledge, Resolve, Chat). -->
+
 <script setup>
-// =====================================================================================================
-// IncidentFocusCard (NEW) — the "focus card" of the Incident Queue, same idea as the focus card on the
-// Allocation board: it shows the details of the ONE selected incident while the menu (list) is collapsed.
-// Left card on tablet/desktop, bottom sheet on phones.
-//
-//   incident : the selected incident, or null (null = the card is hidden)
-//   template : { label, icon } of the incident type
-//   emits    : list (back to the menu), clear (X: unselect + zoom out), acknowledge, resolve
-// =====================================================================================================
+// Works out labels and colours, the progress steps, and opens the chat with the reporting volunteer.
+
 import { computed } from 'vue'
 import { formatDateTime } from '@/utils/time'
 import { useChatStore } from '@/services/chat'
@@ -16,26 +12,31 @@ import { useAuthStore } from '@/services/auth'
 const props = defineProps({
   incident: { type: Object, default: null },
   template: { type: Object, default: null },
-  busy: { type: Boolean, default: false }, // FIX (C17): true while the parent is saving an Acknowledge / Resolve, so the buttons are greyed out
+  busy: { type: Boolean, default: false },
 })
 defineEmits(['list', 'clear', 'acknowledge', 'resolve'])
 
+// label, icon, school, volunteerName (computed) - text with safe fallbacks when data is missing.
 const label = computed(() => props.template?.label || props.incident?.type || '')
+// icon (computed) - the incident type's icon, or a default warning icon.
 const icon = computed(() => props.template?.icon || 'bi-exclamation-circle-fill')
+// school (computed) - the school name, or "Unknown school".
 const school = computed(() => props.incident?.school || 'Unknown school')
+// volunteerName (computed) - the volunteer's name, or "Unknown volunteer".
 const volunteerName = computed(() => props.incident?.volunteer?.name || 'Unknown volunteer')
 
-// Chat with the volunteer who reported this incident (HQ / admin only). toggle() opens the chat panel (only while it
-// is closed, otherwise it would close it); selectThread() jumps into this volunteer's one-to-one chat.
 const chat = useChatStore()
 const auth = useAuthStore()
+// canChat (computed) - true for an admin when the incident has a volunteer, so the Chat button can
+// show.
 const canChat = computed(() => auth.role === 'admin' && !!props.incident?.volunteer?._id)
+// openChat() - 1) open the chat panel if it is closed (toggle would close it if it was open) 2) jump
+// into the one-to-one chat with the volunteer who reported the incident.
 async function openChat() {
   if (!chat.isOpen) chat.toggle()
   await chat.selectThread(props.incident.volunteer._id)
 }
 
-// Colours and wording (same as the map pins and the list cards)
 const SEVERITY = {
   high: { text: 'High', badge: 'text-bg-danger', bar: 'bg-danger' },
   medium: { text: 'Medium', badge: 'text-bg-warning', bar: 'bg-warning' },
@@ -46,16 +47,22 @@ const STATUS = {
   acknowledged: { text: 'Acknowledged', badge: 'text-bg-info', percent: 66 },
   resolved: { text: 'Resolved', badge: 'text-bg-success', percent: 100 },
 }
+// severityInfo, statusInfo, barClass (computed) - choose table rows (unknown values fall back to
+// medium / new); green bar when resolved.
 const severityInfo = computed(() => SEVERITY[props.incident?.severity] || SEVERITY.medium)
+// statusInfo (computed) - the label and colour for the incident's status (new if unknown).
 const statusInfo = computed(() => STATUS[props.incident?.status] || STATUS.new)
+// barClass (computed) - the colour of the top bar: green when resolved, otherwise the severity colour.
 const barClass = computed(() =>
   props.incident?.status === 'resolved' ? 'bg-success' : severityInfo.value.bar,
 )
-// The steps so far (new, acknowledged, resolved), oldest first. Old reports may have no history at all.
+// steps (computed) - the history entries (new, acknowledged, resolved), oldest first; an old report
+// with no history gives an empty list.
 const steps = computed(() => props.incident?.history || [])
 </script>
 
 <template>
+  <!-- The detailed incident card with the history list and the action buttons. -->
   <Transition name="inc-focus">
     <section
       v-if="incident"
@@ -94,7 +101,6 @@ const steps = computed(() => props.incident?.history || [])
         <span class="badge rounded-pill" :class="statusInfo.badge">{{ statusInfo.text }}</span>
       </div>
 
-      <!-- Details: the only part that scrolls inside the card -->
       <div class="inc-focus-list">
         <div class="py-2 border-top">
           <i class="bi bi-chat-left-text me-1" aria-hidden="true"></i
@@ -154,11 +160,11 @@ const steps = computed(() => props.incident?.history || [])
 </template>
 
 <style scoped>
-/* Same look as .alloc-focus on the Allocation board. Left card on tablet/desktop (340px / 420px) and a bottom sheet on
-   phones (45vh). Keep these numbers in step with fitPadding() in IncidentQueueView.vue. */
+/* Styles for the focus card and its progress steps. */
+
 .inc-focus {
   position: absolute;
-  z-index: 1050; /* above the map controls, below the menu */
+  z-index: 1050;
   top: 12px;
   left: 12px;
   width: min(340px, calc(100% - 24px));
@@ -175,7 +181,7 @@ const steps = computed(() => props.incident?.history || [])
 .inc-focus-list {
   min-height: 0;
   margin-top: 0.5rem;
-  overflow-y: auto; /* long details scroll inside the card */
+  overflow-y: auto;
 }
 @media (min-width: 992px) {
   .inc-focus {
@@ -195,7 +201,6 @@ const steps = computed(() => props.incident?.history || [])
   }
 }
 
-/* Slide in from the edge (switched off for people who turned animations off) */
 .inc-focus-enter-active,
 .inc-focus-leave-active {
   transition:

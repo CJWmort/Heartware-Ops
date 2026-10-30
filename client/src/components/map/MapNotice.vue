@@ -1,8 +1,9 @@
+<!-- The small message bar shown over a map (errors, tips, tracking is on...). It appears at the
+     top centre. -->
+
 <script setup>
-// Popup card for info + error messages. Put it inside .map-stage.
-//   <MapNotice :notice="notice" @close="dismissNotice" />
-//   notice = { type: 'error' | 'info', icon: 'bi-...', title, text } or null
-// Per-view position: set --notice-top on .map-stage (default 56px). Always centred sideways (top-centre).
+// Accepts the notice and whether it can be closed, and tells the parent when it is closed.
+
 defineProps({
   notice: { type: Object, default: null },
   closable: { type: Boolean, default: true },
@@ -11,9 +12,8 @@ defineEmits(['close'])
 </script>
 
 <template>
+  <!-- A coloured bar with the icon, text and a close button. -->
   <div class="notice-wrap">
-    <!-- E2E: data-testid="notice" below lets Playwright find this popup (Login + Register error tests use it).
-         This comment sits outside <Transition> on purpose: Transition wants exactly ONE element inside it. -->
     <Transition name="notice">
       <div
         v-if="notice"
@@ -37,12 +37,14 @@ defineEmits(['close'])
 </template>
 
 <style scoped>
+/* Styles for the bar (light, above the panels, z-index 1150). */
+
 .notice-wrap {
   position: absolute;
-  top: var(--notice-top, 56px); /* top-centre: this distance from the top keeps it clear of the navbar */
+  top: var(--notice-top, 56px);
   left: 12px;
   right: 12px;
-  z-index: 1150; /* above the loading overlay so errors stay visible */
+  z-index: 1150;
   display: flex;
   justify-content: center;
   pointer-events: none;
@@ -56,7 +58,7 @@ defineEmits(['close'])
   max-width: 420px;
   padding: 10px 8px 10px 12px;
   background: #fff;
-  color: #1f2430; /* CHANGED: dark text on this fixed-white panel; without it the text follows the dark theme and turns pale */
+  color: #1f2430;
   border-radius: 14px;
   box-shadow: 0 2px 12px rgb(0 0 0 / 0.2);
 }
@@ -96,12 +98,5 @@ defineEmits(['close'])
 .notice-enter-from,
 .notice-leave-to { transform: translateY(-12px); opacity: 0; }
 
-/* CHANGED: take the leaving notice out of the row while it fades out.
-   Before, "Allocating..." (leaving) and "Allocation done" (entering) sat side by side in the centred row,
-   so the new card started right of centre and slid left when the old one vanished.
-   With position: absolute the old card fades out in place (still centred) and the new card appears centred straight away. */
 .notice-leave-active { position: absolute; }
-
-/* CHANGED: removed the old desktop (min-width: 992px) rule that moved this popup to the top-right.
-   .notice-wrap above already centres it sideways (left/right 12px + justify-content: center), so it is top-centre on every screen size. */
 </style>

@@ -1,12 +1,18 @@
+<!-- The login and sign-up entrance page with the video background on the sign-up side and a short
+     clip on phones. -->
+
 <script setup>
+// Handles the login form, error notices, the switch between login and sign-up sides, and the YouTube
+// background video (build, mute toggle, loop, destroy).
+
 import { ref, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/services/auth'
-import { landingFor } from '@/router/landing' // NEW: where each role lands after login (not Home)
+import { landingFor } from '@/router/landing'
 import FireworksBackground from '@/components/landing/FireworksBackground.vue'
 import MapNotice from '@/components/map/MapNotice.vue'
 import { loadYouTubeApi, PLAYER_STATE, HEARTWARE_VIDEO_ID, HEARTWARE_SHORT_ID } from '@/utils/youtube'
-import axios from 'axios' // used only for the wake up ping of server hosted on render
+import axios from 'axios'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -14,10 +20,11 @@ const route = useRoute()
 
 const email = ref('')
 const password = ref('')
-const notice = ref(null) // the error popup's content, or null while hidden
+const notice = ref(null)
 let noticeTimer = null
 
-// Shows a problem in the popup card (same MapNotice as the tracking page), then hides it after 5 seconds
+// showError(text) - fills the notice with an error card titled "Unable to log in", cancels any older
+// timer and sets a new 5 second timer that hides the popup again.
 function showError(text) {
   notice.value = {
     type: 'error',
@@ -28,14 +35,21 @@ function showError(text) {
   clearTimeout(noticeTimer)
   noticeTimer = setTimeout(() => (notice.value = null), 5000)
 }
-// The X button
+// dismissNotice() - the popup's X button: cancel the timer and hide the popup. onBeforeUnmount below
+// also clears the timer so it cannot fire after leaving the page.
 function dismissNotice() {
   clearTimeout(noticeTimer)
   notice.value = null
 }
+// onBeforeUnmount - cancel the notice timer when leaving the page.
 onBeforeUnmount(() => clearTimeout(noticeTimer))
 const loading = ref(false)
 
+// submit() - 1) if the email or password is empty show "Enter your email and password." and stop 2)
+// show the spinner on the button 3) ask the auth store to log in (server call) 4) on success go to the
+// page in ?redirect= if there is one, otherwise to the role's own page (volunteer: Assignment, admin:
+// Allocation) via landingFor 5) on failure log it and show the server's message or "Could not reach
+// the server. Try again." 6) always stop the spinner.
 async function submit() {
   if (!email.value || !password.value) {
     showError('Enter your email and password.')
@@ -44,8 +58,6 @@ async function submit() {
   loading.value = true
   try {
     await auth.login(email.value, password.value)
-    // NEW: go to the page they were trying to open (?redirect=...). If there is none, go to the role's own page
-    // (volunteer -> Assignment, admin -> Allocation) instead of the Home page.
     router.push(route.query.redirect || landingFor(auth.role))
   } catch (err) {
     console.error(err)
@@ -55,34 +67,28 @@ async function submit() {
   }
 }
 
-// Wake-up ping: Render's free server sleeps when idle and takes up to a minute to start again.
-// Calling the cheap /api/health route the moment this page opens starts that wake-up while the
-// user is still typing their email and password, so the server is usually ready by the time they click Log in.
+// Wake-up ping (runs once when the page opens): Render's free server sleeps when idle and needs up to
+// a minute to start. Calling the cheap /api/health route now starts the wake-up while the person
+// types. Any failure is ignored on purpose.
 onMounted(async () => {
   try {
     await axios.get('/api/health')
   } catch (err) {
-    // Ignored on purpose: if the server is still asleep this ping may fail, but it has
-    // already done its job of waking the server. The real login request is separate.
   }
 })
 
-// UI only (no login logic): which side the red panel is on.
-// 'login' = form visible, panel on the right.  'join' = panel sweeps left, sign-up info + video show.
 const mode = ref('login')
 
-// UI only: show / hide the password (eye button in the password box)
 const showPassword = ref(false)
 
-// UI only: muted background video on the sign-up side.
-// Both are YouTube videos (IDs in utils/youtube.js): the landscape one for tablet/desktop, the portrait one for phones.
-
-// UI only: true below Bootstrap's "md" breakpoint (768px), so phones get the portrait video.
-// Same breakpoint as the CSS below. Updates if the window is resized or the phone is rotated.
 const phoneQuery = window.matchMedia('(max-width: 767.98px)')
 const isPhone = ref(phoneQuery.matches)
+// onBreakpointChange(e) - the screen crossed the phone breakpoint: update isPhone so the phone video
+// (short clip) or the wide video is used.
 const onBreakpointChange = (e) => (isPhone.value = e.matches)
+// onMounted - start listening for the phone-size media query changing.
 onMounted(() => phoneQuery.addEventListener('change', onBreakpointChange))
+// onBeforeUnmount - stop listening for the media query.
 onBeforeUnmount(() => phoneQuery.removeEventListener('change', onBreakpointChange))
 
 const sceneEl = ref(null)
@@ -90,8 +96,13 @@ const muted = ref(true)
 const soundReady = ref(false)
 let scene = null
 
+// sceneVideoId() - the YouTube id to play behind the sign-up side: the short clip on phones, the full
+// video otherwise.
 const sceneVideoId = () => (isPhone.value ? HEARTWARE_SHORT_ID : HEARTWARE_VIDEO_ID)
 
+// destroyScene(el) - remove the background YouTube player. Ignored if it belongs to a different
+// element; marks the scene dead so late callbacks do nothing, destroys the player and resets the sound
+// flags.
 function destroyScene(el) {
   if (!scene || (el && scene.el !== el)) return
   scene.dead = true
@@ -101,6 +112,10 @@ function destroyScene(el) {
   muted.value = true
 }
 
+// buildScene() - create the muted looping YouTube background video. 1) wait for the DOM, 2) only while
+// the sign-up side is showing and its element exists, 3) skip if a scene already exists for this
+// element, otherwise remove the old one, 4) add a holder div and load the YouTube script, 5) create
+// the player with autoplay, muted, no controls, 6) callbacks below start it and loop it.
 async function buildScene() {
   await nextTick()
   const el = sceneEl.value
@@ -129,6 +144,8 @@ async function buildScene() {
         origin: window.location.origin,
       },
       events: {
+        // onReady - the player is ready: mute it, start playing, hide the iframe from keyboard focus,
+        // give it a title, and allow the sound button.
         onReady: (event) => {
           if (current.dead) return
           current.ready = true
@@ -139,6 +156,7 @@ async function buildScene() {
           frame.setAttribute('tabindex', '-1')
           soundReady.value = true
         },
+        // onStateChange - when the video ends, jump back to the start and play again (a loop).
         onStateChange: (event) => {
           if (!current.dead && event.data === PLAYER_STATE.ENDED) {
             event.target.seekTo(0)
@@ -152,6 +170,8 @@ async function buildScene() {
   }
 }
 
+// toggleSound() - the sound button: ignored until the player is ready; unmutes (and plays) or mutes,
+// then flips the muted flag.
 function toggleSound() {
   if (!scene || !scene.ready) return
   if (muted.value) {
@@ -163,20 +183,25 @@ function toggleSound() {
   muted.value = !muted.value
 }
 
+// watch(mode) - build or remove the video when switching between the login and sign-up sides.
 watch(mode, buildScene)
+// watch(isPhone) - when the screen changes between phone and wide, load the matching video into the
+// existing player.
 watch(isPhone, () => {
   if (scene && scene.ready) scene.player.loadVideoById(sceneVideoId())
 })
+// onMounted - build the video scene when the page opens.
 onMounted(buildScene)
+// onBeforeUnmount - destroy the video player when leaving the page.
 onBeforeUnmount(() => destroyScene())
 </script>
 
 <template>
+  <!-- The two-sided layout: the login form, the sign-up call to action and the video panel with
+       its sound button. -->
   <div class="auth-wrap">
     <div class="auth-card card-hw" :class="{ 'is-join': mode === 'join' }">
-      <!-- ===== Base layer (Bootstrap grid): left = login form, right = show-night scene ===== -->
       <div class="row g-0 auth-base">
-        <!-- col-md-6 = half the card; must match --split: 50% in the CSS so the red panel and the columns line up -->
         <div class="col-12 col-md-6 auth-form-pane" :inert="mode === 'join'">
           <div class="auth-form-inner">
             <h1 class="auth-title">Welcome back</h1>
@@ -210,7 +235,6 @@ onBeforeUnmount(() => destroyScene())
                 />
                 <label for="password">Password</label>
                 <i class="bi bi-lock auth-field-icon" aria-hidden="true"></i>
-                <!-- eye button: shows or hides the password -->
                 <button
                   type="button"
                   class="auth-eye"
@@ -246,11 +270,7 @@ onBeforeUnmount(() => destroyScene())
           </div>
         </div>
 
-        <!-- Decorative: muted looping video. It only loads while this side is showing -->
-        <!-- col-md-6 (was col-md-5): a wider video column means less of the video is cropped -->
-        <!-- Phones: this layer covers the whole card (full-screen portrait video) and only shows on the sign-up side -->
         <div class="col-12 col-md-6 auth-scene">
-          <!-- fireworks only on desktop: on phones the video covers the whole layer, so they'd be hidden anyway -->
           <FireworksBackground v-if="mode === 'join' && !isPhone" :skyline="false" />
           <Transition name="scene-fade" @after-leave="destroyScene">
             <div v-if="mode === 'join'" ref="sceneEl" class="scene-video" aria-hidden="true"></div>
@@ -278,12 +298,9 @@ onBeforeUnmount(() => destroyScene())
         </div>
       </div>
 
-      <!-- ===== The red panel that sweeps across. Shape only; its words sit in the layer above ===== -->
       <div class="auth-panel" aria-hidden="true">
         <div class="auth-panel-deco"></div>
 
-        <!-- Wavy edges. Desktop uses the side waves (.wave-x), phones use the top/bottom waves (.wave-y).
-             Each SVG holds two copies of the wave and slides by half its length, so the loop is seamless. -->
         <div class="wave wave-x wave-start">
           <svg class="wave-back" viewBox="0 0 60 800" preserveAspectRatio="none">
             <path
@@ -334,7 +351,6 @@ onBeforeUnmount(() => destroyScene())
         </div>
       </div>
 
-      <!-- ===== Words on the panel. They stay in place while the panel slides under them, then cross-fade ===== -->
       <section
         class="ov-block ov-hello"
         :class="{ 'is-active': mode === 'login' }"
@@ -378,7 +394,6 @@ onBeforeUnmount(() => destroyScene())
       </section>
     </div>
 
-    <!-- error popup: appears at the top, closes itself after 5 seconds or with its X -->
     <div class="notice-host">
       <MapNotice :notice="notice" @close="dismissNotice" />
     </div>
@@ -386,50 +401,41 @@ onBeforeUnmount(() => destroyScene())
 </template>
 
 <style scoped>
-/* ---------------------------------------------------------------------------------------------
-   Login card with a sliding red panel.
-   Phones: a short red banner sits along the top. "See how it works" makes it sweep DOWN over the whole card
-   (which grows to fill the screen), then its top edge pulls down to a red sign-up panel at the bottom,
-   revealing a video that fills everything above it.
-   Tablet/desktop (>= 768px, Bootstrap "md"): the panel sits on the right and slides LEFT.
-   Every move happens in two steps (grow over the other side, then shrink off the old side),
-   done with one CSS transition per edge and a delay on the second edge. No JavaScript timers.
-   --------------------------------------------------------------------------------------------- */
+/* Styles for the split layout, the form, the notice and the video panel. */
+
 .auth-wrap {
-  min-height: calc(100dvh - 7.5rem); /* fills the space under the navbar so the card sits centred */
+  min-height: calc(100dvh - 7.5rem);
   display: flex;
   align-items: center;
 }
 
 .auth-card {
-  --split: 50%; /* where the form column ends (= Bootstrap col-md-6, half the card) */
-  --hello-h: 190px; /* phones: height of the short "New to the crew?" banner (log-in side) */
-  --join-h: 380px; /* phones: height of the red sign-up panel under the video (sign-up side) */
-  --wave: 34px; /* how far the wavy edge sticks out of the panel */
-  --panel: var(--hw-red); /* panel colour; the waves use the same value so the edge is seamless */
-  --panel-soft: rgb(255 45 65 / 0.5); /* lighter second wave behind the main one */
-  --ease: cubic-bezier(0.76, 0, 0.24, 1); /* slow start, fast middle, soft landing */
+  --split: 50%;
+  --hello-h: 190px;
+  --join-h: 380px;
+  --wave: 34px;
+  --panel: var(--hw-red);
+  --panel-soft: rgb(255 45 65 / 0.5);
+  --ease: cubic-bezier(0.76, 0, 0.24, 1);
   position: relative;
   isolation: isolate;
-  overflow: hidden; /* clips the waves at the card edges */
+  overflow: hidden;
   width: 100%;
-  max-width: var(--hw-content-w); /* was 980px: now the same width as the navbar */
+  max-width: var(--hw-content-w);
   margin-inline: auto;
   border-radius: 1.25rem;
   box-shadow: 0 30px 70px -30px rgb(0 0 0 / 0.75);
 }
 
-/* ---- Base layer ---- */
 .auth-base {
   position: relative;
-  z-index: 0; /* own stacking layer, so the input icons and labels stay underneath the panel */
+  z-index: 0;
 }
 .auth-form-pane {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 460px; /* tall enough for the sign-up info when the panel covers this side */
-  /* phones: top padding leaves room for the red banner and its wavy bottom edge, which sit over this pane */
+  min-height: 460px;
   padding: calc(var(--hello-h) + var(--wave) + 2rem) 1.5rem 2.5rem;
 }
 .auth-form-inner {
@@ -452,7 +458,6 @@ onBeforeUnmount(() => destroyScene())
   max-width: 30ch;
 }
 
-/* Pill inputs with an icon and a Bootstrap floating label */
 .auth-field > .form-control {
   height: 3.5rem;
   min-height: 3.5rem;
@@ -476,7 +481,7 @@ onBeforeUnmount(() => destroyScene())
   color: var(--hw-muted);
 }
 .auth-field > label::after {
-  background-color: transparent !important; /* Bootstrap paints a box behind the floated label; not wanted on a tinted pill */
+  background-color: transparent !important;
 }
 .auth-field-icon {
   position: absolute;
@@ -489,9 +494,8 @@ onBeforeUnmount(() => destroyScene())
   pointer-events: none;
   transition: color 0.2s ease;
 }
-/* Eye button inside the password pill */
 .auth-field-pw > .form-control {
-  padding-right: 3.25rem; /* room for the eye so long passwords don't run under it */
+  padding-right: 3.25rem;
 }
 .auth-eye {
   position: absolute;
@@ -524,7 +528,6 @@ onBeforeUnmount(() => destroyScene())
 .auth-field:focus-within .auth-field-icon {
   color: var(--hw-landing-accent);
 }
-/* Chrome's autofill paints its own pale box; keep the pill dark */
 .auth-field > .form-control:-webkit-autofill {
   -webkit-box-shadow: 0 0 0 100px var(--hw-surface) inset;
   -webkit-text-fill-color: var(--hw-text);
@@ -532,7 +535,6 @@ onBeforeUnmount(() => destroyScene())
 }
 
 .auth-submit {
-  /* keep the button red (just dimmed) while it shows the spinner; Bootstrap would make it see-through */
   --bs-btn-disabled-bg: var(--hw-red);
   --bs-btn-disabled-border-color: var(--hw-red);
   --bs-btn-disabled-color: #fff;
@@ -558,7 +560,6 @@ onBeforeUnmount(() => destroyScene())
   text-decoration: underline;
 }
 
-/* The right-hand (desktop) / full-card (phone) scene. The night sky shows until the video's first frame */
 .auth-scene {
   position: relative;
   overflow: hidden;
@@ -573,7 +574,6 @@ onBeforeUnmount(() => destroyScene())
     linear-gradient(180deg, #050913 0%, var(--hw-landing-bg) 55%, #160c1d 100%);
 }
 
-/* No controls, clicks pass through */
 .scene-video {
   position: absolute;
   top: 50%;
@@ -581,8 +581,6 @@ onBeforeUnmount(() => destroyScene())
   transform: translate(-50%, -50%);
   height: auto;
   border: 0;
-  /* contain = the WHOLE video frame is shown, never cropped, so the burned-in subtitles can't be cut off.
-     The column is taller than a 16:9 video, so there are empty bands above and below it */
   aspect-ratio: 16 / 9;
   width: min(100cqw, calc(100cqh * 16 / 9));
   pointer-events: none;
@@ -638,14 +636,12 @@ onBeforeUnmount(() => destroyScene())
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-/* soft dark edge so the red wave stands out against bright footage */
 .scene-shade {
   position: absolute;
   inset: 0;
   box-shadow: inset 0 0 90px rgb(7 12 24 / 0.55);
   pointer-events: none;
 }
-/* fade in as the panel moves away; stay visible while the panel covers it again */
 .scene-fade-enter-from {
   opacity: 0;
 }
@@ -659,7 +655,6 @@ onBeforeUnmount(() => destroyScene())
   opacity: 0;
 }
 
-/* ---- The sliding panel ---- */
 .auth-panel {
   position: absolute;
   z-index: 2;
@@ -668,18 +663,14 @@ onBeforeUnmount(() => destroyScene())
   top: 0;
   bottom: calc(100% - var(--hello-h));
   background: var(--panel);
-  /* going back to the form: top edge grows up over the sky first, then the bottom edge slides off the form */
   transition:
     top 0.5s var(--ease),
     bottom 0.7s var(--ease) 0.36s;
-  /* on page load the panel starts over the whole card and pulls back like a curtain */
   animation: curtain 0.95s var(--ease) 0.15s backwards;
 }
 .is-join .auth-panel {
-  /* phones: only the bottom part of the card stays red; the video fills everything above it */
   top: calc(100% - var(--join-h));
   bottom: 0;
-  /* going to sign-up info: bottom edge grows down over the form first, then the top edge pulls down to reveal the video */
   transition:
     bottom 0.5s var(--ease),
     top 0.7s var(--ease) 0.36s;
@@ -691,7 +682,6 @@ onBeforeUnmount(() => destroyScene())
   }
 }
 
-/* faint rings for texture, like the shapes on the reference panel */
 .auth-panel-deco {
   position: absolute;
   inset: 0;
@@ -711,7 +701,6 @@ onBeforeUnmount(() => destroyScene())
   transform: translate(-62%, -50%);
 }
 
-/* ---- Wavy edges ---- */
 .wave {
   position: absolute;
   overflow: hidden;
@@ -730,7 +719,6 @@ onBeforeUnmount(() => destroyScene())
   fill: var(--panel-soft);
 }
 
-/* phones: waves on the top and bottom edges, flowing sideways */
 .wave-x {
   display: none;
 }
@@ -741,7 +729,7 @@ onBeforeUnmount(() => destroyScene())
 }
 .wave-y.wave-start {
   bottom: 100%;
-  transform: scaleY(-1); /* point up */
+  transform: scaleY(-1);
 }
 .wave-y.wave-end {
   top: 100%;
@@ -766,7 +754,6 @@ onBeforeUnmount(() => destroyScene())
   }
 }
 
-/* ---- Words on the panel ---- */
 .ov-block {
   position: absolute;
   z-index: 3;
@@ -780,7 +767,6 @@ onBeforeUnmount(() => destroyScene())
   opacity: 0;
   visibility: hidden;
   transform: translateY(14px);
-  /* leaving: fade out quickly while the panel starts moving */
   transition:
     opacity 0.22s ease,
     transform 0.3s ease,
@@ -790,13 +776,11 @@ onBeforeUnmount(() => destroyScene())
   opacity: 1;
   visibility: visible;
   transform: none;
-  /* arriving: wait until the panel has covered this side, then fade in */
   transition:
     opacity 0.45s ease 0.6s,
     transform 0.6s var(--ease) 0.52s,
     visibility 0s linear 0.52s;
 }
-/* phones: "New to the crew?" sits in the short top banner; the sign-up info sits in the red panel under the video */
 .ov-hello {
   left: 0;
   right: 0;
@@ -870,11 +854,7 @@ onBeforeUnmount(() => destroyScene())
   text-decoration: underline;
 }
 
-/* =========================== Phones only (below Bootstrap "md") =========================== */
 @media (max-width: 767.98px) {
-  /* Sign-up side: the card grows to fill the screen under the navbar (same height as .auth-wrap),
-     so the video gets as much room as possible without scrolling. It grows while the red panel
-     sweeps down over the form, and shrinks back while the panel slides up off the form. */
   .auth-base {
     min-height: 0;
     transition: min-height 0.7s var(--ease) 0.36s;
@@ -883,34 +863,29 @@ onBeforeUnmount(() => destroyScene())
     min-height: calc(100dvh - 7.5rem);
     transition: min-height 0.5s var(--ease);
   }
-  /* keep the form pinned under the banner, so it doesn't jump while the card changes height */
   .auth-form-pane {
     align-items: flex-start;
   }
 
-  /* The video layer fills everything above the red sign-up panel (4px tucks under the panel's wavy edge).
-     Hidden on the log-in side; it switches on/off only while the red panel covers it, so the swap is never seen. */
   .auth-scene {
     position: absolute;
     top: 0;
     left: 0;
     right: 0;
     bottom: calc(var(--join-h) - 4px);
-    z-index: 5; /* above the form's icons, eye button and floating labels (they use z-index 2-3) */
+    z-index: 5;
     visibility: hidden;
-    transition: visibility 0s linear 0.5s; /* back to log in: hide once the panel has risen over it */
+    transition: visibility 0s linear 0.5s;
   }
   .is-join .auth-scene {
     visibility: visible;
-    transition: visibility 0s linear 0.36s; /* to sign-up: show once the panel has covered the card */
+    transition: visibility 0s linear 0.36s;
   }
-  /* cover = the video fills its whole area edge to edge (no black bars); the portrait clip is trimmed top and bottom */
   .scene-video {
     aspect-ratio: 9 / 16;
     width: max(100cqw, calc(100cqh * 9 / 16));
   }
 
-  /* sign-up info: a little tighter so it fits the red panel on small phones */
   .ov-join .ov-text {
     margin-bottom: 0.9rem;
   }
@@ -920,7 +895,6 @@ onBeforeUnmount(() => destroyScene())
     font-size: 0.95rem;
   }
 
-  /* compact "New to the crew?" banner */
   .ov-hello .ov-title {
     font-size: 1.45rem;
     margin-bottom: 0.35rem;
@@ -934,7 +908,6 @@ onBeforeUnmount(() => destroyScene())
     font-size: 0.9rem;
     padding-block: 0.4rem;
   }
-  /* smaller ring, tucked into the corner so it doesn't crowd the short banner */
   .auth-panel-deco::before {
     width: 180px;
     box-shadow: 0 0 0 24px rgb(255 255 255 / 0.03);
@@ -945,14 +918,11 @@ onBeforeUnmount(() => destroyScene())
   }
 }
 
-/* =========================== Tablet / desktop: side by side =========================== */
 @media (min-width: 768px) {
   .auth-card {
     --wave: 44px;
   }
   .auth-base {
-    /* was 560px. A shorter card makes the video column less tall and narrow, so less of the video is cropped.
-     Check that the "Show day, sorted" text still fits; raise this number if it looks cramped */
     min-height: 460px;
   }
   .auth-form-pane {
@@ -963,7 +933,7 @@ onBeforeUnmount(() => destroyScene())
     margin-bottom: 1.25rem;
   }
   .auth-scene {
-    height: auto; /* fills its half of the card */
+    height: auto;
   }
 
   .auth-panel {
@@ -971,7 +941,6 @@ onBeforeUnmount(() => destroyScene())
     bottom: 0;
     left: var(--split);
     right: 0;
-    /* going back to the form: right edge grows over the scene first, then the left edge slides off the form */
     transition:
       right 0.5s var(--ease),
       left 0.7s var(--ease) 0.36s;
@@ -981,7 +950,6 @@ onBeforeUnmount(() => destroyScene())
     bottom: 0;
     left: 0;
     right: calc(100% - var(--split));
-    /* going to sign-up info: left edge grows over the form first, then the right edge pulls back */
     transition:
       left 0.5s var(--ease),
       right 0.7s var(--ease) 0.36s;
@@ -1005,7 +973,7 @@ onBeforeUnmount(() => destroyScene())
   }
   .wave-x.wave-start {
     right: 100%;
-    transform: scaleX(-1); /* point left */
+    transform: scaleX(-1);
   }
   .wave-x.wave-end {
     left: 100%;
@@ -1055,7 +1023,6 @@ onBeforeUnmount(() => destroyScene())
   }
 }
 
-/* Respect "reduce motion": no sweeping or flowing, just a quick fade between the two states */
 @media (prefers-reduced-motion: reduce) {
   .auth-panel,
   .is-join .auth-panel {
@@ -1074,7 +1041,7 @@ onBeforeUnmount(() => destroyScene())
   }
   .scene-video,
   .scene-sound {
-    display: none; /* no moving background for reduce-motion users; the night sky shows instead */
+    display: none;
   }
   .ov-block,
   .ov-block.is-active,
@@ -1089,14 +1056,12 @@ onBeforeUnmount(() => destroyScene())
   }
 }
 
-/* Error popup (MapNotice, same card as the tracking page). Pinned under the navbar and centred on every screen size,
-   overriding MapNotice's map-page positioning (desktop shift to the right). */
 .notice-host {
   --notice-top: 72px;
   position: fixed;
   inset: 0;
   z-index: 1150;
-  pointer-events: none; /* only the card itself is clickable */
+  pointer-events: none;
 }
 .notice-host :deep(.notice-wrap) {
   left: 12px;

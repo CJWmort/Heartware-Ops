@@ -1,6 +1,7 @@
-// Small date helpers (generic, reusable by any feature).
+// Time helpers: "x minutes ago", clock times and dates in Singapore time.
 
-// "just now", "5 min ago", "2 h ago", "3 d ago"
+// timeAgo(date, now) - "just now", "5 min ago", "2 h ago", "3 d ago". 1) seconds since the date, under
+// 60 -> "just now" 2) round to minutes (under 60) 3) hours (under 24) 4) otherwise days.
 export function timeAgo(date, now = Date.now()) {
   const seconds = Math.round((now - new Date(date).getTime()) / 1000)
   if (seconds < 60) return 'just now'
@@ -11,7 +12,7 @@ export function timeAgo(date, now = Date.now()) {
   return `${Math.round(hours / 24)} d ago`
 }
 
-// "14:05" in Singapore time
+// clockTime(date) - "14:05": the time in Singapore, 24-hour clock.
 export function clockTime(date) {
   return new Date(date).toLocaleTimeString('en-SG', {
     hour: '2-digit',
@@ -21,6 +22,7 @@ export function clockTime(date) {
   })
 }
 
+// formatDateTime(date) - e.g. "3 Jul 27, 14:05" in Singapore time (24-hour clock).
 export function formatDateTime(date) {
   return new Date(date).toLocaleString('en-SG', {
     day: 'numeric',

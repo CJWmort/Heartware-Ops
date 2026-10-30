@@ -1,12 +1,10 @@
-<!--
-  FeatureFlipCard.vue
-  One card showing ONE feature at a time. Click it and it flips over to the next feature;
-  after the last feature it flips back to the first, so it loops forever.
--->
+<!-- A card on the home page that flips between two faces to show a feature. -->
+
 <script setup>
+// Tracks which face is on top and flips it on a click and on a timer.
+
 import { ref, computed, onUnmounted } from 'vue'
 
-// The features shown on the card. Edit the wording here and the card updates by itself.
 const features = [
   {
     icon: 'bi-person-plus',
@@ -74,26 +72,25 @@ const features = [
   },
 ]
 
-const FLIP_MS = 600 // must match the CSS transition time below
+const FLIP_MS = 600
 
-// faceIdx = which feature each side of the card holds: [front, back]
 const faceIdx = ref([0, 1])
-// turns = how many half-turns so far. It only ever goes up, so the card
-// always spins the same way and never "rewinds" at the end of the loop.
 const turns = ref(0)
 // 0 = front side is facing you, 1 = back side is facing you
 const up = computed(() => turns.value % 2)
-const current = computed(() => faceIdx.value[up.value]) // feature on screen now
+// current (computed) - the face that is currently on top.
+const current = computed(() => faceIdx.value[up.value])
 
-let busy = false // blocks extra clicks while the card is still turning
+let busy = false
 let timer = 0
 
+// flip() - 1) ignore the click if a flip is in progress 2) mark busy 3) add a half turn (the CSS
+// rotates the card 180 degrees) 4) after FLIP_MS, give the side that is now hidden the feature after
+// the visible one (the % wraps the last feature back to the first) 5) clear busy.
 function flip() {
   if (busy) return
   busy = true
-  turns.value++ // the CSS turns the card 180° more
-  // once the flip has finished, the side now hidden gets the feature after the visible one.
-  // "% features.length" wraps the last feature back to the first, which makes the loop.
+  turns.value++
   timer = setTimeout(() => {
     const hidden = 1 - up.value
     faceIdx.value[hidden] = (current.value + 1) % features.length
@@ -101,19 +98,19 @@ function flip() {
   }, FLIP_MS)
 }
 
-onUnmounted(() => clearTimeout(timer)) // don't leave a timer running if the page is left mid-flip
+// Clear the timer if the page is left mid-flip.
+onUnmounted(() => clearTimeout(timer))
 </script>
 
 <template>
+  <!-- The two faces of the card inside a 3D flip container. -->
   <button
     type="button"
     class="flip"
     :aria-label="`Feature: ${features[current].title}. Click for the next feature.`"
     @click="flip"
   >
-    <!-- the inner box is what rotates; 180° per click -->
     <span class="flip-inner" :style="{ transform: `rotateY(${turns * 180}deg)` }">
-      <!-- front side, then back side (turned round by 180° in CSS so it reads correctly) -->
       <span
         v-for="side in [0, 1]"
         :key="side"
@@ -134,6 +131,8 @@ onUnmounted(() => clearTimeout(timer)) // don't leave a timer running if the pag
 </template>
 
 <style scoped>
+/* Styles for the 3D flip and the two faces. */
+
 .flip {
   display: block;
   width: 100%;
@@ -141,7 +140,7 @@ onUnmounted(() => clearTimeout(timer)) // don't leave a timer running if the pag
     270px,
     40vh,
     330px
-  ); /* taller than before so features with 3-4 bullets fit: at least 270px, at most 330px, about 40% of the screen height in between */
+  );
   padding: 0;
   border: 0;
   background: none;
@@ -155,7 +154,7 @@ onUnmounted(() => clearTimeout(timer)) // don't leave a timer running if the pag
   display: block;
   width: 100%;
   height: 100%;
-  transform-style: preserve-3d; /* lets the two sides sit back to back in 3D */
+  transform-style: preserve-3d;
   transition: transform 0.6s cubic-bezier(0.4, 0.2, 0.2, 1);
 }
 .face {
@@ -163,13 +162,13 @@ onUnmounted(() => clearTimeout(timer)) // don't leave a timer running if the pag
   inset: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.5rem; /* tighter space between lines on a card face, so more text fits */
+  gap: 0.5rem;
   padding: 1rem 1.25rem;
   border-radius: 18px;
   border: 1px solid rgba(244, 246, 251, 0.1);
   background: #0f1730;
   -webkit-backface-visibility: hidden;
-  backface-visibility: hidden; /* hide a side when it faces away */
+  backface-visibility: hidden;
 }
 .face-back {
   transform: rotateY(180deg);
@@ -189,7 +188,7 @@ onUnmounted(() => clearTimeout(timer)) // don't leave a timer running if the pag
 }
 .face-icon {
   font-size: 1.8rem;
-  color: var(--hw-red); /* FIX (U9): app-wide brand red instead of the landing-only #ef3340 */
+  color: var(--hw-red);
   line-height: 1;
 }
 .face-title {
@@ -208,7 +207,7 @@ onUnmounted(() => clearTimeout(timer)) // don't leave a timer running if the pag
 }
 .face-bullet::before {
   content: '• ';
-  color: var(--hw-red); /* FIX (U9): app-wide brand red */
+  color: var(--hw-red);
 }
 .face-hint {
   margin-top: auto;
@@ -219,5 +218,5 @@ onUnmounted(() => clearTimeout(timer)) // don't leave a timer running if the pag
   .flip-inner {
     transition: none;
   }
-} /* no spin if the viewer asked for less motion */
+}
 </style>

@@ -1,11 +1,11 @@
-// Shared Leaflet icons + tooltip helpers. The CSS for these classes lives in
-// src/assets/map-ui.css (imported by BaseMap), so any view using BaseMap can
-// call these and get the same look.
+// Builds the Leaflet pins (volunteer, school, destination, dots, route label and incident) and their
+// hover cards.
+
 import L from 'leaflet'
 
-/* ---------------------------- markers ---------------------------- */
-
-// Round badge with a person icon. status: 'live' | 'stale' | 'offline'
+// createVolIcon(status) - round volunteer marker. Builds a Leaflet divIcon whose HTML is <div
+// class="vol-dot live|stale|offline"> holding a Bootstrap Icon (bi-person-fill). CUSTOM CSS:
+// .vol-marker / .vol-dot (+ .live .stale .offline colours) are defined in assets/map-ui.css.
 export function createVolIcon(status) {
   return L.divIcon({
     className: 'vol-marker',
@@ -16,8 +16,8 @@ export function createVolIcon(status) {
   })
 }
 
-// Rounded indigo badge with a graduation cap (a school)
-//   dimmed : true gives the lighter indigo used for schools that are not the focused one (Allocation board)
+// createSchoolIcon({ dimmed }) - indigo school badge with a graduation-cap icon. CUSTOM CSS:
+// .school-marker / .school-badge (+ .dimmed for the lighter shade) in assets/map-ui.css.
 export function createSchoolIcon({ dimmed = false } = {}) {
   return L.divIcon({
     className: 'school-marker',
@@ -28,7 +28,9 @@ export function createSchoolIcon({ dimmed = false } = {}) {
   })
 }
 
-// Red location pin resting on a small grey dot (a destination)
+// createDestIcon() - red location pin on a grey dot (a destination such as Padang). iconAnchor is the
+// pin tip so the tip sits on the real coordinate. CUSTOM CSS: .dest-marker / .dest-pin / .dest-dot in
+// assets/map-ui.css.
 export function createDestIcon() {
   return L.divIcon({
     className: 'dest-marker',
@@ -38,12 +40,13 @@ export function createDestIcon() {
         <i class="bi bi-geo-alt-fill"></i>
       </div>`,
     iconSize: [32, 40],
-    iconAnchor: [16, 32], // the pin tip / grey dot is the real location
+    iconAnchor: [16, 32],
     tooltipAnchor: [0, -34],
   })
 }
 
-// Blue dot with a hidden heading cone (the user)
+// createDotIcon() - blue "you are here" dot with a hidden heading cone. CUSTOM CSS: .me-dot,
+// .me-dot-wrap, .me-dot-cone, .me-dot-core in assets/map-ui.css (TrackingView rotates the cone).
 export function createDotIcon() {
   return L.divIcon({
     className: 'me-dot',
@@ -58,37 +61,34 @@ export function createDotIcon() {
   })
 }
 
-// "xx min" pill shown on a route line
+// createRouteLabelIcon(minutes) - the "xx min" pill drawn on a route line. Number() guarantees only a
+// number is written into the HTML. CUSTOM CSS: .route-label / .route-label-pill.
 export function createRouteLabelIcon(minutes) {
   return L.divIcon({
     className: 'route-label',
     html: `<div class="route-label-pill">${Number(minutes)} min</div>`,
-    iconSize: [0, 0], // the pill centres itself with CSS
+    iconSize: [0, 0],
   })
 }
 
-// Round pin for an incident (Incident Queue): a solid-colour badge with the incident type's icon, styled like createVolIcon.
-//   icon     : a Bootstrap icon class, e.g. 'bi-exclamation-circle-fill'
-//   severity : 'high' | 'medium' | 'low'  -> red / amber / blue
-//   status   : 'resolved' always shows green, whatever the severity; 'new' (not acknowledged yet) makes the pin pulse
-//   selected : true adds a ring around the pin (the incident chosen in the list)
-//   dimmed   : true gives a lighter shade (an incident that is not the focused one, as with the dimmed school pins)
-// The colours live in src/assets/map-ui.css (.incident-pin).
+// createIncidentIcon({ icon, severity, status, selected, dimmed }) - round incident pin. 1) colour
+// class = severity-resolved when resolved, otherwise severity-high / medium / low 2) add is-new
+// (pulses) when not yet acknowledged, is-selected (ring), is-dimmed (lighter) 3) inside it a Bootstrap
+// Icon. CUSTOM CSS: .incident-pin and its modifiers in assets/map-ui.css.
 export function createIncidentIcon({ icon, severity, status, selected = false, dimmed = false }) {
   const colour = status === 'resolved' ? 'severity-resolved' : `severity-${severity}`
   return L.divIcon({
-    className: `incident-pin ${colour}${status === 'new' ? ' is-new' : ''}${selected ? ' is-selected' : ''}${dimmed ? ' is-dimmed' : ''}`, // is-new = not acknowledged yet: the pin pulses
+    className: `incident-pin ${colour}${status === 'new' ? ' is-new' : ''}${selected ? ' is-selected' : ''}${dimmed ? ' is-dimmed' : ''}`,
     html: `<i class="bi ${icon}"></i>`,
-    iconSize: [34, 34], // same size as the volunteer badge
+    iconSize: [34, 34],
     iconAnchor: [17, 17],
-    tooltipAnchor: [0, -18], // lifts the hover card above the pin
+    tooltipAnchor: [0, -18],
   })
 }
 
-/* ---------------------------- tooltips --------------------------- */
-
-// Tooltip card: icon badge + title. Built with the DOM so names can't inject HTML.
-// tone picks the badge colour: me | dest | school | live | stale | offline
+// tipCard({ icon, tone, title }) - builds the small hover card with the DOM (not an HTML string) so a
+// name can never inject HTML. 1) .tip wrapper 2) .tip-icon + tone colour with a Bootstrap Icon 3)
+// .tip-title text. CUSTOM CSS: .tip, .tip-icon, .tip-title (assets/map-ui.css).
 export function tipCard({ icon, tone, title }) {
   const el = document.createElement('div')
   el.className = 'tip'
@@ -107,18 +107,22 @@ export function tipCard({ icon, tone, title }) {
   return el
 }
 
+// volTip(v) - tooltip card for a volunteer: person icon, colour from their status, their name.
 export const volTip = (v) => tipCard({ icon: 'bi-person-fill', tone: v.status, title: v.name })
+// schoolTip(s) - tooltip card for a school: graduation-cap icon, school colour, school name (or
+// "School").
 export const schoolTip = (s) =>
   tipCard({ icon: 'bi-mortarboard-fill', tone: 'school', title: s.name || 'School' })
 
-// Attaches a tooltip card to a marker, replacing any it already has.
-// pinned = stays open until rebound; otherwise hover/tap only.
+// bindTip(marker, content, { pinned, direction }) - attaches a tooltip card to a map marker. 1) remove
+// any tooltip it already has 2) bind the new one with CSS class "hq-tip" (CUSTOM CSS in map-ui.css) 3)
+// offset it so it clears the marker 4) pinned = stays open permanently, otherwise hover/tap only.
 export function bindTip(marker, content, { pinned = false, direction = 'top' } = {}) {
   marker.unbindTooltip()
   marker.bindTooltip(content, {
     className: 'hq-tip',
     direction,
-    offset: [0, direction === 'bottom' ? 26 : -6], // keeps the card clear of the marker
+    offset: [0, direction === 'bottom' ? 26 : -6],
     opacity: 1,
     permanent: pinned,
   })

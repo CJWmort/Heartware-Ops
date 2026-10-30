@@ -1,4 +1,10 @@
+<!-- One open conversation: the message bubbles, "Seen" marker, typing note and the box to send a
+     new message. -->
+
 <script setup>
+// Builds the title and labels, sends messages, tells the server when you type, and keeps the view
+// scrolled to the newest message.
+
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { useAuthStore } from '@/services/auth'
 import { formatChatTime, useChatStore } from '@/services/chat'
@@ -7,18 +13,22 @@ const chat = useChatStore()
 const auth = useAuthStore()
 
 const text = ref('')
-const list = ref(null) // the scrolling message area
-const input = ref(null) // the text box
+const list = ref(null)
+const input = ref(null)
 
-// Who is on the other end
+// title (computed) - the name in the header: admin sees the volunteer's name (or "Volunteer"); a
+// volunteer sees "HQ".
 const title = computed(() => (chat.isAdmin ? chat.activeThread?.name || 'Volunteer' : 'HQ'))
 
+// emptyText (computed) - message shown when the chat has no messages yet.
 const emptyText = computed(() =>
   chat.isAdmin
     ? `this is the beginning of your conversation with ${title.value}.`
     : 'this is the beginning of your conversation with HQ.',
 )
 
+// typingLabel (computed) - "HQ is typing...", "<name> is typing..." or "Another admin is typing..."
+// depending on who is typing and who I am; empty when nobody is.
 const typingLabel = computed(() => {
   if (!chat.typing) return ''
   if (!chat.isAdmin) return 'HQ is typing...'
@@ -27,12 +37,14 @@ const typingLabel = computed(() => {
     : 'Another admin is typing...'
 })
 
-// My own messages sit on the right. For admins "mine" means sent by ME, not by any admin.
+// isMine(m) - decides if a bubble goes on the right. If my id is known compare the message's sender id
+// with it (so one admin's messages are not "mine" for another admin); otherwise compare roles.
 function isMine(m) {
   return chat.myId ? String(m.sender) === chat.myId : m.senderRole === auth.role
 }
 
-// "Seen" goes only under MY latest message, and only once the other side has read up to it
+// seenId (computed) - the _id of MY latest message if the other side has read up to it, else null.
+// "Seen" is printed under only that message.
 const seenId = computed(() => {
   if (!chat.otherReadAt) return null
   const mine = chat.messages.filter(isMine)
@@ -41,12 +53,15 @@ const seenId = computed(() => {
   return +new Date(last.createdAt) <= +new Date(chat.otherReadAt) ? last._id : null
 })
 
+// senderLabel(m) - the small name above a bubble: volunteers see "HQ"; admins see the volunteer's name
+// or "Another admin".
 function senderLabel(m) {
   if (!chat.isAdmin) return 'HQ'
   return m.senderRole === 'volunteer' ? chat.activeThread?.name || 'Volunteer' : 'Another admin'
 }
 
-// Show the sender's name only where the sender changes
+// showLabel(i) - show the sender name only above the first bubble of a run (not for mine, not when the
+// previous message has the same sender).
 function showLabel(i) {
   const m = chat.messages[i]
   if (isMine(m)) return false
@@ -54,6 +69,8 @@ function showLabel(i) {
   return !prev || String(prev.sender) !== String(m.sender)
 }
 
+// submit() - 1) send the typed text through the chat store 2) if it was sent clear the box and put the
+// cursor back in it 3) if it failed the text stays so nothing is lost.
 async function submit() {
   if (await chat.send(text.value)) {
     text.value = ''
@@ -61,18 +78,23 @@ async function submit() {
   }
 }
 
+// toBottom() - after the DOM updates, scroll the message area to the newest message.
 function toBottom() {
   nextTick(() => {
     if (list.value) list.value.scrollTop = list.value.scrollHeight
   })
 }
+// Scroll to the bottom whenever a message is added and when loading finishes; on mount also scroll and
+// focus the box.
 watch(() => chat.messages.length, toBottom)
+// watch(loadingMessages) - when loading finishes, scroll to the newest message.
 watch(
   () => chat.loadingMessages,
   (loading) => {
     if (!loading) toBottom()
   },
 )
+// onMounted - scroll to the newest message and focus the text box.
 onMounted(() => {
   toBottom()
   input.value?.focus()
@@ -80,6 +102,7 @@ onMounted(() => {
 </script>
 
 <template>
+  <!-- The header with the back button, the message list, the typing note and the message form. -->
   <div class="d-flex flex-column h-100">
     <header class="chat-head d-flex align-items-center gap-2 px-2 py-2">
       <button
@@ -146,7 +169,6 @@ onMounted(() => {
       </div>
     </div>
 
-    <!-- Fixed height so the layout doesn't jump when the indicator appears -->
     <div class="typing small text-body-secondary px-3" aria-live="polite">{{ typingLabel }}</div>
 
     <p v-if="chat.error" class="text-danger small px-3 mb-1" role="alert">{{ chat.error }}</p>
@@ -179,6 +201,8 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* Styles for the bubbles, the list and the message box. */
+
 .chat-head {
   border-bottom: 1px solid var(--bs-border-color, #dee2e6);
 }
@@ -187,10 +211,10 @@ onMounted(() => {
   width: 0.6rem;
   height: 0.6rem;
   border-radius: 50%;
-  background: #adb5bd; /* offline */
+  background: #adb5bd;
 }
 .presence.on {
-  background: #198754; /* online */
+  background: #198754;
 }
 
 .msg {
@@ -216,15 +240,12 @@ onMounted(() => {
   border-radius: 0.9rem;
   font-size: 0.9rem;
   line-height: 1.35;
-  white-space: pre-wrap; /* keep line breaks the person typed */
+  white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 .mine .bubble {
-  /* FIX (U2): theme variables instead of fixed white, so the bubble follows dark mode
-     (--hw-surface is white in light mode and #141b2e in dark mode; same idea for text and border) */
   background: var(--hw-surface, #ffffff);
   color: var(--hw-text, #0f1730);
-  /* the panel is the same colour as the bubble in light mode, so a thin border keeps the bubble visible */
   border: 1px solid var(--bs-border-color, #d5dae6);
   border-bottom-right-radius: 0.25rem;
 }

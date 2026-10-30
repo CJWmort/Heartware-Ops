@@ -1,23 +1,24 @@
-// axios calls + page logic for Fanny (F1b, volunteer side). API functions return the response data
-// (or throw – show error.friendlyMessage). useMyAssignment() holds the state for MyAssignmentView.vue.
-// Contract: docs/API.md
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue' // CHANGED: lifecycle hooks added for the auto-refresh
-import { connectSocket } from '@/services/socket' // live updates when the admin publishes / resets
+// The My Assignment service: the API calls for the volunteer's profile, shows and assignments, helpers
+// to format dates and statuses, and the useMyAssignment() function that holds the page's state.
+
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { connectSocket } from '@/services/socket'
 import axios from 'axios'
 
 const volunteerDataURL = '/api/users/me'
 const showsDataURL = '/api/shows'
 const myAssignmentsURL = '/api/assignments/me'
 
+// addFriendlyMessage(error) - puts a readable text on error.friendlyMessage: the server's message,
+// else the error's own text, else a generic sentence. Every API function below uses it.
 function addFriendlyMessage(error) {
   error.friendlyMessage =
     error.response?.data?.message || error.message || 'Something went wrong. Please try again.'
   return error
 }
 
-// ===== API calls =====
-
-// Logged in volunteer
+// getMyProfile() - GET /api/users/me (the logged-in volunteer, including availableShows and
+// withdrawnShows). Returns the data or throws an error with friendlyMessage.
 export async function getMyProfile() {
   try {
     const { data } = await axios.get(volunteerDataURL, { timeout: 15000 })
@@ -27,7 +28,7 @@ export async function getMyProfile() {
   }
 }
 
-// All shows, earliest first
+// getShows() - GET /api/shows: every show with its date and venue, earliest first.
 export async function getShows() {
   try {
     const { data } = await axios.get(showsDataURL, { timeout: 15000 })
@@ -37,7 +38,8 @@ export async function getShows() {
   }
 }
 
-// Logged in volunteer's assignments (school filled in)
+// getMyAssignments() - GET /api/assignments/me: this volunteer's published assignments with the school
+// filled in.
 export async function getMyAssignments() {
   try {
     const { data } = await axios.get(myAssignmentsURL, { timeout: 15000 })
@@ -47,7 +49,7 @@ export async function getMyAssignments() {
   }
 }
 
-// Accept one of the volunteer's assignments (status: Pending -> Accepted)
+// acceptAssignment(assignmentId) - PATCH .../accept; the returned assignment is now "Accepted".
 export async function acceptAssignment(assignmentId) {
   try {
     const { data } = await axios.patch(`/api/assignments/${assignmentId}/accept`, {}, { timeout: 15000 })
@@ -57,8 +59,8 @@ export async function acceptAssignment(assignmentId) {
   }
 }
 
-// NEW: decline a pending assignment (status: Pending -> Declined).
-// Before this, a volunteer who could not go had no way to give the place back.
+// declineAssignment(assignmentId, reason) - PATCH .../decline with an optional reason; the server
+// deletes the pending row and logs it.
 export async function declineAssignment(assignmentId, reason) {
   try {
     const { data } = await axios.patch(`/api/assignments/${assignmentId}/decline`, { reason }, { timeout: 15000 })
@@ -68,7 +70,8 @@ export async function declineAssignment(assignmentId, reason) {
   }
 }
 
-// Pull out of an accepted assignment (status: Accepted -> Withdrawn)
+// withdrawAssignment(assignmentId, reason) - PATCH .../withdraw with an optional reason (for an
+// already accepted place).
 export async function withdrawAssignment(assignmentId, reason) {
   try {
     const { data } = await axios.patch(`/api/assignments/${assignmentId}/withdraw`, { reason }, { timeout: 15000 })
@@ -78,7 +81,8 @@ export async function withdrawAssignment(assignmentId, reason) {
   }
 }
 
-// Replace the volunteer's whole list of available shows
+// setAvailableShows(availableShows) - PUT /api/users/me: replaces the volunteer's whole list of ticked
+// shows.
 export async function setAvailableShows(availableShows) {
   try {
     const { data } = await axios.put(volunteerDataURL, { availableShows }, { timeout: 15000 })
@@ -88,8 +92,8 @@ export async function setAvailableShows(availableShows) {
   }
 }
 
-// Remove some shows from the volunteer's available shows
-// (axios.delete sends a body through the 'data' option)
+// removeAvailableShows(shows) - DELETE /api/users/me with the shows to untick (axios sends a DELETE
+// body through the "data" option).
 export async function removeAvailableShows(shows) {
   try {
     const { data } = await axios.delete(volunteerDataURL, { data: { availableShows: shows }, timeout: 15000 })
@@ -99,33 +103,38 @@ export async function removeAvailableShows(shows) {
   }
 }
 
-// ===== Helpers =====
-
-// "2027-06-27" -> "27 June 2027"
+// formatDate(date) - "2027-06-27" -> "27 June 2027" (English, Singapore style).
 export function formatDate(date) {
   return new Date(date).toLocaleDateString('en-SG', { day: 'numeric', month: 'long', year: 'numeric' })
 }
 
-// NEW: "27 Oct, 11:14 am" in Singapore time, for the "Respond by" line on a Pending offer
+// formatDeadline(date) - "27 Oct, 11:14 am" in Singapore time, for the "Respond by" line on a pending
+// offer.
 export function formatDeadline(date) {
   return new Date(date).toLocaleString('en-SG', {
     day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit',
-    timeZone: 'Asia/Singapore', // always Singapore time, whatever the volunteer's device is set to
+    timeZone: 'Asia/Singapore',
   })
 }
 
-// Work out a show's status from assignment + withdrawal log + availability
+// showStatus(show, availableShows) - works out the label of a show card. 1) it has an assignment ->
+// that status (Pending / Accepted) 2) it has a decline/withdraw log -> Declined / Withdrawn 3) the
+// volunteer is not available for it -> "Not available" 4) they are on the reserve list -> "On reserve
+// list" 5) otherwise "Awaiting allocation".
 export function showStatus(show, availableShows) {
-  if (show.assignment) return show.assignment.status // 'Pending' | 'Accepted'
-  if (show.withdrawal) return show.withdrawal.status // 'Declined' | 'Withdrawn' (assignment was deleted, only the log is left)
+  if (show.assignment) return show.assignment.status
+  if (show.withdrawal) return show.withdrawal.status
   if (!availableShows.includes(show.name)) return 'Not available'
-  if (show.onReserve) return 'On reserve list' // NEW: allocated but no school place was free (a published Reserve row)
+  if (show.onReserve) return 'On reserve list'
   return 'Awaiting allocation'
 }
 
-// Bootstrap badge colour for each status
+// statusClass(status) - BOOTSTRAP: picks the Bootstrap "text-bg-*" badge colour for a status: grey
+// (text-bg-secondary) for Not available / On reserve list, light blue (text-bg-info) for Awaiting
+// allocation, green (text-bg-success) Accepted, red (text-bg-danger) Declined, dark (text-bg-dark)
+// Withdrawn, yellow (text-bg-warning) for Pending. Change the colours of the status badges here.
 export function statusClass(status) {
-  if (status === 'Not available' || status === 'On reserve list') return 'text-bg-secondary' // grey: nothing for the volunteer to do'
+  if (status === 'Not available' || status === 'On reserve list') return 'text-bg-secondary'
   if (status === 'Awaiting allocation') return 'text-bg-info'
   if (status === 'Accepted') return 'text-bg-success'
   if (status === 'Declined') return 'text-bg-danger'
@@ -133,22 +142,25 @@ export function statusClass(status) {
   return 'text-bg-warning'
 }
 
-// ===== Page state for MyAssignmentView.vue =====
-// Called once per page, so each page gets its own copy of the state.
+// useMyAssignment() - the page's state and actions for the My Assignment page (called once per page so
+// each page has its own copy). Returns the refs, computed values and functions the page uses.
 export function useMyAssignment() {
   const volData = ref(null)
   const volAvailableShows = ref([])
-  const shows = ref([]) // from the shows collection, each with its assignment (or null)
+  const shows = ref([])
   const errorMessage = ref('')
-  const loaded = ref(false) // true once volunteer data has arrived
-  const loading = ref(true) // NEW: true until the FIRST load finishes (success or error); drives the "Fetching..." overlay
+  const loaded = ref(false)
+  const loading = ref(true)
 
-  // True when the volunteer has not picked any show yet
+  // hasNoAvailability - true once data has loaded and the volunteer has ticked no show yet.
   const hasNoAvailability = computed(() => loaded.value && volAvailableShows.value.length === 0)
 
-  // Load volunteer, shows and assignments together
-  // CHANGED: loadData(silent). A silent refresh (used by the timer and after Accept) keeps any error message the
-  // volunteer is reading and ignores a failed refresh, so a brief network blip does not flash an error at them.
+  // loadData(silent) - loads everything the page needs. 1) a normal load clears the error message 2)
+  // fetch profile, shows and assignments at the same time 3) save the profile and available shows 4)
+  // attach to each show: its assignment (only if it has a school), its latest decline/withdraw log,
+  // and whether the volunteer is on the reserve list 5) mark loaded 6) an error is shown only for a
+  // normal load (a silent refresh just retries next time) 7) always clear "loading" so the overlay can
+  // never get stuck.
   async function loadData(silent = false) {
     if (!silent) errorMessage.value = ''
 
@@ -158,58 +170,57 @@ export function useMyAssignment() {
       volData.value = profile
       volAvailableShows.value = profile.availableShows || []
 
-      // Attach the volunteer's assignment to its show (skip ones whose school no longer exists),
-      // and their latest decline / withdraw log for that show (from withdrawnShows on their account)
       const withdrawnShows = profile.withdrawnShows || []
       shows.value = showList.map(s => ({
         ...s,
         assignment: assignments.find(a => a.show === s.name && a.school) || null,
         withdrawal: withdrawnShows.findLast(w => w.show === s.name) || null,
-        onReserve: assignments.some(a => a.show === s.name && !a.school), // allocated, but no school free for them
+        onReserve: assignments.some(a => a.show === s.name && !a.school),
       }))
       loaded.value = true
     } catch (error) {
-      if (!silent) errorMessage.value = error.friendlyMessage // a silent refresh just tries again next time
+      if (!silent) errorMessage.value = error.friendlyMessage
     } finally {
-      loading.value = false // NEW: runs after success AND failure, so the overlay can never get stuck
+      loading.value = false
     }
   }
 
-  // ===== Accept assignment =====
-  const acceptingId = ref(null) // assignment being accepted (shows a spinner on its button)
+  const acceptingId = ref(null)
 
+  // acceptShow(show) - 1) clear the error and mark this assignment as being accepted (spinner on its
+  // button), 2) call the server, 3) replace the assignment with the accepted one and reload the data
+  // quietly; on failure show the message and reload as well so the page matches the server.
   async function acceptShow(show) {
     errorMessage.value = ''
     acceptingId.value = show.assignment._id
 
     try {
-      show.assignment = await acceptAssignment(show.assignment._id) // updated status comes back
-      await loadData(true) // NEW: other shows may have changed too, so refresh every card (quietly)
+      show.assignment = await acceptAssignment(show.assignment._id)
+      await loadData(true)
     } catch (error) {
       errorMessage.value = error.friendlyMessage
-      // FIX (C2): reload the cards quietly after a failed Accept (e.g. the offer expired),
-      // so the stale Accept button disappears. `true` = silent, so the error message above is kept.
       await loadData(true)
     }
 
     acceptingId.value = null
   }
 
-  // ===== Decline / pull out popup (one popup, two modes) =====
-  // NEW: one popup serves two actions. Pending -> "decline", Accepted -> "withdraw" (they call different endpoints).
-  const pullOutMode = ref('withdraw') // 'decline' (Pending) or 'withdraw' (Accepted)
-  const withdrawShow = ref(null) // show being pulled out of (popup is open when set)
+  const pullOutMode = ref('withdraw')
+  const withdrawShow = ref(null)
   const withdrawReason = ref('')
   const withdrawing = ref(false)
   const withdrawError = ref('')
 
+  // openDeclineModal(show) - opens the shared popup in "decline" mode for a pending offer: remember
+  // the mode and the show, clear the reason and any error.
   function openDeclineModal(show) {
-    pullOutMode.value = 'decline' // remember the mode so confirmWithdraw() calls the right endpoint'
+    pullOutMode.value = 'decline'
     withdrawShow.value = show
     withdrawReason.value = ''
     withdrawError.value = ''
   }
 
+  // openWithdrawModal(show) - same popup in "withdraw" mode for an already accepted place.
   function openWithdrawModal(show) {
     pullOutMode.value = 'withdraw'
     withdrawShow.value = show
@@ -217,20 +228,24 @@ export function useMyAssignment() {
     withdrawError.value = ''
   }
 
+  // closeWithdrawModal() - closes the popup (no show selected).
   function closeWithdrawModal() {
     withdrawShow.value = null
   }
 
+  // confirmWithdraw() - 1) clear the error and show the spinner 2) choose decline or withdraw endpoint
+  // from the popup mode 3) send the reason 4) reload the page data (the assignment is gone, so the
+  // Declined/Withdrawn log shows) 5) close the popup 6) on error show the message inside the popup 7)
+  // stop the spinner.
   async function confirmWithdraw() {
     withdrawError.value = ''
     withdrawing.value = true
 
     try {
       const show = withdrawShow.value
-      // pick the endpoint that matches the popup mode (decline = not accepted yet, withdraw = already accepted)
       const send = pullOutMode.value === 'decline' ? declineAssignment : withdrawAssignment
       await send(show.assignment._id, withdrawReason.value)
-      await loadData() // the assignment is gone now, so reload to show the Declined / Withdrawn log
+      await loadData()
       closeWithdrawModal()
     } catch (error) {
       withdrawError.value = error.friendlyMessage
@@ -239,57 +254,54 @@ export function useMyAssignment() {
     withdrawing.value = false
   }
 
-  // ===== Change Availability popup =====
   const showAvailabilityModal = ref(false)
-  const selectedShows = ref([]) // ticked checkboxes in the popup
+  const selectedShows = ref([])
   const saving = ref(false)
   const modalError = ref('')
 
+  // openAvailabilityModal() - opens the "Change availability" popup: copy the current list into the
+  // ticked boxes, clear any error, show the popup.
   function openAvailabilityModal() {
     selectedShows.value = [...volAvailableShows.value]
     modalError.value = ''
     showAvailabilityModal.value = true
   }
 
+  // closeAvailabilityModal() - hides the popup.
   function closeAvailabilityModal() {
     showAvailabilityModal.value = false
   }
 
+  // saveAvailability() - 1) show the spinner 2) send the ticked shows 3) reload page data once (a
+  // newly ticked published show now shows "On reserve list" or a school; unticked shows lose their
+  // Accept button) 4) close the popup 5) on error show the server's reason (e.g. "You have accepted a
+  // place in...") or a generic message 6) stop the spinner.
   async function saveAvailability() {
     modalError.value = ''
     saving.value = true
 
     try {
       await setAvailableShows(selectedShows.value)
-      // ONE reload after saving (there used to be two). It covers both cases: a newly ticked published show now shows
-      // "On reserve list" (or a school, if a place was open), and the server deletes Pending rows of unticked shows,
-      // so without it the page kept stale Accept buttons. It runs before the modal closes, so the page is already up to date.
       await loadData()
       closeAvailabilityModal()
     } catch (error) {
-      // NEW: show the server's reason when it has one (e.g. "You have accepted a place in NE Show 2. Press Withdraw first..."),
-      // otherwise the generic text
       modalError.value = error.response?.data?.message || 'Failed to save your availability. Please try again.'
     }
 
     saving.value = false
   }
 
-  // ===== Auto-refresh =====
-  // NEW: keep the page fresh. Another show being published, a replacement from Reserve, or an offer lapsing after
-  // 24h all happen on the server; without this the page only showed them after a manual reload.
-  // (placed here, after the refs above are declared, because the checks below read them)
-  // NEW: also refreshes straight away when the admin presses Publish / Reset / Allocate (the server sends
-  // "assignments:updated", with no volunteer data in it).
   let timer = null
   let socket = null
-  let pending = false // a refresh that had to wait (popup open / tab hidden); done as soon as possible
+  let pending = false
 
-  // True while the volunteer is in the middle of something: a popup is open or a click is in progress
+  // busy - true while a popup is open or an action is in progress. Auto-refresh waits while busy so
+  // cards do not change under the volunteer's finger.
   const busy = computed(() => !!(withdrawShow.value || showAvailabilityModal.value || acceptingId.value || withdrawing.value || saving.value))
 
+  // refreshIfIdle() - 1) tab hidden or busy -> remember to refresh later (pending = true) 2) otherwise
+  // clear pending and reload quietly.
   function refreshIfIdle() {
-    // tab in the background, or a popup / click in progress: do not swap the cards now, remember to do it later
     if (document.visibilityState !== 'visible' || busy.value) {
       pending = true
       return
@@ -298,18 +310,23 @@ export function useMyAssignment() {
     loadData(true)
   }
 
-  // A refresh that waited for a popup to close runs as soon as it closes
+  // A refresh that waited for a popup to close runs as soon as it closes When "busy" turns false and a
+  // refresh was waiting, run it now.
   watch(busy, (isBusy) => {
     if (!isBusy && pending) refreshIfIdle()
   })
 
+  // On mount: refresh when the tab becomes visible again, every 60 seconds, and instantly when the
+  // server announces "assignments:updated" over the live socket.
   onMounted(() => {
-    document.addEventListener('visibilitychange', refreshIfIdle) // volunteer comes back to this tab
-    timer = setInterval(refreshIfIdle, 60000) // and every 60 seconds while it stays open
-    socket = connectSocket() // live: Publish / Reset / Allocate by the admin
+    document.addEventListener('visibilitychange', refreshIfIdle)
+    timer = setInterval(refreshIfIdle, 60000)
+    socket = connectSocket()
     socket.on('assignments:updated', refreshIfIdle)
   })
-  onUnmounted(() => { // stop when they leave the page, otherwise it would keep polling / listening
+  // onUnmounted - remove the tab listener, stop the timer and stop listening for live assignment
+  // updates.
+  onUnmounted(() => {
     document.removeEventListener('visibilitychange', refreshIfIdle)
     clearInterval(timer)
     socket?.off('assignments:updated', refreshIfIdle)

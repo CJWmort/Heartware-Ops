@@ -1,14 +1,13 @@
-// Get Shows model
+// Show endpoints: all shows, one by name, by date or by id.
+
 const mongoose = require('mongoose');
 const Shows = require('../models/shows-model');
 const sendServerError = require('../utils/send-server-error')
 
-// Helper: check that an id is a valid MongoDB ObjectId before querying
+// isValidId(id) - true when the text looks like a real MongoDB id.
 const isValidId = (id) => mongoose.Types.ObjectId.isValid(id);
 
-// ===== READ =====
-
-// GET /shows  → all shows, earliest first
+// showsGet - replies with all shows, earliest date first.
 exports.showsGet = async (req, res) => {
     try {
         const showList = await Shows.retrieveAll();
@@ -18,7 +17,7 @@ exports.showsGet = async (req, res) => {
     }
 };
 
-// GET /shows/name/:name  → one show by name (e.g. NE Show 1)
+// showGetByName - 1) find a show by name (case-insensitive) 2) none -> 404 3) reply.
 exports.showGetByName = async (req, res) => {
     try {
         const show = await Shows.findByName(req.params.name);
@@ -31,7 +30,7 @@ exports.showGetByName = async (req, res) => {
     }
 };
 
-// GET /shows/date/:date  → all shows on a date (YYYY-MM-DD)
+// showsGetByDate - 1) date must be YYYY-MM-DD (400) 2) reply with the shows on that date.
 exports.showsGetByDate = async (req, res) => {
     try {
         const { date } = req.params;
@@ -46,7 +45,7 @@ exports.showsGetByDate = async (req, res) => {
     }
 };
 
-// GET /shows/:id  → one show by _id
+// showGetById - 1) the id must be valid (400) 2) find it (404 if none) 3) reply.
 exports.showGetById = async (req, res) => {
     try {
         const { id } = req.params;

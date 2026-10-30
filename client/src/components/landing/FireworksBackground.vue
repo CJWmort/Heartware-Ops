@@ -1,81 +1,89 @@
+<!-- The animated fireworks canvas behind the landing and login pages, with an optional Marina Bay
+     skyline. -->
+
 <script setup>
-// Draws NDP-style fireworks on a <canvas> behind the landing page. No extra libraries needed.
+// Draws rockets, bursts and sparks on a canvas each frame, pauses when the tab is hidden and draws a
+// still picture for people who prefer reduced motion.
+
 import { onMounted, onBeforeUnmount, ref } from 'vue'
 
 defineProps({
-  skyline: { type: Boolean, default: true }, // true = show the Marina Bay silhouette along the bottom
+  skyline: { type: Boolean, default: true },
 })
 
-const canvas = ref(null) // the <canvas> element (Vue fills this in once the page is mounted)
+const canvas = ref(null)
 
-// ---- Colours as [R, G, B]. A colour listed twice is picked more often (red + white = NDP colours) ----
 const PALETTE = [
-  [255, 45, 65], // NDP red (brightened: dark red looks dull on a night sky)
   [255, 45, 65],
-  [255, 255, 255], // white
+  [255, 45, 65],
   [255, 255, 255],
-  [255, 205, 100], // gold
-  [255, 130, 200], // pink
-  [175, 120, 255], // purple
+  [255, 255, 255],
+  [255, 205, 100],
+  [255, 130, 200],
+  [175, 120, 255],
 ]
 
-// ---- Tuning numbers (change these to adjust how the show looks) ----
-const ROCKET_GRAVITY = 320 // how fast a rising rocket slows down (pixels per second squared)
-const MAX_SPARKS = 1200 // hard limit so a slow phone never gets overloaded
-const MIN_GAP_MS = 900 // shortest wait between launches
-const MAX_GAP_MS = 2200 // longest wait between launches
+const ROCKET_GRAVITY = 320
+const MAX_SPARKS = 1200
+const MIN_GAP_MS = 900
+const MAX_GAP_MS = 2200
 
-// ---- Animation state (plain variables, not ref(): Vue does not need to watch these) ----
-let ctx = null // the canvas "pen" we draw with
-let frameId = 0 // id of the next scheduled frame, so we can cancel it
-let lastTime = 0 // timestamp of the previous frame
-let nextLaunch = 0 // when to launch the next rocket
-let width = 0 // canvas size in CSS pixels
+let ctx = null
+let frameId = 0
+let lastTime = 0
+let nextLaunch = 0
+let width = 0
 let height = 0
-let rockets = [] // rising fireworks that have not burst yet
-let sparks = [] // the glowing dots created by a burst
+let rockets = []
+let sparks = []
 let resizeObserver = null
 
-// Respect users who turned on "reduce motion" in their device settings
 const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
-const rand = (min, max) => min + Math.random() * (max - min) // random number between min and max
-const pick = (list) => list[Math.floor(Math.random() * list.length)] // random item from a list
+// rand(min, max) = random number in a range; pick(list) = random item of a list.
+const rand = (min, max) => min + Math.random() * (max - min)
+// pick(list) - a random item from a list.
+const pick = (list) => list[Math.floor(Math.random() * list.length)]
 
-// Make the canvas match its on-screen size, and stay sharp on high-resolution (retina) screens
+// resize() - makes the canvas pixel size match its on-screen size (density capped at 2) so it stays
+// sharp on retina screens.
 function resize() {
-  const dpr = Math.min(window.devicePixelRatio || 1, 2) // cap at 2 so big phones stay fast
+  const dpr = Math.min(window.devicePixelRatio || 1, 2)
   width = canvas.value.clientWidth
   height = canvas.value.clientHeight
-  canvas.value.width = width * dpr // real pixels
+  canvas.value.width = width * dpr
   canvas.value.height = height * dpr
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0) // so we can keep drawing in CSS pixels
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 }
 
-// Send a rocket up from the bottom; it stops rising at a random height in the upper half
+// launchRocket() - adds a rocket at a random x on the bottom edge. It gets the exact upward speed (v =
+// sqrt(2 x gravity x distance)) to stop at a random height in the upper half, a random colour, and a
+// type: 30% "willow" (gold, drooping), 70% "peony" (round).
 function launchRocket() {
-  const targetY = height * rand(0.12, 0.42) // where it will burst
+  const targetY = height * rand(0.12, 0.42)
   const distance = height - targetY
   rockets.push({
     x: width * rand(0.1, 0.9),
     y: height,
-    vy: -Math.sqrt(2 * ROCKET_GRAVITY * distance), // physics: v = sqrt(2·g·d) is just enough speed to reach that height
+    vy: -Math.sqrt(2 * ROCKET_GRAVITY * distance),
     color: pick(PALETTE),
-    type: Math.random() < 0.3 ? 'willow' : 'peony', // 30% gold drooping "willow", 70% round "peony"
+    type: Math.random() < 0.3 ? 'willow' : 'peony',
   })
 }
 
-// Explode into lots of sparks at (x, y)
+// burst(x, y, color, type) - the explosion. 1) skip if there are already too many sparks 2) scale the
+// burst to the screen (smaller on phones, fewer sparks) 3) add one big soft "flash" circle 4) add 90
+// (willow) or 130 (peony) sparks flying in random directions with their own speed, fade time, gravity,
+// drag and tail length 5) 35% of peonies are two-tone.
 function burst(x, y, color, type) {
-  if (sparks.length > MAX_SPARKS) return // too busy already: skip this burst
+  if (sparks.length > MAX_SPARKS) return
   const isWillow = type === 'willow'
   const phone = width < 576
-  const scale = Math.min(width, 900) / 900 + 0.25 // smaller bursts on small screens
-  const count = Math.round((isWillow ? 90 : 130) * (phone ? 0.6 : 1)) // fewer sparks on phones
-  const second = pick(PALETTE) // some bursts are two-tone like in the real NDP show
+  const scale = Math.min(width, 900) / 900 + 0.25
+  const count = Math.round((isWillow ? 90 : 130) * (phone ? 0.6 : 1))
+  const second = pick(PALETTE)
   const twoTone = !isWillow && Math.random() < 0.35
 
-  // A quick soft flash at the moment of the explosion (drawn as a big fading circle, see draw())
   sparks.push({
     x,
     y,
@@ -92,61 +100,63 @@ function burst(x, y, color, type) {
   })
 
   for (let i = 0; i < count; i++) {
-    const angle = rand(0, Math.PI * 2) // fly off in a random direction
-    const speed = (isWillow ? rand(0.3, 1) * 170 : rand(0.3, 1) * 230) * scale // peony: a spread of speeds fills the ball, not just a thin ring
+    const angle = rand(0, Math.PI * 2)
+    const speed = (isWillow ? rand(0.3, 1) * 170 : rand(0.3, 1) * 230) * scale
     sparks.push({
       x,
       y,
       vx: Math.cos(angle) * speed,
       vy: Math.sin(angle) * speed,
-      life: 1, // 1 = fully bright, 0 = gone
-      decay: isWillow ? rand(0.25, 0.4) : rand(0.5, 0.75), // willow sparks last ~3s, peony ~1.6s
-      gravity: isWillow ? 110 : 60, // how fast it droops downward
-      drag: isWillow ? 0.975 : 0.985, // air resistance (closer to 1 = glides further)
-      size: rand(1.4, 2.8), // thickness of the spark's streak
-      tail: isWillow ? 0.14 : 0.07, // trail length in seconds of travel (willows leave longer trails)
-      color: isWillow ? [255, 205, 100] : twoTone && i % 2 ? second : color, // willows are always gold
+      life: 1,
+      decay: isWillow ? rand(0.25, 0.4) : rand(0.5, 0.75),
+      gravity: isWillow ? 110 : 60,
+      drag: isWillow ? 0.975 : 0.985,
+      size: rand(1.4, 2.8),
+      tail: isWillow ? 0.14 : 0.07,
+      color: isWillow ? [255, 205, 100] : twoTone && i % 2 ? second : color,
     })
   }
 }
 
-// Move everything forward by dt seconds
+// update(dt) - moves everything forward by dt seconds. Rockets slow down with gravity and burst when
+// they almost stop rising; sparks lose speed (drag), fall (gravity), fade (life) and are removed when
+// life reaches 0. The drag is scaled by dt so 60 Hz and 120 Hz screens look the same.
 function update(dt) {
   for (let i = rockets.length - 1; i >= 0; i--) {
     const r = rockets[i]
-    r.vy += ROCKET_GRAVITY * dt // gravity slows the rocket down
+    r.vy += ROCKET_GRAVITY * dt
     r.y += r.vy * dt
     if (r.vy >= -15) {
-      // it has almost stopped rising: time to explode
       burst(r.x, r.y, r.color, r.type)
       rockets.splice(i, 1)
     }
   }
   for (let i = sparks.length - 1; i >= 0; i--) {
     const s = sparks[i]
-    const drag = Math.pow(s.drag, dt * 60) // keeps the same feel on 60Hz and 120Hz screens
+    const drag = Math.pow(s.drag, dt * 60)
     s.vx *= drag
-    s.vy = s.vy * drag + s.gravity * dt // slow down, then get pulled down
+    s.vy = s.vy * drag + s.gravity * dt
     s.x += s.vx * dt
     s.y += s.vy * dt
-    s.life -= s.decay * dt // fade out
-    if (s.life <= 0) sparks.splice(i, 1) // remove dead sparks
+    s.life -= s.decay * dt
+    if (s.life <= 0) sparks.splice(i, 1)
   }
 }
 
+// draw() - paints one frame: 1) clear the whole canvas (no fading trails, which left ghost lines) 2)
+// 'lighter' blending so overlapping sparks glow 3) draw each flash as a soft radial gradient 4) draw
+// each spark as a short streak from where it just was 5) draw each rocket as a short warm-white
+// streak.
 function draw() {
-  // Wipe the whole canvas every frame. Trails are drawn as short streaks below instead of by fading
-  // the old frame, because fading leaves faint "ghost" lines that never fully disappear.
   ctx.clearRect(0, 0, width, height)
 
-  // 'lighter' adds colours together, so overlapping sparks glow brighter
   ctx.globalCompositeOperation = 'lighter'
   ctx.lineCap = 'round'
   for (const s of sparks) {
     const [r, g, b] = s.color
     if (s.flash) {
-      const radius = s.size * (2 - s.life) // grows slightly as it fades
-      const glow = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, radius) // bright centre fading to nothing = soft edge
+      const radius = s.size * (2 - s.life)
+      const glow = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, radius)
       glow.addColorStop(0, `rgba(${r}, ${g}, ${b}, ${s.life * 0.45})`)
       glow.addColorStop(1, `rgba(${r}, ${g}, ${b}, 0)`)
       ctx.fillStyle = glow
@@ -155,68 +165,75 @@ function draw() {
       ctx.fill()
       continue
     }
-    ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${Math.pow(s.life, 1.1)})` // alpha falls off smoothly
+    ctx.strokeStyle = `rgba(${r}, ${g}, ${b}, ${Math.pow(s.life, 1.1)})`
     ctx.lineWidth = s.size
     ctx.beginPath()
-    ctx.moveTo(s.x - s.vx * s.tail, s.y - s.vy * s.tail) // tail = where the spark was a moment ago
+    ctx.moveTo(s.x - s.vx * s.tail, s.y - s.vy * s.tail)
     ctx.lineTo(s.x, s.y)
     ctx.stroke()
   }
-  ctx.strokeStyle = 'rgba(255, 240, 210, 0.9)' // rockets are warm-white streaks
+  ctx.strokeStyle = 'rgba(255, 240, 210, 0.9)'
   ctx.lineWidth = 2
   for (const r of rockets) {
     ctx.beginPath()
-    ctx.moveTo(r.x, r.y - r.vy * 0.12) // vy is negative (moving up), so the tail points downward
+    ctx.moveTo(r.x, r.y - r.vy * 0.12)
     ctx.lineTo(r.x, r.y)
     ctx.stroke()
   }
 }
 
-// One animation frame; the browser calls this ~60 times a second
+// loop(time) - one animation frame. 1) compute seconds since the last frame (capped at 0.05 so a
+// paused tab does not jump) 2) when it is time launch a rocket (25% chance of two) and pick the next
+// launch time 3) update 4) draw 5) ask the browser for the next frame.
 function loop(time) {
-  const dt = Math.min((time - lastTime) / 1000, 0.05) // seconds since last frame, capped so a paused tab does not cause a jump
+  const dt = Math.min((time - lastTime) / 1000, 0.05)
   lastTime = time
 
   if (time >= nextLaunch) {
     launchRocket()
-    if (Math.random() < 0.25) launchRocket() // sometimes two at once
+    if (Math.random() < 0.25) launchRocket()
     nextLaunch = time + rand(MIN_GAP_MS, MAX_GAP_MS)
   }
   update(dt)
   draw()
-  frameId = requestAnimationFrame(loop) // schedule the next frame
-}
-
-function start() {
-  lastTime = performance.now()
-  nextLaunch = lastTime + 300 // first rocket almost straight away
   frameId = requestAnimationFrame(loop)
 }
 
+// start() - begin the loop; the first rocket goes up after 0.3 seconds.
+function start() {
+  lastTime = performance.now()
+  nextLaunch = lastTime + 300
+  frameId = requestAnimationFrame(loop)
+}
+
+// stop() - cancel the next frame.
 function stop() {
   cancelAnimationFrame(frameId)
 }
 
-// Save battery: pause the show when the browser tab is hidden
+// onVisibilityChange() - pause the show while the browser tab is hidden and restart it when visible
+// again (saves battery). Ignored for reduced motion.
 function onVisibilityChange() {
   if (reduceMotion) return
   if (document.hidden) stop()
   else start()
 }
 
-// For "reduce motion" users: draw one frozen frame with a few bursts and do not animate
+// drawStill() - for reduced-motion visitors: add three bursts, let the sparks spread for 0.4 seconds
+// and draw a single still frame.
 function drawStill() {
   burst(width * 0.3, height * 0.3, PALETTE[0], 'peony')
   burst(width * 0.7, height * 0.25, PALETTE[2], 'peony')
   burst(width * 0.5, height * 0.2, PALETTE[4], 'willow')
-  update(0.4) // let the sparks spread out a little
+  update(0.4)
   draw()
 }
 
+// onMounted - 1) get the pen 2) size the canvas 3) watch for size changes with a ResizeObserver 4)
+// listen for tab visibility 5) draw a still frame (reduced motion) or start the animation.
 onMounted(() => {
   ctx = canvas.value.getContext('2d')
   resize()
-  // Re-fit the canvas whenever its size changes (window resize, phone rotation)
   resizeObserver = new ResizeObserver(resize)
   resizeObserver.observe(canvas.value)
   document.addEventListener('visibilitychange', onVisibilityChange)
@@ -224,7 +241,8 @@ onMounted(() => {
   else start()
 })
 
-// Clean up when leaving the page, otherwise the animation would keep running in the background
+// onBeforeUnmount - stop the loop, the observer and the listener so nothing keeps running after
+// leaving the page.
 onBeforeUnmount(() => {
   stop()
   resizeObserver?.disconnect()
@@ -233,15 +251,12 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <!-- aria-hidden: purely decorative, screen readers should skip it -->
+  <!-- A full-size canvas and the skyline picture. -->
   <div class="fireworks" aria-hidden="true">
     <canvas ref="canvas" class="fireworks-canvas"></canvas>
-    <!-- soft red glow near the horizon, like the haze in the real show -->
     <div class="fireworks-glow"></div>
-    <!-- dark gradient on the left so the headline stays easy to read -->
     <div class="fireworks-scrim"></div>
 
-    <!-- Marina Bay silhouette: low city blocks, the dome, and the 3-tower hotel with its rooftop -->
     <svg
       v-if="skyline"
       class="fireworks-skyline"
@@ -255,20 +270,15 @@ onBeforeUnmount(() => {
         <rect x="170" y="98" width="36" height="42" />
         <rect x="206" y="108" width="60" height="32" />
         <path d="M290 140 Q360 62 430 140 Z" />
-        <!-- dome -->
         <rect x="430" y="100" width="50" height="40" />
         <rect x="480" y="112" width="70" height="28" />
         <rect x="550" y="96" width="34" height="44" />
         <rect x="584" y="106" width="60" height="34" />
         <rect x="640" y="114" width="60" height="26" />
         <polygon points="710,140 714,54 732,54 736,140" />
-        <!-- hotel tower 1 -->
         <polygon points="758,140 762,54 780,54 784,140" />
-        <!-- hotel tower 2 -->
         <polygon points="806,140 810,54 828,54 832,140" />
-        <!-- hotel tower 3 -->
         <path d="M694 52 L846 44 Q858 44 852 51 L832 56 L708 56 Z" />
-        <!-- rooftop -->
         <rect x="860" y="112" width="100" height="28" />
         <rect x="960" y="104" width="50" height="36" />
         <rect x="1010" y="92" width="40" height="48" />
@@ -281,7 +291,8 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-/* Fills its parent (the parent must have position: relative) and ignores clicks so buttons on top still work */
+/* Styles that place the canvas behind the content. */
+
 .fireworks {
   position: absolute;
   inset: 0;

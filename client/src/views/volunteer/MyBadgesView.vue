@@ -1,31 +1,37 @@
+<!-- The volunteer's My Badges page (F6): the badges earned and the ones still locked. -->
+
 <script setup>
-// Feature 5 – Badge wall — owner: Hanafi
-// Spec: docs/FEATURES.md   ·   API calls: src/services/   ·   Tests: e2e/
+// Loads the badge list and the volunteer's awards, and splits them into earned and locked.
+
 import { ref, onMounted, computed } from 'vue'
-import PageLoading from '@/components/common/PageLoading.vue' // NEW: fading "Fetching..." overlay
+import PageLoading from '@/components/common/PageLoading.vue'
 import { listBadges, getMyBadges } from '@/services/badges'
 
 const badges = ref([])
 const myAwards = ref([])
 const error = ref('')
 
+// awardFor(code) - finds my award for a badge code, or undefined if I have not earned it. The popup
+// and both lists use this to decide earned or locked.
 function awardFor(code) {
   return myAwards.value.find(a => a.badge?.code === code)
 }
 
 const selected = ref(null)
 
+// earnedBadges (computed) - all badges I have an award for.
 const earnedBadges = computed(() => badges.value.filter(b => awardFor(b.code)))
+// lockedBadges (computed) - all badges I do not have yet.
 const lockedBadges = computed(() => badges.value.filter(b => !awardFor(b.code)))
 
 const loading = ref(true)
 
+// onMounted - load the badge list and the volunteer's awards together; if either fails show a friendly
+// message, but still show whatever did load.
 onMounted(async () => {
-  // FIX (C11): allSettled waits for BOTH requests and never throws, so one failure no longer hides the other.
   const [listResult, awardsResult] = await Promise.allSettled([listBadges(), getMyBadges()])
   if (listResult.status === 'fulfilled') badges.value = listResult.value
   if (awardsResult.status === 'fulfilled') myAwards.value = awardsResult.value
-  // show an error if either one failed (the page still shows whatever did load)
   const failed = [listResult, awardsResult].find((r) => r.status === 'rejected')
   if (failed) {
     error.value = failed.reason?.friendlyMessage || 'Something went wrong. Please try again.'
@@ -36,8 +42,8 @@ onMounted(async () => {
 </script>
 
 <template>
+  <!-- The earned badges with their message, the locked badges and the error message. -->
   <section class="badges-page" :class="{ 'is-loading': loading }" @keydown.esc="selected = null">
-    <!-- NEW: overlay fades in/out while data is fetched (content below only shows once loading is false) -->
     <Transition name="loading-fade">
       <PageLoading v-if="loading" contained text="Fetching Your Badges..." />
     </Transition>
@@ -46,8 +52,7 @@ onMounted(async () => {
       <div>{{ error }}</div>
     </div>
 
-
-    <template v-else-if="!loading"> <!-- NEW: wait for the data (was v-else after the old spinner block) -->
+    <template v-else-if="!loading">
       <div class="card-hw progress-card p-3 p-lg-4">
         <div class="progress-main">
           <div class="ring" role="img" :aria-label="`${earnedBadges.length} of ${badges.length} badges earned`">
@@ -84,7 +89,6 @@ onMounted(async () => {
       </div>
 
       <div data-testid="badge-wall">
-        <!-- Earned -->
         <h2 class="section-title">Earned <span class="section-count">{{ earnedBadges.length }}</span></h2>
         <div v-if="earnedBadges.length === 0" class="empty-earned">
           <i class="bi bi-award" aria-hidden="true"></i>
@@ -102,7 +106,6 @@ onMounted(async () => {
           </button>
         </div>
 
-        <!-- Still to earn -->
         <template v-if="lockedBadges.length > 0">
           <h2 class="section-title">Still to earn <span class="section-count">{{ lockedBadges.length }}</span></h2>
           <div class="badge-grid">
@@ -120,11 +123,9 @@ onMounted(async () => {
       </div>
     </template>
 
-    <!-- Pop-up -->
     <Teleport to="body">
     <div v-if="selected" class="modal d-block hw-modal" tabindex="-1" role="dialog" aria-modal="true"
          aria-labelledby="badge-modal-title" data-testid="badge-modal" @click.self="selected = null">
-      <!-- FIX (U1): removed "modal-dialog-centered" so this popup opens at the TOP centre (team rule), not the middle -->
       <div class="modal-dialog">
         <div class="modal-content badge-modal">
           <button type="button" class="btn-close" aria-label="Close" data-testid="badge-modal-close" @click="selected = null"></button>
@@ -158,21 +159,21 @@ onMounted(async () => {
 </template>
 
 <style scoped>
-/* ---------- Colours that change in dark mode ---------- */
+/* Styles for the badge tiles. */
+
 .badges-page {
   position: relative;
-  --tint: rgb(20 33 61 / 0.08); 
-  --dash: #c3c8d2; 
+  --tint: rgb(20 33 61 / 0.08);
+  --dash: #c3c8d2;
 }
 .badges-page.is-loading {
   min-height: calc(100vh - 128px);
 }
 [data-bs-theme='dark'] .badges-page {
-  --tint: rgb(255 255 255 / 0.08); 
+  --tint: rgb(255 255 255 / 0.08);
   --dash: #4a5570;
 }
 
-/* ---------- Progress card ---------- */
 .progress-card {
   display: flex;
   flex-wrap: wrap;
@@ -195,7 +196,7 @@ onMounted(async () => {
 .ring-svg {
   width: 100%;
   height: 100%;
-  transform: rotate(-90deg); 
+  transform: rotate(-90deg);
 }
 .ring-seg {
   fill: none;
@@ -217,7 +218,7 @@ onMounted(async () => {
 .ring-number {
   font-size: 1.9rem;
   font-weight: 700;
-  color: var(--hw-heading); 
+  color: var(--hw-heading);
 }
 .ring-total {
   font-size: 0.95rem;
@@ -227,7 +228,7 @@ onMounted(async () => {
 .progress-headline {
   font-size: 1.25rem;
   font-weight: 700;
-  color: var(--hw-heading); 
+  color: var(--hw-heading);
   line-height: 1.2;
   margin-bottom: 0.2rem;
 }
@@ -243,11 +244,10 @@ onMounted(async () => {
     font-size: 1.5rem;
   }
   .progress-card .btn {
-    width: 100%; 
+    width: 100%;
   }
 }
 
-/* ---------- Sections ---------- */
 .section-title {
   display: flex;
   align-items: center;
@@ -255,7 +255,7 @@ onMounted(async () => {
   margin: 0 0 0.9rem;
   font-size: 1.15rem;
   font-weight: 700;
-  color: var(--hw-heading); 
+  color: var(--hw-heading);
 }
 .section-count {
   display: inline-grid;
@@ -270,11 +270,11 @@ onMounted(async () => {
 }
 .badge-grid + .section-title,
 .empty-earned + .section-title {
-  margin-top: 2.25rem; 
+  margin-top: 2.25rem;
 }
 .badge-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); 
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 0.75rem;
 }
 @media (min-width: 992px) {
@@ -283,7 +283,6 @@ onMounted(async () => {
   }
 }
 
-/* ---------- Tiles---------- */
 .badge-tile {
   display: flex;
   flex-direction: column;
@@ -310,7 +309,7 @@ onMounted(async () => {
 .badge-tile.is-locked {
   border-style: dashed;
   border-color: var(--dash);
-  background: transparent; 
+  background: transparent;
 }
 .badge-name {
   font-weight: 600;
@@ -329,7 +328,6 @@ onMounted(async () => {
   color: var(--hw-muted);
 }
 
-/* ---------- Medal ---------- */
 .medal {
   position: relative;
   display: grid;
@@ -342,7 +340,7 @@ onMounted(async () => {
 }
 .is-earned .medal,
 .medal.is-earned {
-  overflow: hidden; 
+  overflow: hidden;
   color: #fff;
   background: radial-gradient(circle at 32% 28%, #ff5a68 0%, var(--hw-red) 55%, var(--hw-red-dark) 100%);
   box-shadow:
@@ -364,13 +362,13 @@ onMounted(async () => {
   width: 24px;
   height: 24px;
   border-radius: 50%;
-  background: var(--hw-heading); 
-  color: var(--hw-surface); 
+  background: var(--hw-heading);
+  color: var(--hw-surface);
   font-size: 0.7rem;
   box-shadow: 0 0 0 2px var(--hw-surface);
 }
 .medal-lg {
-  margin: 0 auto; 
+  margin: 0 auto;
   width: 96px;
   height: 96px;
   font-size: 2.4rem;
@@ -394,7 +392,6 @@ onMounted(async () => {
   color: var(--hw-muted);
 }
 
-/* ---------- Pop-up ---------- */
 .hw-modal {
   z-index: 1300;
   overflow-y: auto;
@@ -412,14 +409,14 @@ onMounted(async () => {
   position: relative;
   border: 0;
   border-radius: var(--hw-radius);
-  background: var(--hw-surface); 
+  background: var(--hw-surface);
   box-shadow: 0 20px 50px rgb(20 33 61 / 0.25);
 }
 .badge-modal .btn-close {
   position: absolute;
   top: 0.9rem;
   right: 0.9rem;
-  z-index: 1; 
+  z-index: 1;
 }
 .state-pill {
   display: inline-flex;

@@ -1,24 +1,19 @@
-import { createRouter, createWebHistory } from 'vue-router' // needed by createRouter() / createWebHistory() below
+// The page map: which URL shows which page, who is allowed to open it (guest, volunteer, admin), and
+// the redirect rules run before and after each page change.
+
+import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/services/auth'
-import { landingFor } from './landing' // NEW: the page each role lands on instead of Home
+import { landingFor } from './landing'
 import HomeView from '@/views/HomeView.vue'
 
 const routes = [
-  // ---- Anyone
   { path: '/', name: 'home', component: HomeView, meta: { public: true, title: 'Home' } },
-  // 'path': URL that triggers this route
-  // 'name': Nickname so code can just say 'router.push({ name: 'home' })', works even if path changes
-  // 'component': The page to show
-  // 'meta': Our own labels, read by the 'navigation guard' in Vue.js
 
-  // ---- Guests only
   {
     path: '/login',
     name: 'login',
-    component: () => import('@/views/LoginView.vue'), // load this file only when someone visits the page
+    component: () => import('@/views/LoginView.vue'),
     meta: { guestOnly: true, title: 'Log in' },
-    // 'meta' is a free-form object attached to a route.
-    // For us to put our own labels, and the code reads them later through 'to.meta'.
   },
   {
     path: '/register',
@@ -27,33 +22,32 @@ const routes = [
     meta: { guestOnly: true, title: 'Volunteer sign-up' },
   },
 
-  // ---- Volunteer pages: /volunteer/...
   {
     path: '/volunteer',
-    meta: { roles: ['volunteer'] }, // applies to every child below
+    meta: { roles: ['volunteer'] },
     children: [
       { path: '', redirect: { name: 'volunteer-assignment' } },
       {
-        path: 'assignment', // F1b – Fanny
+        path: 'assignment',
         name: 'volunteer-assignment',
         component: () => import('@/views/volunteer/MyAssignmentView.vue'),
         meta: { title: 'My assignment' },
       },
       {
-        path: 'tracking', // F3 – Chin
+        path: 'tracking',
         name: 'volunteer-tracking',
         component: () => import('@/views/volunteer/TrackingView.vue'),
         meta: { title: 'Event day' },
       },
-      { path: 'report', redirect: '/volunteer/tracking' }, // F4 – Wei Ming: the report form now lives inside the Tracking page, old links still work
+      { path: 'report', redirect: '/volunteer/tracking' },
       {
-        path: 'badges', // F5 – Hanafi
+        path: 'badges',
         name: 'volunteer-badges',
         component: () => import('@/views/volunteer/MyBadgesView.vue'),
         meta: { title: 'My badges' },
       },
       {
-        path: 'badge-studio', // F5 – Hanafi
+        path: 'badge-studio',
         name: 'volunteer-badge-studio',
         component: () => import('@/views/volunteer/BadgeStudioView.vue'),
         meta: { title: 'Badge Studio' },
@@ -61,32 +55,31 @@ const routes = [
     ],
   },
 
-  // ---- Admin pages: /admin/...
   {
     path: '/admin',
-    meta: { roles: ['admin'] }, // applies to every child below
+    meta: { roles: ['admin'] },
     children: [
       { path: '', redirect: { name: 'admin-allocation' } },
       {
-        path: 'allocation', // F1b – Fanny
+        path: 'allocation',
         name: 'admin-allocation',
         component: () => import('@/views/admin/AllocationBoardView.vue'),
         meta: { title: 'Allocation' },
       },
       {
-        path: 'live', // F3 – Chin
+        path: 'live',
         name: 'admin-live',
         component: () => import('@/views/admin/HqLiveBoardView.vue'),
         meta: { title: 'Live board' },
       },
       {
-        path: 'incidents', // F4 – Wei Ming
+        path: 'incidents',
         name: 'admin-incidents',
         component: () => import('@/views/admin/IncidentQueueView.vue'),
         meta: { title: 'Incidents & alerts' },
       },
       {
-        path: 'badges', // F5 – Hanafi
+        path: 'badges',
         name: 'admin-badges',
         component: () => import('@/views/admin/BadgeAwardsView.vue'),
         meta: { title: 'Badges & orders' },
@@ -94,56 +87,51 @@ const routes = [
     ],
   },
 
-  // ---- Anything else
   {
-    path: '/:pathMatch(.*)*', // Any URL that no routes matched will display 'Not Found' view
+    path: '/:pathMatch(.*)*',
     name: 'not-found',
     component: () => import('@/views/NotFoundView.vue'),
     meta: { public: true, title: 'Not found' },
   },
 ]
 
+// router - creates the page router with history mode, the route list above, and every page change
+// scrolling to the top.
 const router = createRouter({
-  history: createWebHistory(import.meta.env.BASE_URL), // Lets users use the browser's native back and forward buttons smoothly
-  routes, // All the routes listed above
-  scrollBehavior: () => ({ top: 0 }), // Scrolls to the top after each navigation
+  history: createWebHistory(import.meta.env.BASE_URL),
+  routes,
+  scrollBehavior: () => ({ top: 0 }),
 })
 
-// Vue.js beforeEach Guard: Runs before every navigation and decides whether to allow it.
+// Vue.js beforeEach Guard: Runs before every navigation and decides whether to allow it. Navigation
+// guard (runs before EVERY page change). Step by step: 1. Ask the server who is logged in (only the
+// first time per page load - auth.restore). 2. Read the route labels: guestOnly, public, roles. 3.
+// Guest-only page (login/register): a logged-in person is sent to their own landing page, a guest may
+// enter. 4. A logged-in person opening "/" (Home) is sent to their own landing page. 5. Public page:
+// allow. 6. Not logged in: send to /login with ?redirect=<the page they wanted>. 7. Wrong role (e.g. a
+// volunteer opening /admin): send to their own landing page. 8. Otherwise allow.
 router.beforeEach(async (to) => {
-  // 'to' is the page being opened
   const auth = useAuthStore()
-  await auth.restore() // asks the server who is logged in once per page load
+  await auth.restore()
 
-  // Pulls the labels out of the merged meta
   const { guestOnly, public: isPublic, roles } = to.meta
 
-  // Check if user has role, if already logged in, go home. Otherwise allow.
-  // CHANGED: a logged-in person opening /login or /register goes to their own page, not Home
   if (guestOnly) return auth.isLoggedIn ? landingFor(auth.role) : true
 
-  // NEW: a logged-in person never needs the landing page (opening the site, refreshing or tapping the logo
-  // all land on "/"), so send them to their own page. Guests still fall through and see Home.
   if (to.name === 'home' && auth.isLoggedIn) return landingFor(auth.role)
 
-  // Allow everyone to access Home and 'not allowed' view
   if (isPublic) return true
 
-  // If user is guest, go to /login, and remember where they were headed in ?redirect=...
-  // so LoginView can send user back to that route they were trying to access after login.
   if (!auth.isLoggedIn) return { name: 'login', query: { redirect: to.fullPath } }
 
-  // If user role is not on the allowed role list, go to home view.
-  // CHANGED: wrong role (e.g. a volunteer opening /admin) goes to their own page, not Home
   if (roles && !roles.includes(auth.role)) return landingFor(auth.role)
   return true
 })
 
-// Runs after a navigation succeeds and sets the browser tab text.
-// Routes with no title displays "Heartware"
+// Runs after a navigation succeeds and sets the browser tab text. Routes with no title displays
+// "Heartware" After every successful navigation set the browser tab title to "<page title> · Heartware
+// Volunteer Ops".
 router.afterEach((to) => {
-  // 'to.meta.title' defined in the 'meta' tags
-  // '??' means "use the right side if the left is null or undefined"
   document.title = `${to.meta.title ?? 'Heartware'} · Heartware Volunteer Ops`
 })
 

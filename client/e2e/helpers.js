@@ -1,8 +1,5 @@
-// Shared helpers for the E2E tests (every feature file imports from here).
-// The accounts come from our seed scripts:
-//   cd server && pnpm run seed:volunteers   -> demo.volunteer001@demo.sg ... (password DemoPass123!)
-//   cd server && ADMIN_EMAIL=... ADMIN_PASSWORD=... pnpm run seed:admin   -> the admin (coordinator)
-// If you created a different admin, set E2E_ADMIN_EMAIL / E2E_ADMIN_PASSWORD before running Playwright.
+// Shared helpers for the browser tests (log in, set up data, fake the location and so on).
+
 import { expect } from '@playwright/test'
 
 export const DEMO_PASSWORD = process.env.E2E_DEMO_PASSWORD || 'DemoPass123!'
@@ -15,9 +12,9 @@ export const ACCOUNTS = {
   volunteer: { email: 'demo.volunteer001@demo.sg', password: DEMO_PASSWORD },
 }
 
-// Logs in through the real login form with ANY email + password.
-// It waits until we have left /login instead of waiting for one particular page, so it keeps working
-// wherever the app sends a user after login.
+// loginWithCredentials(page, account) - logs in through the real login form: 1) open /login 2) type
+// the email and password into the fields found by their test ids 3) click Sign in 4) wait until the
+// address is no longer /login (so it works wherever the app sends the user afterwards).
 export async function loginWithCredentials(page, { email, password }) {
   await page.goto('/login')
   await page.getByTestId('login-email').fill(email)

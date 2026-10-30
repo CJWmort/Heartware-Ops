@@ -1,11 +1,14 @@
-// Creates (or resets the password of) ONE admin account, because public sign-up only makes volunteers.
-// Run with:  ADMIN_EMAIL=admin@heartware.sg ADMIN_PASSWORD='ChangeMe123!' npm run seed:admin
-// (On Windows PowerShell:  $env:ADMIN_EMAIL="..."; $env:ADMIN_PASSWORD="..."; npm run seed:admin)
+// Script that creates the admin (coordinator) account.
+
 const bcrypt = require('bcrypt')
 const mongoose = require('mongoose')
 const { connect, disconnect } = require('./_connect')
 require('../models/account-model')
 
+// main() - creates or updates ONE admin account. 1) read ADMIN_EMAIL and ADMIN_PASSWORD (min 8
+// characters) from the environment 2) connect 3) hash the password with bcrypt 4) upsert: always set
+// password and role "admin"; only when creating, fill the other required fields with HQ placeholders
+// 5) print the email and disconnect.
 async function main() {
   const email = (process.env.ADMIN_EMAIL || '').trim().toLowerCase()
   const password = process.env.ADMIN_PASSWORD || ''
@@ -22,7 +25,6 @@ async function main() {
     { email },
     {
       $set: { password: hashed, role: 'admin' },
-      // only used the first time the account is created (fields the schema requires)
       $setOnInsert: {
         name: 'Heartware Admin',
         postalCode: '238823',

@@ -1,8 +1,9 @@
+<!-- The map on My Assignment that shows the route from the volunteer's home to their school, with
+     a driving or walking switch and a Google Maps link. -->
+
 <script setup>
-// Directions from the volunteer's home to their school (My Assignment page).
-// Uses the shared BaseMap, the same markers as the Tracking page, and the server's OneMap route: GET /api/users/route.
-//
-// Usage: <SchoolRouteMap :home="{ lat, lng }" :school="{ lat, lng, name }" />
+// Fetches and draws the route, switches the travel mode and builds the Google Maps link.
+
 import { ref, computed, onBeforeUnmount } from 'vue'
 import axios from 'axios'
 import polyline from '@mapbox/polyline'
@@ -11,8 +12,8 @@ import MapLoading from '@/components/map/MapLoading.vue'
 import { createDotIcon, createSchoolIcon, createRouteLabelIcon, tipCard, bindTip } from '@/utils/map-icons'
 
 const props = defineProps({
-  home: { type: Object, required: true }, // { lat, lng }
-  school: { type: Object, required: true }, // { lat, lng, name }
+  home: { type: Object, required: true },
+  school: { type: Object, required: true },
 })
 
 const MODES = [
@@ -22,9 +23,10 @@ const MODES = [
 const mode = ref('drive')
 const loading = ref(false)
 const error = ref('')
-const info = ref(null) // { minutes, km }
+const info = ref(null)
 
-// Opens Google Maps for turn-by-turn directions with the same start, end and travel mode
+// googleMapsUrl (computed) - builds the Google Maps directions link from home, school and the chosen
+// mode.
 const googleMapsUrl = computed(() => {
   const travel = MODES.find((m) => m.key === mode.value).google
   return `https://www.google.com/maps/dir/?api=1&origin=${props.home.lat},${props.home.lng}&destination=${props.school.lat},${props.school.lng}&travelmode=${travel}`
@@ -32,8 +34,14 @@ const googleMapsUrl = computed(() => {
 
 let map = null
 let L = null
-let routeLayer = null // holds the route line + "xx min" pill, cleared before each new route
+let routeLayer = null
 
+// drawRoute() - 1) show loading and clear the error 2) GET /api/users/route (15 s timeout) with the
+// two points and the mode 3) stop if the map was already closed 4) decode the route line from OneMap's
+// encoded polyline 5) minutes = total_time / 60 rounded 6) clear the old route, draw the blue line and
+// a "xx min" pill at the middle point 7) zoom to fit the line 8) save minutes and km for the summary
+// 9) on error clear the route and show the server's message or a friendly fallback 10) always hide
+// loading.
 async function drawRoute() {
   loading.value = true
   error.value = ''
@@ -48,7 +56,7 @@ async function drawRoute() {
       },
       timeout: 15000,
     })
-    if (!map) return // popup was closed while waiting
+    if (!map) return
 
     const coords = polyline.decode(data.route_geometry)
     const minutes = Math.round(data.route_summary.total_time / 60)
@@ -66,12 +74,15 @@ async function drawRoute() {
   }
 }
 
+// setMode(key) - switches Drive/Walk and redraws the route.
 function setMode(key) {
   mode.value = key
   drawRoute()
 }
 
-// BaseMap is ready: add Home and the school, zoom to show both, then load the route
+// onMapReady(m, leaflet) - called when BaseMap is ready. 1) keep the map and L 2) create the route
+// layer 3) add the Home marker and the school marker 4) give each a hover tooltip card 5) zoom to show
+// both 6) draw the first route.
 function onMapReady(m, leaflet) {
   map = m
   L = leaflet
@@ -84,12 +95,15 @@ function onMapReady(m, leaflet) {
   drawRoute()
 }
 
+// When the component goes away forget the map so a late reply from the server is ignored (drawRoute
+// checks !map).
 onBeforeUnmount(() => {
   map = null
 })
 </script>
 
 <template>
+  <!-- The map, the mode buttons and the route summary. -->
   <div>
     <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-2">
       <div class="btn-group btn-group-sm" role="group" aria-label="Travel mode">
@@ -115,7 +129,6 @@ onBeforeUnmount(() => {
 
     <div class="map-stage">
       <BaseMap :zoom="13" testid="school-route-map" @ready="onMapReady" />
-      <!-- NEW: <Transition> makes the overlay fade in/out instead of popping -->
       <Transition name="loading-fade">
         <MapLoading v-if="loading" text="Finding the route..." />
       </Transition>
@@ -135,7 +148,8 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
-/* MapLoading covers this box. The map needs its own height inside the popup. */
+/* Styles for the route card and buttons. */
+
 .map-stage {
   position: relative;
 }

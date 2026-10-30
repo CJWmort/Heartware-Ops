@@ -1,10 +1,17 @@
+<!-- The admin's inbox: one row per volunteer with the latest message, time, online dot and unread
+     count. -->
+
 <script setup>
+// Prepares the rows (sorted, with labels) from the chat store.
+
 import { computed, ref } from 'vue'
 import { formatChatTime, useChatStore } from '@/services/chat'
 
 const chat = useChatStore()
 const query = ref('')
 
+// rows (computed) - the list to show: all threads, or only those whose volunteer name contains the
+// typed text (not case sensitive).
 const rows = computed(() => {
   const q = query.value.trim().toLowerCase()
   return q ? chat.threads.filter((t) => (t.name || '').toLowerCase().includes(q)) : chat.threads
@@ -12,6 +19,7 @@ const rows = computed(() => {
 </script>
 
 <template>
+  <!-- The list of volunteer rows; clicking a row opens that conversation. -->
   <div class="d-flex flex-column h-100">
     <header class="chat-head d-flex align-items-center justify-content-between px-3 py-2">
       <h2 class="h6 mb-0">Messages</h2>
@@ -68,7 +76,6 @@ const rows = computed(() => {
           </span>
         </button>
       </li>
-      <!-- FIX (C21): say "Loading..." until the first load has finished, so "No volunteers yet." does not flash -->
       <li v-if="!chat.threadsLoaded && !rows.length" class="text-body-secondary small text-center p-4">
         Loading volunteers…
       </li>
@@ -80,6 +87,8 @@ const rows = computed(() => {
 </template>
 
 <style scoped>
+/* Styles for the rows, online dot and unread badge. */
+
 .chat-head {
   border-bottom: 1px solid var(--bs-border-color, #dee2e6);
 }
@@ -97,16 +106,16 @@ const rows = computed(() => {
   width: 0.6rem;
   height: 0.6rem;
   border-radius: 50%;
-  background: #adb5bd; /* offline */
+  background: #adb5bd;
 }
 .presence.on {
-  background: #198754; /* online */
+  background: #198754;
 }
 .preview {
   font-size: 0.8125rem;
 }
 .min-w-0 {
-  min-width: 0; /* lets the preview text shorten with "…" instead of widening the row */
+  min-width: 0;
 }
 .flex-none {
   flex: none;

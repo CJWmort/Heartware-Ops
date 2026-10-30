@@ -1,6 +1,10 @@
+<!-- The volunteer sign-up page (F1) with email code check, postal code lookup (OneMap), password
+     rules and a pass-style preview. -->
+
 <script setup>
-// Feature 1a – Registration — owner: Kuah
-// Spec: docs/FEATURES.md   ·   API calls: src/services/   ·   Tests: e2e/
+// Validates every field live, looks up the address from the postal code, checks the password rules,
+// sends and verifies the email code, and submits the account.
+
 import { ref, watch, computed, nextTick, onBeforeUnmount } from 'vue'
 import { useRoute } from 'vue-router'
 import axios from 'axios'
@@ -16,18 +20,18 @@ const postalCode = ref('')
 const address = ref('')
 const password = ref('')
 const confirmPassword = ref('')
-// NEW (spec: consent before tracking): the volunteer must agree to share their live location for app to work.
-// Sign up stays disabled until ticked, and the server also refuses an account without it.
 const consent = ref(false)
 
 const showPassword = ref(false)
 const showConfirmPassword = ref(false)
 
 const errors = ref({})
-const notice = ref(null) // the error popup's content, or null while hidden
+const notice = ref(null)
 let noticeTimer = null
 
-// Shows a problem in the popup card (same MapNotice as the tracking page), then hides it after 5 seconds
+// showError(text, title) - fills the popup (error type, warning icon, title "Unable to sign up" unless
+// another is given) and (re)starts the 5 second hide timer. dismissNotice() = the X button;
+// onBeforeUnmount clears the timer.
 function showError(text, title = 'Unable to sign up') {
   notice.value = { type: 'error', icon: 'bi-exclamation-triangle-fill', title, text }
   clearTimeout(noticeTimer)
@@ -38,17 +42,15 @@ function dismissNotice() {
   clearTimeout(noticeTimer)
   notice.value = null
 }
+// onBeforeUnmount - cancel the notice timer when leaving the page.
 onBeforeUnmount(() => clearTimeout(noticeTimer))
 const loading = ref(false)
 
 const phoneRegex = /^[689]\d{7}$/
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
-// ---------- Email: helpful error messages ----------
-// Common email providers, used for the quick-pick buttons and for "did you mean…?"
 const emailDomains = ['gmail.com', 'hotmail.com', 'yahoo.com', 'outlook.com', 'icloud.com']
 
-// Common spelling mistakes -> the correct domain
 const domainTypos = {
   'gmial.com': 'gmail.com',
   'gmai.com': 'gmail.com',
@@ -64,7 +66,10 @@ const domainTypos = {
   'outlook.co': 'outlook.com',
 }
 
-// Returns '' if the email is fine, otherwise a message saying exactly what's wrong
+// emailError() - returns '' when the email is fine, otherwise a message that says exactly what is
+// wrong. 1) empty 2) spaces 3) count of "@" (none or more than one) 4) nothing before or after "@" 5)
+// a known typo domain gives "Did you mean @gmail.com?" 6) a domain with no dot is matched against the
+// common providers (e.g. "@gmail" suggests gmail.com) 7) finally the regex check.
 function emailError() {
   const value = email.value.trim()
 
@@ -83,7 +88,6 @@ function emailError() {
   if (domainTypos[lower]) return `Did you mean @${domainTypos[lower]}?`
 
   if (!domain.includes('.')) {
-    // e.g. "kuah@gmail" -> suggest "@gmail.com"
     const match = emailDomains.find((d) => d.startsWith(lower))
     if (match) return `Did you mean @${match}?`
     return `"@${domain}" is incomplete. It needs an ending like .com, e.g. @gmail.com.`
@@ -93,33 +97,31 @@ function emailError() {
   return ''
 }
 
-// ---------- Email: quick-pick domain buttons ----------
-// Shows the buttons while the user is still typing the part after "@".
-// If they've typed "kuah@g", only domains starting with "g" are shown.
+// domainSuggestions (computed) - the quick-pick domain buttons shown while the person types after the
+// "@": only domains starting with what is typed so far (and not an exact match). Empty for empty text,
+// spaces, two "@" or nothing before "@".
 const domainSuggestions = computed(() => {
   const value = email.value.trim()
   if (!value || /\s/.test(value)) return []
 
   const parts = value.split('@')
-  if (parts.length > 2 || !parts[0]) return [] // two @'s, or nothing before @
+  if (parts.length > 2 || !parts[0]) return []
 
-  const typed = (parts[1] || '').toLowerCase() // what's after @ ('' if no @ yet)
+  const typed = (parts[1] || '').toLowerCase()
   return emailDomains.filter((d) => d.startsWith(typed) && d !== typed)
 })
 
-// Clicking a button: keep what's before "@" and add the chosen domain
+// pickDomain(domain) - keeps the text before "@", adds the chosen domain and checks the field straight
+// away (turns green).
 function pickDomain(domain) {
   const user = email.value.trim().split('@')[0]
   email.value = user + '@' + domain
-  touch('email') // check it straight away -> turns green
+  touch('email')
 }
 
-// OneMap result for the postal code (declared here because the postal code rule below uses it)
-const postalStatus = ref('idle') // 'idle' | 'loading' | 'found' | 'notfound' | 'error'
-const postalPreview = ref('') // the address OneMap found
+const postalStatus = ref('idle')
+const postalPreview = ref('')
 
-// ---------- Password requirements ----------
-// Each rule has a label (shown in the checklist) and a test (true = met).
 const passwordRules = [
   { label: 'At least 8 characters', test: (p) => p.length >= 8 },
   { label: 'One uppercase letter (A–Z)', test: (p) => /[A-Z]/.test(p) },
@@ -128,7 +130,8 @@ const passwordRules = [
   { label: 'One special character (e.g. ! @ # $ %)', test: (p) => /[^A-Za-z0-9\s]/.test(p) },
 ]
 
-// computed: re-checks every rule each time the password changes -> [{ label, met }, ...]
+// passwordChecks (computed) - re-tests every rule whenever the password changes, giving [{ label, met
+// }].
 const passwordChecks = computed(() =>
   passwordRules.map((rule) => ({ label: rule.label, met: rule.test(password.value) })),
 )
@@ -136,25 +139,28 @@ const passwordChecks = computed(() =>
 const rules = {
   name: () => (name.value.trim() ? '' : 'Enter your name.'),
   email: emailError,
-  // FIX (C5, option A): if the address lookup (OneMap) is down, say so, instead of telling the user
-  // to "enter your postal code" when they already did.
+  // address (validator) - error text for the address box: nothing if an address was found; a "try
+  // again later" message if OneMap failed; otherwise ask for the postal code.
   address: () => {
     if (address.value.trim()) return ''
     if (postalStatus.value === 'error')
       return 'We can\'t look up your address right now. Please tap "Try again" or come back in a few minutes.'
     return 'Enter your postal code to fill in your address.'
   },
+  // postalCode (validator) - must be exactly 6 digits; shows a special message when the lookup said
+  // the code does not exist.
   postalCode: () => {
     if (!/^\d{6}$/.test(postalCode.value.trim())) return 'Enter a 6-digit postal code.'
-    // OneMap checked it and there is no such place -> not a real Singapore postal code
     if (postalStatus.value === 'notfound')
       return "This postal code doesn't exist in Singapore. Please check it."
     return ''
   },
+  // phone (validator) - must be an 8-digit Singapore number starting with 6, 8 or 9 (spaces ignored).
   phone: () =>
     phoneRegex.test(phone.value.replace(/\s+/g, ''))
       ? ''
       : 'Enter an 8-digit Singapore number starting with 6, 8 or 9.',
+  // password (validator) - required, no spaces, and every rule in the checklist must be met.
   password: () => {
     if (!password.value) return 'Password is required.'
     if (/\s/.test(password.value)) return 'Password cannot contain spaces.'
@@ -162,16 +168,19 @@ const rules = {
       ? ''
       : 'Your password does not meet all the requirements below.'
   },
+  // confirmPassword (validator) - must equal the password.
   confirmPassword: () =>
     confirmPassword.value === password.value ? '' : 'Passwords do not match.',
 }
 
+// validateField(field) - runs one rule and stores or removes that field's error.
 function validateField(field) {
   const message = rules[field]()
   if (message) errors.value[field] = message
   else delete errors.value[field]
 }
 
+// validate() - clears all errors, validates every field and returns true only if there are none.
 function validate() {
   errors.value = {}
   Object.keys(rules).forEach(validateField)
@@ -180,97 +189,92 @@ function validate() {
 
 const fields = { name, email, address, postalCode, phone, password, confirmPassword }
 
-// ---------- Green tick / red box per field ----------
-// "touched" remembers which fields the user has already typed in and left.
-// We only show green/red on those, so the form isn't all red when the page opens.
 const touched = ref({})
 
-// Runs when the user clicks/tabs out of a field (@blur in the template)
+// touch(field) - mark as touched and validate it (called on blur).
 function touch(field) {
   touched.value[field] = true
   validateField(field)
 }
 
-// Should this field be checked yet? (after leaving it, or after pressing Sign up)
+// isChecked(field) - should this field be judged yet? (after leaving it, or after pressing Sign up).
 function isChecked(field) {
   return submitted.value || touched.value[field]
 }
 
-// true -> show green border + tick (Bootstrap "is-valid")
+// isOk(field) - checked and no error: shows the green tick (Bootstrap is-valid).
 function isOk(field) {
   return isChecked(field) && !errors.value[field]
 }
 
-// Whenever anything is typed, re-check every field that is already being checked.
-// (Re-checking all of them means "Confirm password" updates when "Password" changes.)
+// Whenever anything is typed, re-check every field that is already being checked. (Re-checking all of
+// them means "Confirm password" updates when "Password" changes.) Whenever any field changes,
+// re-validate every field already being checked (so "Confirm password" updates when "Password"
+// changes).
 watch(Object.values(fields), () => {
   Object.keys(fields).forEach((field) => {
     if (isChecked(field)) validateField(field)
   })
 })
 
-// ---------- OneMap: postal code -> address ----------
-// Uses our server (which uses onemap.js), because OneMap needs a secret login:
-//   GET /api/users/postal-lookup?postalCode=560123   -> { address }
-// The Address box is LOCKED (read-only): it is always filled from the postal code,
-// so the address and postal code can never disagree.
-let postalTimer = null // for debouncing (waiting until the user stops typing)
+let postalTimer = null
 
-// Empty the locked Address box: the postal code changed, so the old address is no longer right
+// clearAddress() - the postal code changed, so empty the locked address, its preview and its error (no
+// red "required" while still typing).
 function clearAddress() {
   address.value = ''
   postalPreview.value = ''
-  delete touched.value.address // no red "required" message while they are still typing the postal code
+  delete touched.value.address
   delete errors.value.address
 }
 
-// Ask our server for the address of this postal code, then fill the locked Address box
+// lookupPostal(code) - 1) show loading 2) ask our server (which asks OneMap) for the address of the
+// code 3) ignore the answer if the code changed meanwhile 4) found: store and show the address, tick
+// the address and postal code fields 5) error: 404 means "notfound" (red message), anything else means
+// "error" (OneMap unreachable, show a Try again link).
 async function lookupPostal(code) {
   postalStatus.value = 'loading'
   try {
     const response = await axios.get('/api/users/postal-lookup', { params: { postalCode: code } })
-    if (postalCode.value.trim() !== code) return // user changed it while we were waiting
+    if (postalCode.value.trim() !== code) return
 
     postalStatus.value = 'found'
     postalPreview.value = response.data.address
     address.value = response.data.address
-    touch('address') // green tick on the Address box
-    touch('postalCode') // real postal code -> green tick
+    touch('address')
+    touch('postalCode')
   } catch (error) {
     if (postalCode.value.trim() !== code) return
-    // 404 = OneMap has no such postal code; anything else = couldn't reach OneMap
     postalStatus.value = error.response?.status === 404 ? 'notfound' : 'error'
-    touch('postalCode') // 'notfound' -> red box + error message
+    touch('postalCode')
   }
 }
 
-// Postal code typed -> clear the old address, then look up the new one
+// watch(postalCode) - 1) cancel the pending lookup 2) clear the old address 3) if it is not 6 digits
+// go back to idle 4) otherwise show loading and look the code up after 400 ms of no typing (debounce).
 watch(postalCode, (value) => {
-  clearTimeout(postalTimer) // cancel the lookup we were waiting to do
+  clearTimeout(postalTimer)
   clearAddress()
 
   const code = value.trim()
   if (!/^\d{6}$/.test(code)) {
-    postalStatus.value = 'idle' // not 6 digits yet – nothing to show
+    postalStatus.value = 'idle'
     return
   }
 
   postalStatus.value = 'loading'
-  // Debounce: only look up once the user has stopped typing for 400 ms
   postalTimer = setTimeout(() => lookupPostal(code), 400)
 })
 
-// "Try again" link, shown when OneMap couldn't be reached
+// retryPostal() - the "Try again" link: look the current 6-digit code up again.
 function retryPostal() {
   const code = postalCode.value.trim()
   if (/^\d{6}$/.test(code)) lookupPostal(code)
 }
 
-// ---------- Progress bar ----------
-// A field counts as "done" when it is not empty AND passes its rule above,
-// so typing "abc" into Email won't count until it's a real email.
-const fieldNames = Object.keys(fields) // 7 fields
+const fieldNames = Object.keys(fields)
 
+// filledCount (computed) - how many fields are not empty AND pass their rule.
 const filledCount = computed(() => {
   let count = 0
   fieldNames.forEach((field) => {
@@ -281,28 +285,29 @@ const filledCount = computed(() => {
   return count
 })
 
-// e.g. 1 of 7 filled -> 14%, 7 of 7 -> 100%
+// progress (computed) - filledCount as a percent (1 of 7 = 14, 7 of 7 = 100).
 const progress = computed(() => Math.round((filledCount.value / fieldNames.length) * 100))
 
-// ---------- Sign up button on/off ----------
-// computed = re-calculated automatically whenever any field changes (Vue reactivity),
-// so the button switches itself on the moment the last field becomes valid.
+// fieldsLeft and canSubmit (computed) - the Sign up button is on only when every field is done,
+// consent is ticked, the postal lookup is not running and nothing is loading.
 const fieldsLeft = computed(() => fieldNames.length - filledCount.value)
+// canSubmit (computed) - the Sign up button is enabled only when no required field is left, consent is
+// ticked, the postal lookup is not running and nothing is loading.
 const canSubmit = computed(
   () =>
     fieldsLeft.value === 0 && consent.value && postalStatus.value !== 'loading' && !loading.value,
 )
 
-// ---------- Email verification (6-digit code) ----------
-const step = ref('form') // 'form' = fill in details, 'otp' = type the emailed code
+const step = ref('form')
 const otpCode = ref('')
-const otpInput = ref(null) // the code <input>, so we can put the cursor in it
+const otpInput = ref(null)
 const otpNotice = ref('')
-const devCode = ref('') // only filled in test mode (OTP_MOCK=true): no real email sent
-const sending = ref(false) // true while the server is sending the email
-const resendIn = ref(0) // seconds until "Resend code" can be pressed again
+const devCode = ref('')
+const sending = ref(false)
+const resendIn = ref(0)
 let resendTimer = null
 
+// startResendTimer(seconds) - sets resendIn and counts down once a second until 0.
 function startResendTimer(seconds) {
   clearInterval(resendTimer)
   resendIn.value = seconds
@@ -311,26 +316,31 @@ function startResendTimer(seconds) {
     if (resendIn.value <= 0) clearInterval(resendTimer)
   }, 1000)
 }
-onBeforeUnmount(() => clearInterval(resendTimer)) // stop the timer if the user leaves the page
+// onBeforeUnmount - stop the resend countdown timer.
+onBeforeUnmount(() => clearInterval(resendTimer))
 
-// Ask the server to email a code
+// sendCode() - asks the server to email a 6-digit code (also sends the phone so the server can reject
+// a number already registered); keeps a dev code if the server returns one and starts the resend
+// countdown (server value or 60 s).
 async function sendCode() {
   const response = await axios.post('/api/users/otp/request', {
     email: email.value.trim(),
-    phone: phone.value.replace(/\s+/g, ''), // so the server can check it isn't already registered
+    phone: phone.value.replace(/\s+/g, ''),
   })
   devCode.value = response.data.devCode || ''
   startResendTimer(response.data.resendInSeconds || 60)
 }
 
-// Step 1: "Sign up" pressed -> check the form, then email the code
+// register() - step 1, Sign up pressed. 1) mark submitted 2) if the postal lookup is still running ask
+// them to wait 3) validate everything 4) show loading 5) send the code 6) clear the code box, switch
+// to the 'otp' step and put the cursor in the code box 7) on error show the server's message 8) always
+// stop loading.
 async function register() {
   submitted.value = true
   if (postalStatus.value === 'loading') {
     showError('Still checking your postal code. Try again in a second.')
     return
   }
-  // FIX (C5, option A): the lookup is down, so there is no address. Say that plainly instead of a vague field error.
   if (postalStatus.value === 'error') {
     showError(
       'Our address service is not responding right now. Please press "Try again" under the postal code, or come back in a few minutes.',
@@ -346,8 +356,8 @@ async function register() {
     otpCode.value = ''
     otpNotice.value = ''
     step.value = 'otp'
-    await nextTick() // wait for the code box to appear...
-    otpInput.value?.focus() // ...then put the cursor in it
+    await nextTick()
+    otpInput.value?.focus()
   } catch (error) {
     showError(error.response?.data?.message || 'Could not send the code. Try again.')
   } finally {
@@ -355,7 +365,8 @@ async function register() {
   }
 }
 
-// "Resend code"
+// resend() - the Resend code button: send a new code, clear the box and show "A new code is on its
+// way."; on error show the message.
 async function resend() {
   otpNotice.value = ''
   sending.value = true
@@ -371,14 +382,18 @@ async function resend() {
   }
 }
 
-// "Change email" -> back to the form, details still filled in
+// backToForm() - "Change email": stop the countdown and return to the form with the details kept.
 function backToForm() {
   clearInterval(resendTimer)
   resendIn.value = 0
   step.value = 'form'
 }
 
-// Step 2: "Verify & create account" pressed
+// verifyAndCreate() - step 2. 1) the code must be 6 digits 2) POST /otp/verify (the server uses the
+// code up and remembers the email as verified) 3) POST /api/users to create the account (name, email,
+// postal code, address, phone, password, role volunteer, consent) 4) POST /api/users/login so they are
+// logged in 5) full page load to ?redirect= or "/" so the navbar picks up the user (the router then
+// moves a logged-in person to their own page) 6) on error show the message 7) always stop loading.
 async function verifyAndCreate() {
   otpNotice.value = ''
 
@@ -389,13 +404,11 @@ async function verifyAndCreate() {
 
   loading.value = true
   try {
-    // 1) Check the code
     await axios.post('/api/users/otp/verify', {
       email: email.value.trim(),
       code: otpCode.value.trim(),
     })
 
-    // 2) Create the account
     const body = {
       name: name.value.trim(),
       email: email.value.trim(),
@@ -404,17 +417,12 @@ async function verifyAndCreate() {
       phone: phone.value.replace(/\s+/g, ''),
       password: password.value,
       role: 'volunteer',
-      locationConsent: consent.value, // NEW: server stores the time the volunteer agreed
+      locationConsent: consent.value,
     }
     await axios.post('/api/users', body)
 
-    // 3) Log the new volunteer in straight away (same endpoint the Login page uses)
     await axios.post('/api/users/login', { email: email.value.trim(), password: password.value })
 
-    // Full page load so the navbar picks up the logged-in user
-    // FIX (C4): only follow a redirect that is a local path ("/something"). A value like
-    // "https://evil.com" or "//evil.com" would send the new user to another website (open redirect).
-    // "/\evil.com" is blocked too, because some browsers read a backslash like a second slash.
     const target = route.query.redirect
     const safeRedirect = typeof target === 'string' && target.startsWith('/') && !target.startsWith('//') && !target.startsWith('/\\') ? target : '/'
     window.location.assign(safeRedirect)
@@ -425,15 +433,14 @@ async function verifyAndCreate() {
   }
 }
 
-// ================= UI only: display helpers for the live volunteer pass and the code boxes =================
-// These only READ the values above. Nothing here changes how sign-up works.
-
-// Same "done" test the progress bar uses: not empty AND passes its rule
+// isDone(field) - same test as the progress bar (not empty and passes its rule); used by the live
+// pass. Same "done" test the progress bar uses: not empty AND passes its rule
 function isDone(field) {
   return fields[field].value.trim() !== '' && rules[field]() === ''
 }
 
-// "Tan Wei Ming" -> "TW" (shown in the circle on the pass)
+// initials (computed) - the first letters of the first two words of the name, in capitals ("Tan Wei
+// Ming" gives "TW").
 const initials = computed(() =>
   name.value
     .trim()
@@ -444,32 +451,37 @@ const initials = computed(() =>
     .join(''),
 )
 
-// "91234567" -> "+65 9123 4567"
+// phoneDisplay (computed) - "91234567" shown as "+65 9123 4567" on the pass.
 const phoneDisplay = computed(() => {
   const digits = phone.value.replace(/\s+/g, '')
   if (!digits) return ''
   return `+65 ${digits.slice(0, 4)} ${digits.slice(4)}`.trim()
 })
 
-// How many password rules are met (0 to 5), for the strength bar
+// passwordStrength (computed) - how many of the 5 rules are met (0-5), used by the strength bar;
+// strengthLabel maps it to "Too weak", "Weak", "Okay", "Almost there" or "Strong".
 const passwordStrength = computed(() => passwordChecks.value.filter((check) => check.met).length)
+// strengthLabel (computed) - the word under the strength bar (Too weak, Weak, Okay, Almost there,
+// Strong) for the current score.
 const strengthLabel = computed(
   () => ['Too weak', 'Too weak', 'Weak', 'Okay', 'Almost there', 'Strong'][passwordStrength.value],
 )
 
-// The pass gets its "Ready" stamp once every field is done and consent is ticked
+// passReady (computed) - the pass shows its "Ready" stamp once every field is done and consent is
+// ticked.
 const passReady = computed(() => fieldsLeft.value === 0 && consent.value)
 
-// Email step: the 6 boxes show the typed code one digit per box
 const otpFocused = ref(false)
+// otpDigits (computed) - the 6 boxes of the code input: each typed digit, empty for the rest.
 const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.value[i] || ''))
 </script>
 
 <template>
+  <!-- The step-by-step form, the password checklist, the code boxes and the volunteer pass
+       preview. -->
   <div class="reg-wrap">
     <div class="reg-card card-hw">
       <div class="row g-0">
-        <!-- ===== Red panel: a volunteer pass that fills in live as the form is typed (decorative only) ===== -->
         <aside class="col-12 col-lg-5 reg-panel" aria-hidden="true">
           <div class="reg-panel-deco"></div>
           <div class="reg-panel-inner">
@@ -571,7 +583,6 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
             </p>
           </div>
 
-          <!-- Wavy edge: right side on desktop (.wave-x), bottom on phones (.wave-y). Same shapes as the login page -->
           <div class="wave wave-x">
             <svg class="wave-back" viewBox="0 0 60 800" preserveAspectRatio="none">
               <path
@@ -598,13 +609,11 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
           </div>
         </aside>
 
-        <!-- ===== The form ===== -->
         <div class="col-12 col-lg-7 reg-main">
           <div class="reg-main-inner">
             <h1 class="reg-title">Sign up to volunteer</h1>
             <p class="reg-sub">Create your Heartware Ops account.</p>
 
-            <!-- Steps: 1 Your details -> 2 Verify email. The line between them fills up as fields are done -->
             <div class="reg-steps">
               <span class="reg-step" :class="step === 'form' ? 'is-current' : 'is-done'">
                 <span class="reg-step-num">
@@ -634,7 +643,6 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
               <span>{{ progress }}%</span>
             </div>
 
-            <!-- ================= STEP 2: type the emailed code ================= -->
             <div v-if="step === 'otp'" class="reg-otp" data-testid="reg-otp">
               <div class="otp-intro">
                 <span class="otp-icon" aria-hidden="true"
@@ -653,7 +661,6 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
                 {{ otpNotice }}
               </div>
 
-              <!-- Test mode only (OTP_MOCK=true): no email is sent, so show the code here -->
               <div v-if="devCode" class="alert alert-info py-2 small" data-testid="reg-otp-dev">
                 <i class="bi bi-tools me-1"></i>Test mode – no email sent. Your code is
                 <strong data-testid="reg-otp-dev-code">{{ devCode }}</strong>
@@ -661,7 +668,6 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
 
               <form @submit.prevent="verifyAndCreate" novalidate>
                 <label for="otpCode" class="form-label">Verification code</label>
-                <!-- 6 boxes for show; the real (invisible) input sits on top and does the typing -->
                 <div class="otp-boxes">
                   <span
                     v-for="(digit, i) in otpDigits"
@@ -723,11 +729,9 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
               </div>
             </div>
 
-            <!-- ================= STEP 1: the form ================= -->
             <div v-else>
 
               <form @submit.prevent="register" novalidate>
-                <!-- ---------- About you ---------- -->
                 <fieldset class="reg-section">
                   <legend
                     class="reg-section-title"
@@ -739,7 +743,6 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
                     About you
                   </legend>
 
-                  <!-- Name -->
                   <div class="mb-3">
                     <label for="name" class="form-label">Name</label>
                     <div class="field">
@@ -760,7 +763,6 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
                     </div>
                   </div>
 
-                  <!-- Email -->
                   <div class="mb-3">
                     <label for="email" class="form-label">Email</label>
                     <div class="field">
@@ -775,13 +777,11 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
                         data-testid="reg-email"
                         autocomplete="email"
                       />
-                      <!-- E2E: data-testid="reg-email-error" lets Playwright read this error message -->
                       <div class="invalid-feedback" data-testid="reg-email-error">
                         <i class="bi bi-x-circle-fill"></i> {{ errors.email }}
                       </div>
                     </div>
 
-                    <!-- Quick-pick buttons: one per suggested domain (v-for = list rendering) -->
                     <div v-if="domainSuggestions.length" class="d-flex flex-wrap gap-2 mt-2">
                       <button
                         v-for="domain in domainSuggestions"
@@ -796,7 +796,6 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
                     </div>
                   </div>
 
-                  <!-- Phone (input-group: feedback goes INSIDE) -->
                   <div class="mb-1">
                     <label for="phone" class="form-label">Phone number</label>
                     <div class="input-group input-group-lg has-validation">
@@ -814,7 +813,6 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
                         data-testid="reg-phone"
                         autocomplete="tel-national"
                       />
-                      <!-- E2E: data-testid="reg-phone-error" lets Playwright read this error message -->
                       <div class="invalid-feedback" data-testid="reg-phone-error">
                         <i class="bi bi-x-circle-fill"></i> {{ errors.phone }}
                       </div>
@@ -822,7 +820,6 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
                   </div>
                 </fieldset>
 
-                <!-- ---------- Where you live ---------- -->
                 <fieldset class="reg-section">
                   <legend
                     class="reg-section-title"
@@ -834,7 +831,6 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
                     Where you live
                   </legend>
 
-                  <!-- Postal code (ABOVE address: type postal -> address fills itself) -->
                   <div class="mb-3">
                     <label for="postalCode" class="form-label">Postal code</label>
                     <div class="field">
@@ -857,7 +853,6 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
                       </div>
                     </div>
 
-                    <!-- OneMap result under the postal box -->
                     <div
                       v-if="postalStatus !== 'idle' && postalStatus !== 'notfound'"
                       class="postal-status"
@@ -883,7 +878,6 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
                     </div>
                   </div>
 
-                  <!-- Address: LOCKED. It fills itself from the postal code above and can't be typed in -->
                   <div class="mb-1">
                     <label for="address" class="form-label">
                       Address <i class="bi bi-lock-fill label-lock" aria-hidden="true"></i>
@@ -902,7 +896,6 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
                         data-testid="reg-address"
                         autocomplete="off"
                       />
-                      <!-- a quick shine across the box each time a new address drops in -->
                       <span
                         v-if="address"
                         :key="address"
@@ -919,7 +912,6 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
                   </div>
                 </fieldset>
 
-                <!-- ---------- Password ---------- -->
                 <fieldset class="reg-section">
                   <legend
                     class="reg-section-title"
@@ -931,7 +923,6 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
                     Your password
                   </legend>
 
-                  <!-- Password (input-group: feedback goes INSIDE) -->
                   <div class="mb-3">
                     <label for="password" class="form-label">Password</label>
                     <div class="input-group input-group-lg has-validation">
@@ -953,13 +944,11 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
                       >
                         <i class="bi" :class="showPassword ? 'bi-eye' : 'bi-eye-slash'"></i>
                       </button>
-                      <!-- E2E: data-testid="reg-password-error" lets Playwright read this error message -->
                       <div class="invalid-feedback" data-testid="reg-password-error">
                         <i class="bi bi-x-circle-fill"></i> {{ errors.password }}
                       </div>
                     </div>
 
-                    <!-- Strength bar: one segment per rule met -->
                     <div
                       v-if="password"
                       class="strength"
@@ -976,7 +965,6 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
                       <span class="strength-label">{{ strengthLabel }}</span>
                     </div>
 
-                    <!-- Password checklist: each rule turns green with a tick once it's met -->
                     <ul class="rules list-unstyled" data-testid="reg-password-rules">
                       <li
                         v-for="check in passwordChecks"
@@ -989,7 +977,6 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
                     </ul>
                   </div>
 
-                  <!-- Confirm password (input-group: feedback goes INSIDE) -->
                   <div class="mb-1">
                     <label for="confirmPassword" class="form-label">Confirm password</label>
                     <div class="input-group input-group-lg has-validation">
@@ -1014,7 +1001,6 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
                       >
                         <i class="bi" :class="showConfirmPassword ? 'bi-eye' : 'bi-eye-slash'"></i>
                       </button>
-                      <!-- E2E: data-testid="reg-confirm-password-error" lets Playwright read this error message -->
                       <div class="invalid-feedback" data-testid="reg-confirm-password-error">
                         <i class="bi bi-x-circle-fill"></i> {{ errors.confirmPassword }}
                       </div>
@@ -1025,7 +1011,6 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
                   </div>
                 </fieldset>
 
-                <!-- Location consent. Required, so the button below stays disabled until it is ticked. -->
                 <label class="consent-card" :class="{ 'is-on': consent }">
                   <span class="consent-icon" aria-hidden="true"
                     ><i class="bi bi-broadcast"></i
@@ -1060,14 +1045,12 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
                   {{ loading ? 'Sending code…' : 'Sign up' }}
                 </button>
 
-                <!-- Tells the user WHY the button is still greyed out -->
                 <p
                   v-if="!canSubmit && !loading"
                   class="small text-muted-hw text-center mt-2 mb-0"
                   data-testid="reg-submit-hint"
                 >
                   <template v-if="postalStatus === 'loading'">Checking your postal code…</template>
-                  <!-- all fields done but the box is not ticked: say so, otherwise the greyed button looks broken -->
                   <template v-else-if="fieldsLeft === 0 && !consent"
                     >Turn on location sharing to sign up.</template
                   >
@@ -1078,7 +1061,6 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
                 </p>
               </form>
             </div>
-            <!-- ================= end of STEP 1 ================= -->
 
             <p class="text-center text-muted-hw mt-4 mb-0">
               Already have an account?
@@ -1089,7 +1071,6 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
       </div>
     </div>
 
-    <!-- error popup: appears at the top, closes itself after 5 seconds or with its X -->
     <div class="notice-host">
       <MapNotice :notice="notice" @close="dismissNotice" />
     </div>
@@ -1097,38 +1078,34 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
 </template>
 
 <style scoped>
-/* ---------------------------------------------------------------------------------------------
-   Sign-up page look. Matches the login page: a red NDP panel with a wavy edge next to the form.
-   The red panel holds a volunteer pass that fills in live from the form (display only).
-   Phones/tablets: the panel is a short banner on top. Desktop (>= 992px): panel on the left.
-   --------------------------------------------------------------------------------------------- */
+/* Styles for the form, the checklist, the code boxes and the pass. */
+
 .reg-wrap {
   padding-bottom: 1.5rem;
 }
 
 .reg-card {
-  --wave: 30px; /* how far the wavy edge sticks out of the red panel */
+  --wave: 30px;
   --panel: var(--hw-red);
   --panel-soft: rgb(255 45 65 / 0.5);
   --ease: cubic-bezier(0.76, 0, 0.24, 1);
   --bounce: cubic-bezier(0.3, 1.6, 0.5, 1);
   --field-bg: rgb(140 155 190 / 0.1);
   --field-border: rgb(140 155 190 / 0.22);
-  --bs-border-radius-lg: 0.9rem; /* rounder Bootstrap inputs and input-groups on this page */
+  --bs-border-radius-lg: 0.9rem;
   position: relative;
   isolation: isolate;
   overflow: hidden;
-  overflow: clip; /* "clip" (not "hidden") so the pass can stay sticky while you scroll */
-  max-width: var(--hw-content-w); /* was 1080px: now the same width as the navbar */
+  overflow: clip;
+  max-width: var(--hw-content-w);
   margin-inline: auto;
   border-radius: 1.25rem;
   box-shadow: 0 30px 70px -30px rgb(0 0 0 / 0.75);
 }
 
-/* ================= Red panel + volunteer pass ================= */
 .reg-panel {
   position: relative;
-  z-index: 1; /* the wavy edge sits over the form side */
+  z-index: 1;
   background: var(--panel);
   color: #fff;
 }
@@ -1162,7 +1139,7 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
   margin-inline: auto;
 }
 .lanyard {
-  display: none; /* desktop only */
+  display: none;
 }
 .pass {
   position: relative;
@@ -1182,7 +1159,7 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
   justify-content: space-between;
   gap: 0.5rem;
   padding: 0.5rem 0.9rem;
-  background: #14213d; /* navbar navy */
+  background: #14213d;
   color: #fff;
   font-size: 0.8rem;
   font-weight: 700;
@@ -1247,7 +1224,7 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
 }
 
 .pass-rows {
-  display: none; /* desktop only; phones show the short version of the pass */
+  display: none;
   margin: 0;
   padding: 0.1rem 0.9rem 0.4rem;
 }
@@ -1336,9 +1313,8 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
 }
 .pass.is-ready .pass-count,
 .pass.is-otp .pass-count {
-  visibility: hidden; /* the stamp sits here instead */
+  visibility: hidden;
 }
-/* rubber stamp: lands with a thump once everything is filled in */
 .pass-stamp {
   --rot: -6deg;
   position: absolute;
@@ -1363,10 +1339,9 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
   color: #14213d;
 }
 .pass-note {
-  display: none; /* desktop only */
+  display: none;
 }
 
-/* ---- Wavy edge (same shapes as the login page) ---- */
 .wave {
   position: absolute;
   overflow: hidden;
@@ -1403,7 +1378,6 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
   animation-direction: reverse;
 }
 
-/* ================= Form side ================= */
 .reg-main {
   position: relative;
   z-index: 0;
@@ -1426,7 +1400,6 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
   color: var(--hw-muted);
 }
 
-/* Steps: 1 —— 2, the line fills with progress */
 .reg-steps {
   display: flex;
   align-items: center;
@@ -1496,7 +1469,6 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
   color: var(--hw-muted);
 }
 
-/* Sections */
 .reg-section {
   min-width: 0;
   margin: 0 0 1.75rem;
@@ -1536,7 +1508,6 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
   opacity: 0;
   transform: scale(0.3);
 }
-/* section done: its icon flips to a green tick */
 .reg-section-title.is-done .reg-section-icon {
   background: rgb(26 127 75 / 0.22);
   color: var(--bs-success-text-emphasis);
@@ -1550,7 +1521,6 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
   transform: none;
 }
 
-/* Fields */
 .form-label {
   margin-bottom: 0.4rem;
   font-size: 0.9rem;
@@ -1584,7 +1554,7 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
 }
 .field-icon {
   position: absolute;
-  top: 1.65rem; /* middle of the input (feedback text below doesn't move it) */
+  top: 1.65rem;
   left: 1rem;
   z-index: 5;
   transform: translateY(-50%);
@@ -1616,7 +1586,6 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
   color: #fff;
 }
 
-/* OneMap status pill under the postal code */
 .postal-status {
   display: inline-flex;
   flex-wrap: wrap;
@@ -1641,7 +1610,6 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
   color: var(--bs-warning-text-emphasis);
 }
 
-/* Locked address */
 .label-lock {
   margin-left: 0.2rem;
   font-size: 0.8rem;
@@ -1671,7 +1639,6 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
   animation: shine 0.9s ease-out forwards;
 }
 
-/* Eye (show password) buttons */
 .btn-eye {
   border: 1px solid var(--field-border);
   background: var(--field-bg);
@@ -1687,7 +1654,6 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
   border-bottom-right-radius: var(--bs-border-radius-lg) !important;
 }
 
-/* Password strength bar */
 .strength {
   --lvl: var(--hw-danger);
   display: flex;
@@ -1727,7 +1693,6 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
   color: var(--lvl);
 }
 
-/* Password checklist as a tidy 2-column grid */
 .rules {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
@@ -1752,7 +1717,6 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
   animation: pop 0.35s var(--bounce);
 }
 
-/* Location consent card with a switch */
 .consent-card {
   display: flex;
   align-items: center;
@@ -1817,7 +1781,6 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
   border-color: var(--hw-success);
 }
 
-/* Sign up button: grey until everything is done, then it turns red with a quick glow */
 .reg-submit {
   --bs-btn-disabled-bg: rgb(140 155 190 / 0.18);
   --bs-btn-disabled-border-color: transparent;
@@ -1833,7 +1796,6 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
   animation: ready-glow 1.1s ease-out;
 }
 
-/* Email step: 6 code boxes */
 .reg-otp {
   margin-top: 1.75rem;
 }
@@ -1900,8 +1862,8 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
   width: 100%;
   height: 100%;
   border: 0;
-  opacity: 0; /* invisible, but it's the real input you type into */
-  font-size: 16px; /* stops iPhones zooming in */
+  opacity: 0;
+  font-size: 16px;
   cursor: text;
 }
 
@@ -1914,7 +1876,6 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
   text-decoration: underline;
 }
 
-/* ================= Desktop: panel on the left, sticky pass ================= */
 @media (min-width: 992px) {
   .reg-card {
     --wave: 48px;
@@ -2026,7 +1987,6 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
   }
 }
 
-/* ================= Animations ================= */
 @keyframes pop {
   0% {
     transform: scale(0.6);
@@ -2131,7 +2091,6 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
   }
 }
 
-/* Respect "reduce motion": keep the colours and ticks, drop the movement */
 @media (prefers-reduced-motion: reduce) {
   .reg-card *,
   .reg-card *::before,
@@ -2141,14 +2100,12 @@ const otpDigits = computed(() => Array.from({ length: 6 }, (_, i) => otpCode.val
   }
 }
 
-/* Error popup (MapNotice, same card as the tracking page). Pinned under the navbar and centred on every screen size,
-   overriding MapNotice's map-page positioning (desktop shift to the right). */
 .notice-host {
   --notice-top: 72px;
   position: fixed;
   inset: 0;
   z-index: 1150;
-  pointer-events: none; /* only the card itself is clickable */
+  pointer-events: none;
 }
 .notice-host :deep(.notice-wrap) {
   left: 12px;

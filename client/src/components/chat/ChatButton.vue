@@ -1,4 +1,8 @@
+<!-- The Chat button in the navbar with its red unread-count badge. -->
+
 <script setup>
+// Reads the unread count and button label from the chat store.
+
 import { computed } from 'vue'
 import { useChatStore } from '@/services/chat'
 
@@ -6,11 +10,14 @@ defineProps({ showLabel: { type: Boolean, default: false } })
 
 const chat = useChatStore()
 
+// badge (computed) - the text on the red unread bubble: the number, or "99+" above 99.
 const badge = computed(() => (chat.unreadTotal > 99 ? '99+' : String(chat.unreadTotal)))
+// label (computed) - the screen-reader text of the button: "Chat" or "Chat, 3 unread".
 const label = computed(() => (chat.unreadTotal > 0 ? `Chat, ${chat.unreadTotal} unread` : 'Chat'))
 </script>
 
 <template>
+  <!-- A button that opens the chat panel and shows the unread count. -->
   <button
     type="button"
     data-chat-toggle
@@ -21,7 +28,6 @@ const label = computed(() => (chat.unreadTotal > 0 ? `Chat, ${chat.unreadTotal} 
     @click="chat.toggle()"
   >
     <span class="position-relative d-inline-flex">
-      <!-- fs-5 (bigger icon) only when there is no label; with a label the icon matches the other links' size -->
       <i :class="['bi', 'bi-chat-dots', { 'fs-5': !showLabel }]" aria-hidden="true"></i>
 
       <span
@@ -32,14 +38,13 @@ const label = computed(() => (chat.unreadTotal > 0 ? `Chat, ${chat.unreadTotal} 
       </span>
     </span>
 
-    <!-- the text label, only shown when the parent passes show-label (desktop navbar). Outside the span above so the unread badge stays on the icon -->
     <span v-if="showLabel" class="ms-1">Chat</span>
   </button>
 </template>
 
 <style scoped>
-/* Without the box there is no hover cue, so fade the icon slightly on hover/keyboard focus */
-/* Pull the badge in so its centre lands near the icon's top-right corner */
+/* Styles for the chat button and its badge. */
+
 .chat-badge {
   transform: translate(-50%, -35%);
 }

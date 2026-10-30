@@ -1,12 +1,6 @@
-/* Shared map look & feel. Imported once by BaseMap.vue, so any view that uses
-   BaseMap gets the same tooltips, markers and Leaflet tweaks automatically.
-   Unscoped on purpose: Leaflet injects this DOM itself.
+/* The shared styles for every Leaflet map page: the map shell, the floating panels and notices,
+   the pins and the tooltips. Map pages stay in light colours. */
 
-   Knobs a view can set on its own wrapper (all optional):
-     --map-inset-bottom : px the bottom controls ride up (sheet / card height)
-     --map-zoom-offset  : extra space under the zoom buttons               */
-
-/* Page shell: map fills everything below the navbar */
 .map-page {
   --nav-h: 56px;
   position: fixed;
@@ -16,11 +10,10 @@
   bottom: 0;
 }
 .map-stage {
-  position: relative; /* anchors overlays, buttons, popups */
+  position: relative;
   height: 100%;
 }
 
-/* Leaflet overrides */
 .map-stage .leaflet-container {
   width: 100%;
   height: 100%;
@@ -28,7 +21,7 @@
   background: #f1efe9;
 }
 .map-stage .leaflet-tile {
-  outline: 1px solid transparent; /* hides hairline seams */
+  outline: 1px solid transparent;
   max-width: none !important;
   max-height: none !important;
 }
@@ -45,11 +38,10 @@
 }
 @media (min-width: 992px) {
   .map-stage {
-    --map-inset-bottom: 0px !important; /* desktop: panels float top-left instead */
+    --map-inset-bottom: 0px !important;
   }
 }
 
-/* Tooltip cards */
 .leaflet-tooltip.hq-tip {
   padding: 6px 12px 6px 6px;
   background: #fff;
@@ -80,7 +72,6 @@
 .tip-icon.offline { background: #dc2626; }
 .tip-title { font-size: 0.9rem; font-weight: 600; line-height: 1.2; }
 
-/* Markers */
 .school-badge {
   width: 36px;
   height: 36px;
@@ -95,12 +86,10 @@
   font-size: 1.1rem;
   box-shadow: 0 2px 6px rgb(0 0 0 / 0.4);
 }
-/* Lighter indigo for schools that are not the focused one */
 .school-badge.dimmed {
   background: #a5a1f0;
 }
 
-/* Small info cards used inside bottom sheets / cards */
 .info-card {
   min-width: 0;
   padding: 10px 12px;
@@ -113,8 +102,6 @@
 .info-value { margin-top: 4px; font-size: 0.95rem; font-weight: 600; line-height: 1.25; }
 .info-number { font-size: 1.5rem; line-height: 1.1; }
 
-/* ---- markers moved from TrackingView ---- */
-/* Destination marker: red pin on a grey dot */
 .dest-pin {
   position: relative;
   width: 32px;
@@ -124,7 +111,7 @@
 .dest-dot {
   position: absolute;
   left: 11px;
-  top: 27px; /* center sits at (16px, 32px), the marker's anchor */
+  top: 27px;
   width: 10px;
   height: 10px;
   border-radius: 50%;
@@ -142,13 +129,12 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #ea4335; /* Google red */
+  color: #ea4335;
   font-size: 32px;
   line-height: 1;
   filter: drop-shadow(0 1px 2px rgb(0 0 0 / 0.35));
 }
 
-/* User location dot */
 .me-dot-wrap {
   position: relative;
   width: 40px;
@@ -168,7 +154,6 @@
   box-shadow: 0 0 4px rgb(0 0 0 / 0.4);
 }
 
-/* Heading cone: a wedge pointing up (north); JS will rotate it */
 .me-dot-cone {
   position: absolute;
   inset: 0;
@@ -182,7 +167,6 @@
   clip-path: polygon(50% 50%, 15% 0%, 85% 0%);
 }
 
-/* "xx min" pill on the route */
 .route-label-pill {
   position: absolute;
   transform: translate(-50%, -50%);
@@ -197,9 +181,6 @@
   pointer-events: none;
 }
 
-
-/* ---- markers moved from HqLiveBoardView ---- */
-/* Volunteer marker: round badge with a person icon */
 .vol-dot {
   position: relative;
   width: 34px;
@@ -222,18 +203,15 @@
 
 .vol-dot.offline { background: #dc2626; }
 
-/* Pulsing ring on live volunteers */
 .vol-dot.live::after {
   content: '';
   position: absolute;
   inset: -3px;
   border-radius: 50%;
   border: 2px solid #16a34a;
-  /* use the "vol-pulse" animation defined below */
   animation: vol-pulse 1s ease-out infinite;
 }
 
-/* The pulse animation */
 @keyframes vol-pulse {
   0% {
     transform: scale(1);
@@ -245,7 +223,6 @@
   }
 }
 
-/* Assignment statuses (Allocation board): badge on the map + in the tooltip */
 .vol-dot.Pending   { background: #f59e0b; }
 .vol-dot.Accepted  { background: #16a34a; }
 .vol-dot.Declined  { background: #dc2626; }
@@ -255,16 +232,13 @@
 .tip-icon.Declined  { background: #dc2626; }
 .tip-icon.Withdrawn { background: #4b5563; }
 
-/* ---- markers moved from main.css (Incident Queue) ---- */
-/* Incident pin: a round solid-colour badge with a white edge and white icon (same family as the volunteer badge). Built by createIncidentIcon() in utils/map-icons.js.
-   The ring/icon colour comes from --severity, set by the severity-* class below. */
 .leaflet-marker-icon.incident-pin {
   display: grid;
   place-items: center;
   box-sizing: border-box;
-  border: 3px solid #fff; /* same white edge as the volunteer and school badges */
+  border: 3px solid #fff;
   border-radius: 50%;
-  background: var(--severity, var(--bs-primary)); /* solid colour, set by the severity-* class below */
+  background: var(--severity, var(--bs-primary));
   color: #fff;
   font-size: 1rem;
   box-shadow: 0 2px 6px rgb(0 0 0 / 0.4);
@@ -283,9 +257,6 @@
   --severity: var(--bs-success);
 }
 
-/* Not acknowledged yet (status "new"): a ring in the pin's own colour pulses outwards to draw the admin's eye.
-   It uses the same "vol-pulse" animation as the live volunteer badges. The pin is already positioned by Leaflet,
-   so the ring can sit on top of it. It stops as soon as the incident is acknowledged (the class is removed). */
 .incident-pin.is-new::after {
   content: '';
   position: absolute;
@@ -293,21 +264,18 @@
   border-radius: 50%;
   border: 2px solid var(--severity, var(--bs-primary));
   animation: vol-pulse 1s ease-out infinite;
-  pointer-events: none; /* the ring never blocks clicks on the pin */
+  pointer-events: none;
 }
 @media (prefers-reduced-motion: reduce) {
   .incident-pin.is-new::after {
-    animation: none; /* no movement for people who turn animations off: a static ring is still shown */
+    animation: none;
   }
 }
 
-/* Ring around the pin of the incident selected in the list */
 .incident-pin.is-selected {
-  box-shadow: 0 0 0 4px var(--bs-primary), 0 2px 6px rgb(0 0 0 / 0.4); /* ring + the normal shadow */
+  box-shadow: 0 0 0 4px var(--bs-primary), 0 2px 6px rgb(0 0 0 / 0.4);
 }
 
-/* Lighter shade for incidents that are not the focused one (like .school-badge.dimmed). Fixed light colours are used
-   instead of opacity, so overlapping pins don't show through each other. No pulse while dimmed. */
 .leaflet-marker-icon.incident-pin.is-dimmed {
   box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
 }
@@ -327,8 +295,6 @@
   display: none;
 }
 
-/* Lighter shade for volunteers that are not the selected one (HQ Live Board), like .school-badge.dimmed.
-   Fixed light colours instead of opacity, so overlapping badges don't show through each other. No pulse while dimmed. */
 .vol-dot.dimmed { background: #d0d3d7; }
 .vol-dot.dimmed.live { background: #8fd6a8; }
 .vol-dot.dimmed.stale { background: #f9d38a; }

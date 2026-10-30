@@ -1,5 +1,5 @@
-// Tests the "stale allocations" fix in accounts-controller: unticking a show must be refused if the volunteer ACCEPTED it,
-// and must delete their Pending/Reserve rows otherwise.
+// Server test for the availability endpoints, using fake modules.
+
 const Module = require('module'); const path = require('path'); const assert = require('assert');
 const S = path.resolve(__dirname, '..');
 let user = { availableShows: ['NE Show 1', 'NE Show 2'] }; let accepted = []; let deleted = null; let saved = null;
@@ -10,10 +10,16 @@ const stubs = {
     publishedShows: async () => published, addToReserve: async (id, name, shows, published) => { reserved = { id, name, shows, published }; } },
   '../utils/reserve-replacement': { replaceFromReserve: async (show) => { refilled.push(show); return []; } },
   '../services/onemap': {}, bcrypt: {}, '../utils/otp': {},
-  '../sockets': { disconnectUser() {} }, // NEW: accounts-controller now imports sockets (logout closes live connections); a test must not load real socket.io
+  // disconnectUser() - fake socket helper that does nothing, so the test never needs a real
+  // connection.
+  '../sockets': { disconnectUser() {} },
 };
+// Module._load - swaps in the fake modules (stubs) whenever the code under test requires them;
+// anything else loads normally.
 const orig = Module._load; Module._load = function (req, ...r) { return stubs[req] || orig(req, ...r); };
 const ctl = require(path.join(S, 'controllers/accounts-controller.js'));
+// o.status / o.json - fake response helpers: status stores the code and json stores the body so the
+// test can check them.
 const res = () => { const o = { code: 200 }; o.status = (c) => { o.code = c; return o; }; o.json = (b) => { o.body = b; return o; }; return o; };
 (async () => {
   let o = res(); await ctl.updateMe({ session: { userId: 'u' }, body: { availableShows: ['NE Show 1'] } }, o);
@@ -27,7 +33,6 @@ const res = () => { const o = { code: 200 }; o.status = (c) => { o.code = c; ret
   assert.deepEqual(deleted, ['NE Show 2'], 'NE Show 4 was never ticked, so it is not "removed"'); console.log('4 ok  DELETE /me only treats really-ticked shows as removed');
   accepted = ['NE Show 1']; o = res(); await ctl.removeMyShows({ session: { userId: 'u' }, body: { availableShows: ['NE Show 1'] } }, o); assert.equal(o.code, 409); console.log('5 ok  DELETE /me also refuses accepted shows');
   o = res(); await ctl.updateMe({ session: { userId: 'u' }, body: { availableShows: 'x' } }, o); assert.equal(o.code, 400); console.log('6 ok  bad input -> 400');
-  // 7. ticking a PUBLISHED show puts the volunteer on its reserve list (and tries to fill an open place); draft shows are left alone
   user = { availableShows: ['NE Show 1'] }; published = ['NE Show 2']; reserved = null; refilled = [];
   o = res(); await ctl.updateMe({ session: { userId: 'u' }, body: { availableShows: ['NE Show 1', 'NE Show 2', 'NE Show 3'] } }, o);
   assert.equal(o.code, 200);

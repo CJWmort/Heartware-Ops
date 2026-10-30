@@ -1,37 +1,21 @@
-// Creates 400 DEMO volunteers spread around Singapore, so the allocation has something realistic to work on.
-// Run with:     pnpm run seed:volunteers                (create / refresh the demo volunteers)
-//               pnpm run seed:volunteers -- --count=150 (a different number)
-//               pnpm run seed:volunteers -- --remove    (delete ALL demo volunteers again)
-//
-// What you get (WHY each choice was made is written beside it):
-//  - 400 accounts, every one with a different name, email, phone and map position.
-//  - Each volunteer ticks 3 of the 4 shows, and the "missing" show is spread evenly, so every show gets
-//    about 300 volunteers: enough to fill all ~250-283 places per show AND leave a reserve list.
-//  - Safe to run twice: accounts are matched by email and updated, never duplicated.
-//  - Everything uses the email pattern demo.volunteerNNN@demo.sg, so --remove only deletes demo accounts.
+// Script that creates (or removes) demo volunteers for testing. It refuses to run on a production
+// database unless --force is given.
 
 const path = require('path')
-const schoolsData = require('../data/primary_schools.json') // used only to place volunteers on LAND, near real schools
+const schoolsData = require('../data/primary_schools.json')
 
-// ---------------------------------------------------------------------------------------------
-// Settings
-// ---------------------------------------------------------------------------------------------
 const DEFAULT_COUNT = 400
 const SHOWS = ['NE Show 1', 'NE Show 2', 'NE Show 3', 'NE Show 4']
 const EMAIL_DOMAIN = 'demo.sg'
 const EMAIL_PREFIX = 'demo.volunteer'
-const EMAIL_PATTERN = /^demo\.volunteer\d+@demo\.sg$/ // exact pattern: --remove can never touch a real account
-const MIN_GAP_M = 40 // no two volunteers closer than this, so "different locations" is really true
-const MIN_RADIUS_M = 150 // volunteers live a little way from a school, not on top of it
-const MAX_RADIUS_M = 1500 // ...but within roughly one neighbourhood, so they stay on land
-const BOUNDS = { latMin: 1.205, latMax: 1.47, lngMin: 103.6, lngMax: 104.04 } // the island, a safety net only
+const EMAIL_PATTERN = /^demo\.volunteer\d+@demo\.sg$/
+const MIN_GAP_M = 40
+const MIN_RADIUS_M = 150
+const MAX_RADIUS_M = 1500
+const BOUNDS = { latMin: 1.205, latMax: 1.47, lngMin: 103.6, lngMax: 104.04 }
 
-// ---------------------------------------------------------------------------------------------
-// Small helpers
-// ---------------------------------------------------------------------------------------------
-
-// Seeded random numbers (mulberry32). WHY: the same seed gives the same 400 people every time, which is what makes
-// the script safe to re-run (same emails, same names) and makes your test results repeatable.
+// makeRandom(seed) - a seeded random-number generator (mulberry32): the same seed always gives the
+// same sequence, so the 400 demo volunteers are the same every run.
 function makeRandom(seed) {
   let a = seed >>> 0
   return function () {
@@ -43,7 +27,8 @@ function makeRandom(seed) {
   }
 }
 
-// Fisher-Yates shuffle with our seeded random (a copy is shuffled, the original is untouched)
+// shuffle(list, random) - Fisher-Yates shuffle of a COPY: walk from the end, swap each item with a
+// random earlier one.
 function shuffle(list, random) {
   const copy = list.slice()
   for (let i = copy.length - 1; i > 0; i--) {
@@ -53,9 +38,11 @@ function shuffle(list, random) {
   return copy
 }
 
-// Distance in metres between two points (haversine). Used only for the "not too close" rule.
+// metresBetween(aLat, aLng, bLat, bLng) - straight-line distance in metres (haversine); used for the
+// "not too close" rule.
 function metresBetween(aLat, aLng, bLat, bLng) {
   const R = 6371000
+  // rad(d) - converts degrees to radians.
   const rad = (d) => (d * Math.PI) / 180
   const dLat = rad(bLat - aLat)
   const dLng = rad(bLng - aLng)
@@ -63,32 +50,29 @@ function metresBetween(aLat, aLng, bLat, bLng) {
   return 2 * R * Math.asin(Math.sqrt(h))
 }
 
+// pad(n, width) - turns a number into text padded with leading zeros, e.g. pad(7, 3) = "007".
 const pad = (n, width) => String(n).padStart(width, '0')
 
-// ---------------------------------------------------------------------------------------------
-// Names: a mix of Chinese, Malay and Indian names, as in Singapore.
-// WHY full-name combinations: so every demo volunteer has a different name and is easy to tell apart on the board and in chat.
-// We list every possible combination, shuffle them, and take the first N, so no two can ever match.
-// ---------------------------------------------------------------------------------------------
 const NAME_POOLS = [
-  { // Chinese: surname first
+  {
     weight: 6,
     first: ['Tan', 'Lim', 'Lee', 'Ng', 'Ong', 'Wong', 'Goh', 'Chua', 'Chan', 'Koh', 'Teo', 'Ang', 'Yeo', 'Tay', 'Ho', 'Low', 'Sim', 'Chew', 'Toh', 'Foo'],
     second: ['Jia Hui', 'Xin Yi', 'Zhi Hao', 'Mei Ling', 'Kai Wen', 'Shu Fen', 'Jun Jie', 'Hui Min', 'Yong Sheng', 'Li Ting', 'Jia Wei', 'Pei Shan', 'Wen Hao', 'Si Min', 'Jun Kai', 'Ying Ying', 'Zi Xuan', 'Rui En', 'Hao Ran', 'Xiu Qi'],
   },
-  { // Malay: given name first
+  {
     weight: 2,
     first: ['Aisyah', 'Hafiz', 'Nurul', 'Farhan', 'Zulaikha', 'Imran', 'Syafiqah', 'Amirul', 'Nadia', 'Danial', 'Hidayah', 'Irfan', 'Sabrina', 'Faizal', 'Liyana'],
     second: ['Rahman', 'Ismail', 'Abdullah', 'Yusof', 'Hassan', 'Sulaiman', 'Ibrahim', 'Mohamed', 'Osman', 'Salleh', 'Hamid', 'Jaafar'],
   },
-  { // Indian: given name first
+  {
     weight: 1.5,
     first: ['Priya', 'Arun', 'Divya', 'Ravi', 'Kavitha', 'Suresh', 'Anjali', 'Vikram', 'Meera', 'Karthik', 'Deepa', 'Naveen'],
     second: ['Nair', 'Kumar', 'Menon', 'Chandran', 'Pillai', 'Raj', 'Subramaniam', 'Krishnan', 'Naidu', 'Iyer', 'Rao', 'Sharma'],
   },
 ]
 
-// Build the full list of unique names, shuffled
+// allNames(random) - builds every first-name x second-name combination from the name pools and
+// shuffles them.
 function allNames(random) {
   const names = []
   for (const pool of NAME_POOLS) {
@@ -101,11 +85,10 @@ function allNames(random) {
   return shuffle(names, random)
 }
 
-// Pick `count` unique names. Chinese names are listed more often so the mix looks like Singapore's, while still
-// never repeating a name (each combination appears once in the list).
+// pickNames(count, random) - picks `count` unique names with Chinese names more likely (sort by random
+// / weight). Throws if there are not enough names.
 function pickNames(count, random) {
   const names = allNames(random)
-  // weighted order: sort by (random / weight) so heavier pools come earlier on average
   const ordered = names
     .map((n) => ({ name: n.name, key: random() / n.weight }))
     .sort((x, y) => x.key - y.key)
@@ -116,22 +99,19 @@ function pickNames(count, random) {
   return ordered.slice(0, count)
 }
 
-// ---------------------------------------------------------------------------------------------
-// Locations: unique points around real schools.
-// WHY near schools: schools are spread over the whole island, so points near them are on land and give a spread over
-// every region. Using plain random coordinates inside a box would put many volunteers in the sea or in Malaysia.
-// ---------------------------------------------------------------------------------------------
+// makeLocations(count, random) - unique home points near real schools. 1) shuffle the schools 2) for
+// each volunteer go to the next school 3) try up to 200 random spots 150 to 1500 m away 4) accept a
+// spot only if it is inside Singapore's bounding box and at least 40 m from everyone placed 5) return
+// the points.
 function makeLocations(count, random) {
   const schools = shuffle(schoolsData.filter((s) => Number.isFinite(s.lat) && Number.isFinite(s.lng)), random)
   if (schools.length === 0) throw new Error('No schools with coordinates found in data/primary_schools.json')
 
   const placed = []
   for (let i = 0; i < count; i++) {
-    // Go round the (shuffled) schools one by one so every part of Singapore is covered before any repeats
     const school = schools[i % schools.length]
     let point = null
 
-    // Try up to 200 random spots near this school until one is far enough from everyone else already placed
     for (let attempt = 0; attempt < 200 && !point; attempt++) {
       const bearing = random() * 2 * Math.PI
       const metres = MIN_RADIUS_M + random() * (MAX_RADIUS_M - MIN_RADIUS_M)
@@ -148,27 +128,24 @@ function makeLocations(count, random) {
   return placed
 }
 
-// ---------------------------------------------------------------------------------------------
-// Build the volunteer records (pure function: no database, easy to test)
-// ---------------------------------------------------------------------------------------------
+// buildVolunteers(count, seed) - builds the demo records (no database). 1) pick names and locations 2)
+// every volunteer skips exactly one show (evenly spread) 3) build name, email, phone, postal code,
+// address, role, availableShows, lat, lng.
 function buildVolunteers(count = DEFAULT_COUNT, seed = 2027) {
   const random = makeRandom(seed)
   const names = pickNames(count, random)
   const locations = makeLocations(count, random)
 
-  // Every volunteer skips exactly ONE show. Cycling 0,1,2,3,... and shuffling gives each show the same number of
-  // skippers, so each show ends up with count * 3/4 volunteers (300 when count = 400).
   const skip = shuffle(Array.from({ length: count }, (_, i) => i % SHOWS.length), random)
 
   return names.map((name, i) => {
     const where = locations[i]
-    const sector = String(where.school.postalCode).slice(0, 2) // first 2 digits = postal sector, so the code looks local
+    const sector = String(where.school.postalCode).slice(0, 2)
     return {
       name,
       email: `${EMAIL_PREFIX}${pad(i + 1, 3)}@${EMAIL_DOMAIN}`,
-      // 8 or 9 start = a Singapore mobile number; the running number keeps every phone unique (the schema requires it)
       phone: `${i % 2 === 0 ? '9' : '8'}${pad(1000000 + i * 7, 7)}`,
-      postalCode: sector + pad(Math.floor(random() * 10000), 4), // made up: demo only, NOT a real address
+      postalCode: sector + pad(Math.floor(random() * 10000), 4),
       address: `Demo home near ${where.school.name}`,
       role: 'volunteer',
       availableShows: SHOWS.filter((_, s) => s !== skip[i]),
@@ -178,9 +155,7 @@ function buildVolunteers(count = DEFAULT_COUNT, seed = 2027) {
   })
 }
 
-// ---------------------------------------------------------------------------------------------
-// Database part
-// ---------------------------------------------------------------------------------------------
+// readOptions(argv) - reads --count (1 to 1000), --remove and --force from the command line.
 function readOptions(argv) {
   const countArg = argv.find((a) => a.startsWith('--count='))
   const count = countArg ? Number(countArg.split('=')[1]) : DEFAULT_COUNT
@@ -190,10 +165,13 @@ function readOptions(argv) {
   return { count, remove: argv.includes('--remove'), force: argv.includes('--force') }
 }
 
+// main() - 1) read the options, 2) refuse to run on a production database without --force, 3) connect
+// and register the models, 4) --remove deletes the demo accounts (matched by a strict email pattern)
+// and their rows, otherwise create the demo volunteers and their assignment rows, 5) print a summary
+// and disconnect.
 async function main() {
   const options = readOptions(process.argv.slice(2))
 
-  // Safety: demo data must never land in a real, live database by accident
   require('dotenv').config({ path: path.join(__dirname, '..', 'config.env') })
   if (process.env.NODE_ENV === 'production' && !options.force) {
     console.error('Refusing to touch a PRODUCTION database. Add --force if you really mean it.')
@@ -202,15 +180,14 @@ async function main() {
 
   const mongoose = require('mongoose')
   const { connect, disconnect } = require('./_connect')
-  require('../models/account-model') // registers the "Account" model
-  require('../models/assignments-model') // registers "Assignments" (needed to clean up on --remove)
-  require('../models/locations-model') // registers "Locations"  (needed to clean up on --remove)
+  require('../models/account-model')
+  require('../models/assignments-model')
+  require('../models/locations-model')
   const Account = mongoose.model('Account')
 
   await connect()
 
   if (options.remove) {
-    // Find the demo accounts first, so we can also remove what points at them (otherwise the board would show blanks)
     const demo = await Account.find({ email: { $regex: EMAIL_PATTERN } }).select('_id')
     const ids = demo.map((d) => d._id)
     const assignments = await mongoose.model('Assignments').deleteMany({ volunteer: { $in: ids } })
@@ -221,8 +198,6 @@ async function main() {
     return
   }
 
-  // One shared password for every demo account. Hashed ONCE and reused: the same text gives a different hash each
-  // time, but any of them is valid, and 400 separate hashes would just make the script slow.
   const bcrypt = require('bcrypt')
   const demoPassword = process.env.DEMO_PASSWORD || 'DemoPass123!'
   const hashed = await bcrypt.hash(demoPassword, 10)
@@ -234,20 +209,14 @@ async function main() {
 
   for (const v of volunteers) {
     try {
-      // upsert by email: create if new, refresh if it already exists -> running twice never duplicates anybody
-      // CHANGED: besides refreshing the demo account, also set withdrawnShows back to an empty list.
-      // WHY: expired/declined offers are logged there, so without this the old "No response within 24 hours"
-      // entries pile up and each demo volunteer never gets a clean slate. This only touches accounts that match
-      // the demo email (the filter below), so a real volunteer's history can never be cleared by this script.
       const result = await Account.updateOne(
-        { email: v.email }, // only the demo account with this email
-        { $set: { ...v, password: hashed, withdrawnShows: [] } }, // refresh details AND wipe the decline/withdraw history
-        { upsert: true }, // create it if it doesn't exist yet
+        { email: v.email },
+        { $set: { ...v, password: hashed, withdrawnShows: [] } },
+        { upsert: true },
       )
       if (result.upsertedCount) created++
       else updated++
     } catch (error) {
-      // Most likely a phone number that a REAL account already uses (phone is unique in the schema)
       skipped.push(`${v.email}: ${error.code === 11000 ? 'phone already used by another account' : error.message}`)
     }
   }
@@ -260,7 +229,7 @@ async function main() {
   await disconnect()
 }
 
-module.exports = { buildVolunteers, EMAIL_PATTERN, SHOWS } // exported so the generator can be tested without a database
+module.exports = { buildVolunteers, EMAIL_PATTERN, SHOWS }
 
 if (require.main === module) {
   main().catch((err) => {

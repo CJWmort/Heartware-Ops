@@ -1,27 +1,35 @@
+// Badge endpoints: the badge list, a volunteer's awards, manual and automatic awarding, the saved
+// design, orders and order status.
+
 const BADGES = require("../data/badges.json");
-const BadgeAward = require("../models/badge-awards-model"); 
+const BadgeAward = require("../models/badge-awards-model");
 const BadgeDesign = require("../models/badge-design-model");
 const BadgeOrder = require("../models/badge-order-model");
 const Account = require('../models/account-model')
 const Assignments = require('../models/assignments-model')
 const mongoose = require("mongoose");
 const sendServerError = require('../utils/send-server-error')
-const onemap = require('../services/onemap') // existing OneMap helper (the same file registration uses)
+const onemap = require('../services/onemap')
 const SCHEDULE = require("../data/schedule.json");
 
+// reportingMinutes(text) - turns a school reporting time such as "1:30pm" into minutes since midnight.
+// 1. Lowercase it and remove spaces ("1:30 PM" -> "1:30pm"). 2. Cut off the last 2 letters (am/pm) and
+// split on ":" into hour h and minute m (as numbers). 3. pm and hour < 12 -> add 12 hours; pm and hour
+// = 12 -> keep 12. 4. am and hour < 12 -> keep; am and hour = 12 (12:xx am) -> only the minutes. 5.
+// Return hours x 60 + minutes.
 function reportingMinutes(text) {
-  const clean = text.toLowerCase().replace(/\s/g, '') 
-  const [h, m] = clean.slice(0,-2).split(':').map(Number) 
+  const clean = text.toLowerCase().replace(/\s/g, '')
+  const [h, m] = clean.slice(0,-2).split(':').map(Number)
   let minutes = 0
   if (clean.endsWith('pm')) {
     if (h < 12) {
-      minutes = (h + 12) * 60 + m 
+      minutes = (h + 12) * 60 + m
     } else {
-      minutes = h * 60 + m 
+      minutes = h * 60 + m
     }
   } else {
     if (h < 12) {
-      minutes = h * 60 + m  
+      minutes = h * 60 + m
     } else {
       minutes = m
     }
@@ -29,19 +37,25 @@ function reportingMinutes(text) {
   return minutes
 }
 
+// singaporeMinutes(date) - minutes since midnight of a Date in Singapore time: 1) print the time as
+// "HH:MM" in the Asia/Singapore time zone (24-hour clock) 2) split into hour and minute 3) return hour
+// x 60 + minute.
 function singaporeMinutes(date) {
   const [h, m] = date.toLocaleTimeString('en-GB', { timeZone: 'Asia/Singapore', hourCycle: 'h23' }).split(':').map(Number)
   return h * 60 + m
 }
 
+// listBadges - replies with the badge catalogue (any logged-in user).
 exports.listBadges = (req, res) => res.json(BADGES);
 
+// listMyAwards - the logged-in volunteer's badges. 1) load their award rows (newest first) 2) for each
+// row look up the badge details by code 3) reply with { badge, event, message } for each.
 exports.listMyAwards = async (req, res) => {
   try {
     const userAwards = await BadgeAward.retrieveByVolunteer(req.session.userId);
     const myAwards = userAwards.map((award) => {
       return {
-        badge: BADGES.find((b) => b.code === award.badge),   
+        badge: BADGES.find((b) => b.code === award.badge),
         event: award.event,
         message: award.message,
       };
@@ -52,9 +66,13 @@ exports.listMyAwards = async (req, res) => {
   }
 };
 
+// awardBadge (admin) - gives a badge to one or many volunteers. 1) volunteerIds must be a non-empty
+// array, badgeCode must be a real badge, event must be a real show and every id must be a valid id
+// (else 400), 2) create one award row per volunteer, 3) a duplicate (same badge, show and volunteer)
+// is skipped instead of failing, 4) reply with how many were awarded and how many were skipped.
 exports.awardBadge = async (req, res) => {
   try {
-    const { volunteerIds, badgeCode, event, message } = req.body;  
+    const { volunteerIds, badgeCode, event, message } = req.body;
     if (!Array.isArray(volunteerIds) || volunteerIds.length === 0) {
       return res.status(400).json({ message: 'Please choose at least one volunteer.' })
     }
@@ -73,13 +91,13 @@ exports.awardBadge = async (req, res) => {
     const given = [];
     const skipped = [];
 
-    for (const volunteerId of volunteerIds) {                        
+    for (const volunteerId of volunteerIds) {
       try {
         const award = await BadgeAward.create({ badge: badgeCode, volunteer: volunteerId, event: event, awardedBy: req.session.userId, message: message });
         given.push(award);
       } catch (error) {
-        if (error.code === 11000) skipped.push(volunteerId);   
-        else throw error;                                 
+        if (error.code === 11000) skipped.push(volunteerId);
+        else throw error;
       }
     }
 
@@ -89,6 +107,9 @@ exports.awardBadge = async (req, res) => {
   }
 };
 
+// saveMyDesign (volunteer) - saves the badge design. 1) load the volunteer's existing design 2) locked
+// -> 409 (already ordered) 3) read shape, colours, emblem, ribbonText 4) no design yet -> create one
+// (201) 5) otherwise overwrite its fields and save (200) 6) schema rules reject bad values with 400.
 exports.saveMyDesign = async (req, res) => {
   try {
     const design = await BadgeDesign.findByVolunteer(req.session.userId)
@@ -103,7 +124,7 @@ exports.saveMyDesign = async (req, res) => {
       design.primaryColor = primaryColor
       design.secondaryColor = secondaryColor
       design.emblem = emblem
-      design.ribbonText = ribbonText 
+      design.ribbonText = ribbonText
       await design.save()
       res.status(200).json(design) }
   } catch (error) {
@@ -111,40 +132,38 @@ exports.saveMyDesign = async (req, res) => {
   }
 }
 
+// placeOrder (volunteer) - orders the saved badge. 1) the postal code must be 6 digits and the unit 1
+// to 20 characters (else 400), 2) load their design (none: 400 "save your design first"), 3) a design
+// that is already locked gives 409, 4) look up the address for the postal code from OneMap and use
+// that address (not the typed one), 5) create the order and lock the design, 6) reply with the new
+// order; if something fails after locking, the lock is undone.
 exports.placeOrder = async (req, res) => {
-  let lockedByMe = false // true once THIS request has locked the design (so only we undo it on failure)
+  let lockedByMe = false
   try {
-    const { address } = req.body // moved up: we need it BEFORE locking the design
-    const postalCode = String(address?.postalCode ?? '').trim() // String() so a non-text value cannot crash .trim()
-    const unit = String(address?.unit ?? '').trim() // free text on purpose: "#01-234", "38" or "38A" (landed homes) are all fine
+    const { address } = req.body
+    const postalCode = String(address?.postalCode ?? '').trim()
+    const unit = String(address?.unit ?? '').trim()
 
-    // The browser checks can be bypassed, so the server checks everything again.
-    // All checks run BEFORE the lock, so a bad address never locks the volunteer's design.
     if (!/^\d{6}$/.test(postalCode)) {
       return res.status(400).json({ message: 'Enter a 6-digit postal code.' })
     }
     if (!unit || unit.length > 20) {
-      // unit number is required (no strict format), but keep it a sensible length
       return res.status(400).json({ message: 'Enter your unit number (up to 20 characters).' })
     }
 
-    let place // { address, lat, lng } from OneMap
+    let place
     try {
-      place = await onemap.lookupPostal(postalCode) // the geocoding check
+      place = await onemap.lookupPostal(postalCode)
     } catch (oneMapError) {
       console.error('Badge order postal lookup failed:', oneMapError.message)
-      // OneMap is down, so we cannot tell if the address is real: do not accept the order
       return res.status(502).json({ message: 'Could not verify your address right now. Please try again in a few minutes.' })
     }
     if (!place) {
-      // null = OneMap has no such postal code
       return res.status(400).json({ message: 'We could not find that postal code. Please check it and try again.' })
     }
 
-    // FIX (S2): lock FIRST, atomically. Only one of several simultaneous requests (e.g. a double tap) gets a design back.
     const design = await BadgeDesign.lockIfUnlocked(req.session.userId)
     if (!design) {
-      // Nothing was locked: either no design exists yet, or it was already locked (ordered / double tap)
       const existing = await BadgeDesign.findByVolunteer(req.session.userId)
       if (!existing) {
         return res.status(400).json({ message: 'Please save your design before ordering.' })
@@ -164,20 +183,19 @@ exports.placeOrder = async (req, res) => {
               ribbonText:     design.ribbonText,
           },
           address: {
-              line1:      place.address, // OneMap's official address, NOT what the browser sent, so it cannot be faked
-              unit,                      // already trimmed, required and length-checked above
-              postalCode,                // already checked as 6 digits and confirmed by OneMap
+              line1:      place.address,
+              unit,
+              postalCode,
           },
         })
-    // (the design is already locked above, so there is no separate lock step here any more)
     res.status(201).json(order)
   } catch (error) {
-    // The order failed (e.g. invalid address), so give the design back to the volunteer to fix and retry
     if (lockedByMe) await BadgeDesign.unlock(req.session.userId)
     res.status(400).json({ message: error.message })
   }
 }
 
+// getMyDesign - replies with the volunteer's saved design (null if none).
 exports.getMyDesign = async (req, res) => {
   try {
     const design = await BadgeDesign.findByVolunteer(req.session.userId)
@@ -187,6 +205,7 @@ exports.getMyDesign = async (req, res) => {
   }
 }
 
+// listMyOrders - replies with the volunteer's own orders, newest first.
 exports.listMyOrders = async (req, res) => {
   try {
     const orders = await BadgeOrder.findByVolunteer(req.session.userId)
@@ -196,6 +215,7 @@ exports.listMyOrders = async (req, res) => {
   }
 }
 
+// listAllOrders (admin) - every order with the volunteer's name and email.
 exports.listAllOrders = async (req, res) => {
   try {
     const orders = await BadgeOrder.findAll()
@@ -205,6 +225,10 @@ exports.listAllOrders = async (req, res) => {
   }
 }
 
+// updateOrderStatus (admin) - moves an order forward one step. 1) load the order (none -> 404) 2)
+// already delivered -> 409 3) the new status must be exactly the next one in placed -> in_production
+// -> shipped -> delivered (else 409 telling the allowed next status) 4) save and reply. An invalid id
+// gives 400.
 exports.updateOrderStatus = async (req, res) => {
   try {
     const newStatus = req.body.status
@@ -232,6 +256,7 @@ exports.updateOrderStatus = async (req, res) => {
   }
 }
 
+// listVolunteers (admin) - volunteer names + emails A to Z, for the award form's search box.
 exports.listVolunteers = async (req, res) => {
   try {
     const volunteers = await Account.retrieveVolunteerNames()
@@ -241,6 +266,13 @@ exports.listVolunteers = async (req, res) => {
   }
 }
 
+// autoAward (admin) - hands out the automatic badges for one show. Steps: 1. The chosen show must be a
+// known show (400 otherwise). 2. FULL_ROUTE winners = accepted volunteers who clocked all 8
+// checkpoints. 3. EARLY_BIRD winners = volunteers whose first checkpoint was at least 30 minutes
+// before the school's reporting time (schools without a reporting time are skipped). 4. SUPER_SUB
+// winners = volunteers filled in from the reserve list who started the journey. 5. Create one award
+// per winner; a duplicate is counted in "skipped" (so pressing the button twice is safe). 6. Reply
+// with how many of each badge were given and the skipped count.
 exports.autoAward = async (req, res) => {
   try {
     const { event } = req.body
@@ -249,30 +281,30 @@ exports.autoAward = async (req, res) => {
     }
 
     const fullRoute = await Assignments.findFullRoute(event)
-    const EARLY_MINUTES = 30 
+    const EARLY_MINUTES = 30
 
     const arrivals = await Assignments.findArrivals(event)
     const earlyBirds = arrivals.filter(assignment => {
-      const reached = assignment.stageHistory.find(a => a.stage === 1) 
-      return reached && assignment.school && assignment.school.reportingTime && (reportingMinutes /* FIX: skip schools with no reportingTime instead of crashing the whole run */(assignment.school.reportingTime) - singaporeMinutes(reached.at) >= EARLY_MINUTES) 
+      const reached = assignment.stageHistory.find(a => a.stage === 1)
+      return reached && assignment.school && assignment.school.reportingTime && (reportingMinutes (assignment.school.reportingTime) - singaporeMinutes(reached.at) >= EARLY_MINUTES)
     })
 
     const superSubs = await Assignments.findSuperSubs(event)
 
     const winners = {
-      FULL_ROUTE: fullRoute.map(assignment => assignment.volunteer), 
-      EARLY_BIRD: earlyBirds.map(a => a.volunteer), 
-      SUPER_SUB: superSubs.map(s => s.volunteer), 
+      FULL_ROUTE: fullRoute.map(assignment => assignment.volunteer),
+      EARLY_BIRD: earlyBirds.map(a => a.volunteer),
+      SUPER_SUB: superSubs.map(s => s.volunteer),
     }
 
     const given = { FULL_ROUTE: 0, EARLY_BIRD: 0, SUPER_SUB: 0 }
     let skipped = 0
 
-    for (const code of Object.keys(winners)) {   
+    for (const code of Object.keys(winners)) {
       for (const volunteerId of winners[code]) {
         try {
-          await BadgeAward.create({ badge: code, volunteer: volunteerId, event, awardedBy: req.session.userId }) // which badge, who, which show, given by whom?
-          given[code] += 1 
+          await BadgeAward.create({ badge: code, volunteer: volunteerId, event, awardedBy: req.session.userId })
+          given[code] += 1
         } catch (error) {
           if (error.code === 11000) skipped += 1
           else throw error

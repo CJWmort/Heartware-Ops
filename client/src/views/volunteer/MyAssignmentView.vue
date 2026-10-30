@@ -1,11 +1,12 @@
+<!-- The volunteer My Assignment page (F3): shows availability, the assigned school for each show,
+     and the Accept, Decline and Withdraw buttons with the route map. -->
+
 <script setup>
-// Feature 1b – Smart Allocation (volunteer side) — owner: Fanny
-// CHANGED: this page used to hard-code 3 shows with 2026 dates and never asked the server for the volunteer's
-// allocation, so every show said "Awaiting allocation" forever. It now uses useMyAssignment() (services/assignment.js),
-// which loads the real shows (4 shows, 2027 dates), the volunteer's PUBLISHED assignments, and handles
-// accept / decline / withdraw. Keeping that logic in the service keeps this file about the screen only.
+// Loads the volunteer's data, refreshes it live, works out the status text and colour of each row, and
+// handles the actions through useMyAssignment().
+
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import PageLoading from '@/components/common/PageLoading.vue' // NEW: fading "Fetching..." overlay
+import PageLoading from '@/components/common/PageLoading.vue'
 import SchoolRouteMap from '@/components/map/SchoolRouteMap.vue'
 import MapNotice from '@/components/map/MapNotice.vue'
 import {
@@ -14,14 +15,14 @@ import {
   statusClass,
   formatDate,
   formatDeadline,
-} from '@/services/assignment' // CHANGED: formatDeadline added
+} from '@/services/assignment'
 
 const {
   volData,
   volAvailableShows,
   shows,
   errorMessage,
-  loading, // NEW: true until the first load finishes
+  loading,
   hasNoAvailability,
   loadData,
   showAvailabilityModal,
@@ -44,19 +45,27 @@ const {
   confirmWithdraw,
 } = useMyAssignment()
 
+// onMounted(loadData) - when the page opens, fetch the shows and my allocations (the loading overlay
+// shows until this finishes).
 onMounted(loadData)
 
 const showAvailabilityInfo = ref(false)
 let infoTimer = null
 
+// watch(hasNoAvailability) - when the volunteer has chosen no shows, show the hint and start the 8
+// second timer; when they do have shows, hide it. The old timer is always cleared first so timers
+// never stack.
 watch(hasNoAvailability, (none) => {
   clearTimeout(infoTimer)
   showAvailabilityInfo.value = none
   if (none) infoTimer = setTimeout(() => (showAvailabilityInfo.value = false), 8000)
 })
 
+// onBeforeUnmount - stop the hint timer when leaving the page.
 onBeforeUnmount(() => clearTimeout(infoTimer))
 
+// notice (computed) - the single popup message: a server error wins, otherwise the "No availability
+// set" hint, otherwise nothing.
 const notice = computed(() => {
   if (errorMessage.value) {
     return {
@@ -77,18 +86,24 @@ const notice = computed(() => {
   return null
 })
 
+// dismissNotice() - the popup X: stop the timer, clear the error text and hide the hint.
 function dismissNotice() {
   clearTimeout(infoTimer)
   if (errorMessage.value) errorMessage.value = ''
   showAvailabilityInfo.value = false
 }
 
+// rowStatus(show) - the label in the Change Availability list: "Not available" if the volunteer did
+// not tick the show; otherwise the real status, where "Not available" from the service becomes
+// "Awaiting allocation" (ticked but nothing allocated yet).
 function rowStatus(show) {
   if (!selectedShows.value.includes(show.name)) return 'Not available'
   const st = showStatus(show, volAvailableShows.value)
   return st === 'Not available' ? 'Awaiting allocation' : st
 }
 
+// rowTone(show) - the colour group of an availability row: info (blue) when not ticked or awaiting,
+// warning (amber) when Pending, muted otherwise.
 function rowTone(show) {
   if (!selectedShows.value.includes(show.name)) return 'tone-info'
   const st = rowStatus(show)
@@ -97,6 +112,9 @@ function rowTone(show) {
   return 'tone-muted'
 }
 
+// lockInfo(show) - decides whether a show is LOCKED in the availability list: an Accepted place (green
+// lock) or a Declined / Withdrawn show (red). Returns the text, tone and icon, or null when the show
+// can still be ticked.
 function lockInfo(show) {
   if (show.assignment?.status === 'Accepted')
     return { text: 'You have accepted a place in this show', tone: 'success', icon: 'bi-lock-fill' }
@@ -109,10 +127,10 @@ function lockInfo(show) {
   return null
 }
 
-// ===== Directions popup (map from home to the school) =====
-const directionsShow = ref(null) // show whose directions are open (popup is open when set)
+const directionsShow = ref(null)
 
-// Home location from the volunteer's account (saved when they registered)
+// home (computed) - the volunteer's home latitude and longitude saved at registration, or null if
+// missing.
 const home = computed(() => {
   const v = volData.value
   return typeof v?.lat === 'number' && typeof v?.lng === 'number'
@@ -120,20 +138,23 @@ const home = computed(() => {
     : null
 })
 
-// Directions only make sense when both ends have a location
+// canShowDirections(show) - true only when home and the school both have coordinates, so the
+// Directions button is hidden otherwise.
 function canShowDirections(show) {
   const school = show.assignment?.school
   return !!home.value && typeof school?.lat === 'number' && typeof school?.lng === 'number'
 }
 
-// Left edge of each card follows the status: amber = needs an answer, green = confirmed, grey = nothing to do
+// edgeColour(status) - the colour of the card's left edge: amber when Pending (needs an answer), green
+// when Accepted, grey otherwise.
 function edgeColour(status) {
   if (status === 'Pending') return 'var(--hw-warning)'
   if (status === 'Accepted') return 'var(--hw-success)'
   return 'var(--hw-muted)'
 }
 
-// Date tile on each card: "SAT" / "27" / "JUN 2027"
+// datePart(date, part) - splits a date for the date tile: "weekday" gives SAT, "day" gives 27,
+// anything else gives JUN 2027.
 function datePart(date, part) {
   const d = new Date(date)
   if (part === 'weekday') return d.toLocaleDateString('en-SG', { weekday: 'short' })
@@ -143,6 +164,7 @@ function datePart(date, part) {
 </script>
 
 <template>
+  <!-- The notice area, the list of show rows with their action buttons and the route map. -->
   <section class="assign-page" :class="{ 'is-loading': loading }">
     <Transition name="loading-fade">
       <PageLoading v-if="loading" contained text="Fetching Your Shows..." />
@@ -265,8 +287,6 @@ function datePart(date, part) {
       </article>
     </div>
 
-    <!-- Decline / pull out popup. ONE popup for both actions: the wording and the endpoint change with pullOutMode.
-         The reason is optional and limited to 300 characters (the server enforces the same limit). -->
     <template v-if="withdrawShow">
       <Teleport to="body">
       <div
@@ -278,12 +298,9 @@ function datePart(date, part) {
         data-testid="pullout-modal"
         @click.self="closeWithdrawModal"
       >
-        <!-- FIX (U1): "modal-dialog-centered" is now really removed, so this popup opens at the TOP centre (team rule), not the middle -->
         <div class="modal-dialog">
           <div class="modal-content">
             <div class="modal-header">
-              <!-- CHANGED: the Accepted wording was "Pull out of ...?". It now uses the same words as the row button
-                   ("Withdraw") so the volunteer sees one name for one action. Decline wording is unchanged. -->
               <h5 class="modal-title" id="pullout-title">
                 {{ pullOutMode === 'decline' ? 'Decline' : 'Withdraw from' }}
                 {{ withdrawShow.name }}?
@@ -318,7 +335,6 @@ function datePart(date, part) {
               </div>
             </div>
             <div class="modal-footer">
-              <!-- E2E: data-testid="pullout-cancel" lets the Assignment test press "Keep my slot" without relying on its wording -->
               <button
                 type="button"
                 class="btn btn-outline-secondary"
@@ -328,7 +344,6 @@ function datePart(date, part) {
               >
                 Keep my slot
               </button>
-              <!-- CHANGED: confirm button text was "Pull out"; now matches the row button, "Withdraw". -->
               <button
                 type="button"
                 class="btn btn-danger"
@@ -351,8 +366,6 @@ function datePart(date, part) {
       </Teleport>
     </template>
 
-    <!-- Directions popup: map with the route from home to the school (components/map/SchoolRouteMap.vue).
-         The map is only created while the popup is open, so the page does not load OneMap tiles it does not show. -->
     <template v-if="directionsShow">
       <Teleport to="body">
       <div
@@ -365,7 +378,6 @@ function datePart(date, part) {
         @click.self="directionsShow = null"
         @keydown.esc="directionsShow = null"
       >
-        <!-- FIX (U1): "modal-dialog-centered" is now really removed, so this popup opens at the TOP centre (team rule), not the middle -->
         <div class="modal-dialog modal-lg">
           <div class="modal-content">
             <div class="modal-header">
@@ -398,7 +410,6 @@ function datePart(date, part) {
       </Teleport>
     </template>
 
-    <!-- Change Availability popup -->
     <template v-if="showAvailabilityModal">
       <Teleport to="body">
       <div
@@ -411,7 +422,6 @@ function datePart(date, part) {
         @click.self="closeAvailabilityModal"
         @keydown.esc="closeAvailabilityModal"
       >
-        <!-- FIX (U1): "modal-dialog-centered" is now really removed, so this popup opens at the TOP centre (team rule), not the middle -->
         <div class="modal-dialog">
           <div class="modal-content">
             <div class="modal-header">
@@ -509,6 +519,8 @@ function datePart(date, part) {
 </template>
 
 <style scoped>
+/* Styles for the show rows and status colours. */
+
 .assign-page {
   position: relative;
   width: 100%;

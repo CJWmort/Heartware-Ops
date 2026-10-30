@@ -1,13 +1,10 @@
+<!-- The shared confirmation pop-up (used for Allocate, Reset, Resolve and so on). It can also ask
+     for a typed note. -->
+
 <script setup>
-// Custom replacement for the browser's confirm() window. Styled like MapNotice (the popup status card).
-//   <ConfirmDialog :dialog="dialog" @answer="onAnswer" />
-//   dialog = { title, text, confirmText?, cancelText?, danger?, icon?, input? } or null (null = closed)
-//   @answer fires with true (OK) or false (Cancel).
-// OPTIONAL TEXT BOX (replaces the browser's prompt()): add  input: { label?, placeholder?, required?, maxlength? }
-//   to the dialog. A text area is shown, and @answer then fires with (true, theTypedText) on OK.
-//   With required: true the OK button stays disabled until something (not just spaces) is typed.
-// It is a MODAL: the dark backdrop covers the whole page and swallows every click, and Escape is ignored,
-// so the only way out is the Cancel or OK button. Tab is kept inside the card.
+// Tracks the note box, checks it is filled when required, answers with the note or null, focuses the
+// Cancel button and handles the Escape key.
+
 import { ref, computed, watch, nextTick } from 'vue'
 
 const props = defineProps({
@@ -18,18 +15,21 @@ const emit = defineEmits(['answer'])
 const cancelBtn = ref(null)
 const okBtn = ref(null)
 const inputEl = ref(null)
-const text = ref('') // what the user typed (only used when dialog.input exists)
+const text = ref('')
 
-// OK is disabled while a required text box is empty.
+// canConfirm (computed) - false while a required text box is empty or only spaces; OK is disabled
+// then.
 const canConfirm = computed(() => !props.dialog?.input?.required || text.value.trim().length > 0)
 
+// confirmOk() - 1) stop if OK is not allowed 2) tell the parent "answer = true", adding the trimmed
+// text when the dialog has a text box.
 function confirmOk() {
   if (!canConfirm.value) return
   emit('answer', true, props.dialog?.input ? text.value.trim() : undefined)
 }
 
-// When the card opens: clear the text box and focus it. Without a text box, focus Cancel (the safe choice)
-// so Enter / Space can't confirm by accident.
+// watch(dialog) - each time a dialog opens or closes: 1) clear the typed text 2) when it opens, focus
+// the text box (if any), otherwise the Cancel button (the safe choice) or OK.
 watch(
   () => props.dialog,
   (d) => {
@@ -38,7 +38,9 @@ watch(
   },
 )
 
-// Keyboard: Escape does nothing (the user must choose); Tab/Shift+Tab cycle between the two buttons only.
+// onKeydown(e) - 1) Escape does nothing on purpose (user must press a button) 2) Tab / Shift+Tab are
+// trapped: build the order text box, Cancel, OK (OK skipped while disabled), find the focused one,
+// move to the next or previous and wrap round.
 function onKeydown(e) {
   if (e.key === 'Escape') {
     e.preventDefault()
@@ -46,7 +48,6 @@ function onKeydown(e) {
   }
   if (e.key === 'Tab') {
     e.preventDefault()
-    // Focus order: text box (if any) -> Cancel -> OK (skipped while disabled) -> back to the start
     const order = [inputEl.value, cancelBtn.value, canConfirm.value ? okBtn.value : null].filter(
       Boolean,
     )
@@ -58,9 +59,10 @@ function onKeydown(e) {
 </script>
 
 <template>
+  <!-- The dark backdrop and the centred dialog with title, text, optional note box and the
+       Cancel and Confirm buttons. -->
   <Teleport to="body">
     <Transition name="confirm">
-      <!-- Backdrop: darkens the page and blocks all clicks behind the card. Clicking it does nothing on purpose. -->
       <div v-if="dialog" class="confirm-backdrop" @keydown="onKeydown" @click.self.stop>
         <div
           class="confirm-card"
@@ -101,7 +103,6 @@ function onKeydown(e) {
             ></textarea>
           </div>
           <div class="confirm-actions">
-            <!-- v-if to check if hideCancel is true, then cancel button will not be displayed, used by incidentReportForm -->
             <button
               v-if="!dialog.hideCancel"
               ref="cancelBtn"
@@ -130,16 +131,17 @@ function onKeydown(e) {
 </template>
 
 <style scoped>
+/* Styles for the backdrop and dialog; it sits on the top layer (z-index 2000). */
+
 .confirm-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 2000; /* above the navbar, the floating panel (1100) and the popup notice (1150) */
+  z-index: 2000;
   display: flex;
-  /* FIX (U1): top-centre like every other popup (team rule). flex-start puts the card at the top; */
   align-items: flex-start;
-  justify-content: center; /* still centred left to right */
-  padding: 72px 16px 16px; /* 72px top gap keeps the card clear of the navbar */
-  overflow-y: auto; /* a tall card on a small screen can scroll instead of being cut off */
+  justify-content: center;
+  padding: 72px 16px 16px;
+  overflow-y: auto;
   background: rgb(0 0 0 / 0.55);
 }
 .confirm-card {
@@ -149,7 +151,7 @@ function onKeydown(e) {
   overflow-y: auto;
   padding: 16px;
   background: #fff;
-  color: #1f2430; /* fixed dark text on the fixed-white card, as in MapNotice */
+  color: #1f2430;
   border-radius: 14px;
   box-shadow: 0 8px 28px rgb(0 0 0 / 0.35);
 }

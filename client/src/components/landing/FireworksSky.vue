@@ -1,14 +1,10 @@
-<!--
-  FireworksSky.vue
-  A see-through <canvas> that covers the whole screen and draws fireworks.
-  - The parent calls launchAt(clientX, clientY) to fire one where the user clicked
-  - With :ambient="true" it also launches a few on its own
-  - Every few bursts is heart-shaped (it's Heartware, after all)
-  - Emits "burst" with { x, y, color } at the moment each firework explodes,
-    so the page can react (the headline pulses in time with it)
-  - Does nothing if the visitor has "reduce motion" switched on
--->
+<!-- A smaller fireworks canvas that can also be fired by hand (for example when a button is
+     pressed). -->
+
 <script setup>
+// Draws sparks each frame, launches ambient fireworks on a timer and exposes launchAt so the parent
+// can fire one at a point.
+
 import { ref, watch, onMounted, onUnmounted } from 'vue'
 
 const props = defineProps({
@@ -20,10 +16,10 @@ const emit = defineEmits(['burst'])
 const canvas = ref(null)
 
 const PALETTES = [
-  ['#EF3340', '#FF8A94'], // Singapore red
-  ['#FFFFFF', '#FFC857'], // white + gold
-  ['#EF3340', '#FFFFFF'], // red + white
-  ['#FFC857', '#FFE3A3'], // gold
+  ['#EF3340', '#FF8A94'],
+  ['#FFFFFF', '#FFC857'],
+  ['#EF3340', '#FFFFFF'],
+  ['#FFC857', '#FFE3A3'],
 ]
 
 let ctx = null
@@ -35,6 +31,8 @@ let sparks = []
 let burstCount = 0
 let reduceMotion = false
 
+// resize() - makes the canvas pixel size match its on-screen size (times the screen's pixel density,
+// capped at 2 for speed) and scales the pen so drawing stays in CSS pixels.
 function resize() {
   const c = canvas.value
   if (!c || !ctx) return
@@ -44,22 +42,30 @@ function resize() {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
 }
 
-// Fire a rocket from the bottom of the screen to (x, y)
+// launch(x, y, shape) - sends a rocket from just below the bottom of the screen (up to 40px either
+// side of x) to the target point. Flight time is shorter when the target is low. Does nothing when
+// reduced motion is on. Starts the animation loop. Fire a rocket from the bottom of the screen to (x,
+// y)
 function launch(x, y, shape) {
   if (reduceMotion || !ctx) return
   const h = canvas.value.clientHeight
   const sx = x + (Math.random() - 0.5) * 80
   const sy = h + 8
-  // shorter flight when the target is near the bottom
   const dur = Math.max(18, Math.min(54, (sy - y) / 14))
   rockets.push({ x: sx, y: sy, sx, sy, tx: x, ty: y, t: 0, dur, shape })
   start()
 }
 
+// makeSpark(x, y, vx, vy, color, heart) - builds one spark: position, previous position (for the
+// streak), speed, colour, life 1 (full) and a decay speed (hearts fade slower).
 function makeSpark(x, y, vx, vy, color, heart) {
   return { x, y, px: x, py: y, vx, vy, color, heart, life: 1, decay: heart ? 0.0085 : 0.011 + Math.random() * 0.008 }
 }
 
+// burst(x, y, shape) - the explosion. 1) count bursts 2) decide heart or round (every 4th burst is a
+// heart unless the shape is forced) 3) heart: 76 sparks placed on the classic heart curve, mostly red
+// with some gold 4) round: pick a colour pair and 64-93 sparks flying in random directions 5) keep at
+// most 900 sparks 6) emit "burst" so the page can react.
 function burst(x, y, shape) {
   burstCount++
   const heart = shape === 'heart' || (shape !== 'round' && burstCount % 4 === 0)
@@ -70,7 +76,6 @@ function burst(x, y, shape) {
     const n = 76
     for (let i = 0; i < n; i++) {
       const t = (i / n) * Math.PI * 2
-      // classic heart curve
       const hx = 16 * Math.sin(t) ** 3
       const hy = -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t))
       sparks.push(makeSpark(x, y, hx * 0.21, hy * 0.21, i % 5 ? '#EF3340' : '#FFC857', true))
@@ -91,6 +96,12 @@ function burst(x, y, shape) {
   emit('burst', { x, y, color: main })
 }
 
+// step() - draws one animation frame. 1) fade the previous frame a little (destination-out) to leave
+// soft trails 2) 'lighter' mode so overlapping sparks glow 3) move each rocket along an ease-out path
+// and draw its streak 4) when a rocket arrives remove it and call burst() 5) move each spark
+// (friction, gravity, fade), draw a short line from its last position, remove dead ones 6) while
+// anything is still moving ask for the next frame, otherwise clear the canvas and stop (saves
+// battery).
 function step() {
   frame = 0
   const c = canvas.value
@@ -98,7 +109,6 @@ function step() {
   const w = c.clientWidth
   const h = c.clientHeight
 
-  // fade the last frame out a little, which leaves soft trails
   ctx.globalCompositeOperation = 'destination-out'
   ctx.fillStyle = 'rgba(0, 0, 0, 0.22)'
   ctx.fillRect(0, 0, w, h)
@@ -108,7 +118,7 @@ function step() {
     const r = rockets[i]
     r.t++
     const k = Math.min(r.t / r.dur, 1)
-    const e = 1 - (1 - k) ** 3 // ease out: slows as it reaches the top
+    const e = 1 - (1 - k) ** 3
     const nx = r.sx + (r.tx - r.sx) * e
     const ny = r.sy + (r.ty - r.sy) * e
     ctx.globalAlpha = 1
@@ -158,11 +168,13 @@ function step() {
   }
 }
 
+// start() - begins the animation loop if it is not already running.
 function start() {
   if (!frame) frame = requestAnimationFrame(step)
 }
 
-// launches one now and then, in the upper part of the screen
+// scheduleAmbient() - while ambient is on (and no reduced motion) waits 2.8-5.6 seconds, launches one
+// firework in the upper part of the screen if the tab is visible, then schedules itself again.
 function scheduleAmbient() {
   clearTimeout(ambientTimer)
   if (!props.ambient || reduceMotion) return
@@ -176,21 +188,27 @@ function scheduleAmbient() {
   }, 2800 + Math.random() * 2800)
 }
 
-// Called by the parent with mouse/touch coordinates
+// launchAt(clientX, clientY) - public method for the parent: convert a mouse/touch position to canvas
+// coordinates and launch a rocket there.
 function launchAt(clientX, clientY) {
   if (!canvas.value) return
   const rect = canvas.value.getBoundingClientRect()
   launch(clientX - rect.left, clientY - rect.top)
 }
 
+// Makes launchAt callable from HomeView through a template ref.
 defineExpose({ launchAt })
 
-// the parent turns ambient fireworks on and off (e.g. only while the hero is on screen)
+// the parent turns ambient fireworks on and off (e.g. only while the hero is on screen) When the
+// parent turns ambient on or off, restart the ambient timer.
 watch(
   () => props.ambient,
   () => scheduleAmbient(),
 )
 
+// onMounted - 1) read the reduced-motion setting 2) get the 2D pen 3) size the canvas and keep it
+// sized on window resize 4) stop here for reduced motion 5) the opening salute: a round burst at 0.5s
+// and a heart at 1.2s timed with the headline 6) start the ambient timer.
 onMounted(() => {
   reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
   ctx = canvas.value.getContext('2d')
@@ -199,7 +217,6 @@ onMounted(() => {
 
   if (reduceMotion) return
 
-  // opening salute, timed with the headline
   if (props.ambient) {
     const w = canvas.value.clientWidth
     const h = canvas.value.clientHeight
@@ -209,6 +226,7 @@ onMounted(() => {
   scheduleAmbient()
 })
 
+// onUnmounted - cancel the frame and all timers and remove the resize listener.
 onUnmounted(() => {
   cancelAnimationFrame(frame)
   clearTimeout(ambientTimer)
@@ -218,11 +236,13 @@ onUnmounted(() => {
 </script>
 
 <template>
+  <!-- One canvas. -->
   <canvas ref="canvas" class="sky" aria-hidden="true"></canvas>
 </template>
 
 <style scoped>
-/* covers the whole screen, above the page but below the navbar; clicks pass straight through */
+/* Styles that make the canvas fill its parent. */
+
 .sky {
   position: fixed;
   inset: 0;

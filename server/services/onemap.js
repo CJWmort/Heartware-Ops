@@ -1,16 +1,13 @@
-// OneMap (external API) – live address preview on the registration form. Owner: Kuah (F1a)
-// Docs: https://www.onemap.gov.sg/apidocs/   (Search API needs no key)
-// The SERVER does the real geocoding when saving; this is only for the "📍 Found: ..." preview.
-// FIX: removed a stale commented-out TODO block (the real postal lookup is implemented below).
+// Talks to the OneMap service: log in for a token, search addresses, convert postal codes to places
+// and get routes.
 
 const axios = require('axios');
 
-// Documentation: https://www.onemap.gov.sg/apidocs/docs/tokenmanagement
-
-const cache = {} // key:postal code, value:{ lat, lng }
+const cache = {}
 let token = null
 
-// Fetch a fresh token
+// login() - gets a fresh OneMap token. 1) POST the OneMap email and password from config.env 2) save
+// access_token in `token`.
 async function login() {
   const body = {
     email: process.env.ONEMAP_API_EMAIL,
@@ -20,7 +17,8 @@ async function login() {
   token = res.data.access_token
 }
 
-// Hit the search endpoint for OneMap API
+// search(postalCode, addrDetails) - calls OneMap's search endpoint with the current token. addrDetails
+// "Y" also returns the full address text. Returns the axios promise.
 function search(postalCode, addrDetails = 'N') {
   const body = {
     params: {
@@ -36,23 +34,26 @@ function search(postalCode, addrDetails = 'N') {
   return axios.get(`${process.env.ONEMAP_BASE_URL}/api/common/elastic/search`, body)
 }
 
-// Ask OneMap: "what is at this lat/lng?" implemented for incident report as the user geolocation will be used to get the address
+// reverseSearch(lat, lng) - OneMap "what is at this lat/lng?" (within 30 metres). Returns the axios
+// promise.
 function reverseSearch(lat, lng) {
   const config = {
     params: {
-      location: `${lat},${lng}`, // OneMap wants ONE string: "1.304,103.8746"
-      buffer: 30, // look within 30 metres
+      location: `${lat},${lng}`,
+      buffer: 30,
       addressType: 'All',
     },
     headers: {
-      Authorization: token, // same login token Kuah's search() uses
+      Authorization: token,
     },
   }
   return axios.get(`${process.env.ONEMAP_BASE_URL}/api/public/revgeocode`, config)
 }
 
-// Token is fetched when needed, remembered with its expiry, renewed automatically.
-// If token rejected (401), refresh and retry once.
+// geocodePostal(postalCode) - postal code -> { lat, lng }. 1) return the cached answer if there is one
+// 2) log in if there is no token 3) search; on a 401 (token expired) log in again and retry once 4)
+// first result -> parse its LATITUDE/LONGITUDE numbers, cache and return them 5) no result -> null 6)
+// any failure -> throw "Failed to fetch from OneMap".
 async function geocodePostal(postalCode) {
   if (cache[postalCode]) return cache[postalCode]
 
@@ -64,15 +65,13 @@ async function geocodePostal(postalCode) {
       res = await search(postalCode)
     } catch (err) {
       if (err.response?.status !== 401) throw err
-      await login() // token expired: log in again
+      await login()
       res = await search(postalCode)
     }
 
     const hit = res.data.results?.[0]
     if (!hit) return null
 
-    // Cache the geolocations so we dont have to
-    // keep hitting OneMap API endpoint everytime we refresh the page
     cache[postalCode] = { lat: parseFloat(hit.LATITUDE), lng: parseFloat(hit.LONGITUDE) }
 
     return cache[postalCode]
@@ -81,12 +80,16 @@ async function geocodePostal(postalCode) {
   }
 }
 
+// getRoute(start, end, routeType) - directions. 1) the request is built inside call() so it always
+// uses the CURRENT token 2) log in first if there is no token 3) on 401 log in again and retry once 4)
+// return OneMap's data 5) failure -> throw "OneMap routing failed (status)".
 async function getRoute(start, end, routeType) {
-    // FIX: the token is read on EVERY call. It used to be copied into the request once, before login(), so the
-    // first route after a server start was sent with no token, failed with 401 twice, and the volunteer saw an error.
+    // the token is read on EVERY call. It used to be copied into the request once, before login(), so
+    // the first route after a server start was sent with no token, failed with 401 twice, and the
+    // volunteer saw an error.
     const call = () =>
       axios.get(`${process.env.ONEMAP_BASE_URL}/api/public/routingsvc/route`, {
-        params: { start, end, routeType }, // start/end are "lat,lng" strings
+        params: { start, end, routeType },
         headers: { Authorization: token },
       });
 
@@ -104,7 +107,10 @@ async function getRoute(start, end, routeType) {
     }
 }
 
-// ---------- Registration form: postal code -> address (added by Kuah) ----------
+// lookupPostal(postalCode) - registration form: postal code -> { address, lat, lng }. 1) log in if
+// needed 2) search with full address details (retry once on 401) 3) pick the result whose POSTAL
+// equals the code exactly (the search may also return nearby places) 4) strip the trailing "SINGAPORE
+// 123456" from the address 5) no match -> null.
 async function lookupPostal(postalCode) {
   try {
     if (!token) await login()
@@ -114,16 +120,14 @@ async function lookupPostal(postalCode) {
       res = await search(postalCode, 'Y')
     } catch (err) {
       if (err.response?.status !== 401) throw err
-      await login() // token expired: log in again
+      await login()
       res = await search(postalCode, 'Y')
     }
 
-    // A postal code search can also return nearby places, so pick the exact match
     const hit = res.data.results?.find((r) => r.POSTAL === postalCode)
     if (!hit) return null
 
     return {
-      // "123 ANG MO KIO AVENUE 3 SINGAPORE 560123" -> "123 ANG MO KIO AVENUE 3"
       address: hit.ADDRESS.replace(/\s*SINGAPORE\s+\d{6}$/i, '').trim(),
       lat: parseFloat(hit.LATITUDE),
       lng: parseFloat(hit.LONGITUDE),
@@ -133,8 +137,9 @@ async function lookupPostal(postalCode) {
   }
 }
 
-// ---------- Registration form: address text -> list of matching places (added by Kuah) ----------
-// e.g. "ang mo kio ave 3" -> [{ address, postal, lat, lng }, ...]  (top 5)
+// searchAddress(text) - registration form: typed address -> up to 5 matches. 1) log in if needed and
+// search (retry once on 401) 2) drop results with no postal code 3) map to { address, postal, lat, lng
+// } 4) remove duplicates (same address + postal) 5) keep the first 5.
 async function searchAddress(text) {
   try {
     if (!token) await login()
@@ -144,13 +149,13 @@ async function searchAddress(text) {
       res = await search(text, 'Y')
     } catch (err) {
       if (err.response?.status !== 401) throw err
-      await login() // token expired: log in again
+      await login()
       res = await search(text, 'Y')
     }
 
     const seen = new Set()
     return (res.data.results || [])
-      .filter((r) => r.POSTAL && r.POSTAL !== 'NIL') // skip roads/places with no postal code
+      .filter((r) => r.POSTAL && r.POSTAL !== 'NIL')
       .map((r) => ({
         address: r.ADDRESS.replace(/\s*SINGAPORE\s+\d{6}$/i, '').trim(),
         postal: r.POSTAL,
@@ -158,7 +163,6 @@ async function searchAddress(text) {
         lng: parseFloat(r.LONGITUDE),
       }))
       .filter((r) => {
-        // remove duplicates (same building can appear more than once)
         const key = r.address + r.postal
         if (seen.has(key)) return false
         seen.add(key)
@@ -170,28 +174,26 @@ async function searchAddress(text) {
   }
 }
 
-// ---------- Incident Report form usage, reverseGeocode using lat, long to get address, postal code for incident report
+// reverseGeocode(lat, lng) - GPS -> readable address for incident reports. 1) log in if needed and ask
+// OneMap (retry once on 401) 2) no result -> null 3) join BLOCK, ROAD, POSTALCODE and BUILDINGNAME,
+// skipping empty or "NIL" parts 4) return the text or null.
 async function reverseGeocode(lat, lng) {
   try {
-    if (!token) await login() // 1. no token yet? log in first
+    if (!token) await login()
 
     let res
     try {
-      res = await reverseSearch(lat, lng) // 2. ask OneMap
+      res = await reverseSearch(lat, lng)
     } catch (err) {
-      if (err.response?.status !== 401) throw err // a real error → give up
-      await login() // 401 = token expired → log in again
-      res = await reverseSearch(lat, lng) //   …and try once more
+      if (err.response?.status !== 401) throw err
+      await login()
+      res = await reverseSearch(lat, lng)
     }
 
-    // FIX: removed a TEMPORARY console.log(res.data) that dumped OneMap's whole reply into the server log on every call
-
-    // Piece 3 goes here
-    const found = res.data.GeocodeInfo?.[0] // checks
-    if (!found) return null // if nothing found from onemap, return null
+    const found = res.data.GeocodeInfo?.[0]
+    if (!found) return null
     const addressParts = [found.BLOCK, found.ROAD, found.POSTALCODE, found.BUILDINGNAME]
-    const address = addressParts.filter((part) => part && part !== 'NIL').join(' ') // any found.xxx is NIL will be skipped
-    // FIX: removed a debug console.log(address) for the same reason
+    const address = addressParts.filter((part) => part && part !== 'NIL').join(' ')
     return address || null
   } catch (error) {
     throw new Error(`OneMap reverse geocode failed (${error.response?.status || error.message})`)

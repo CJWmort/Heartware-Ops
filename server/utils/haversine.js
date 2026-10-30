@@ -1,6 +1,11 @@
+// Calculates the straight-line distance in kilometres between two points on the earth.
+
 const EARTH_RADIUS_KM = 6371;
+// toRad(deg) - converts degrees to radians.
 const toRad = (deg) => (deg * Math.PI) / 180;
-// calculates distance between 2 coordinates 
+// haversine(a, b) - great-circle (straight-line over the Earth) distance in km between two points
+// given as [lat, lng]. 1) convert degrees to radians 2) apply the haversine formula 3) multiply by the
+// Earth's radius (6371 km).
 function haversine(a, b) {
   const lat1 = toRad(a[0]);
   const lon1 = toRad(a[1]);

@@ -1,25 +1,18 @@
-// Greedy (volunteer-first) matching.
-//
-// Same inputs and outputs as scarcityFirst.js:
-// volunteers: [{ _id, name, ..., lat, lng, availableShows }, ...]
-// locations:  [{ _id, name, ..., lat, lng, p5Classes, show }, ...]
-//             volunteers needed = `p5Classes` (every location must have it)
-// returns:    [{ volunteer, school, show, distance }, ...]
-//             one record per matched volunteer, in the order the volunteers
-//             were given. `distance` is in km.
-//
-// How it works: take the volunteers one at a time, in the order given, and
-// send each to the closest school that still has space.
+// Greedy matching of volunteers to schools by nearest distance (by volunteer, by pair or by show).
 
 const { haversine } = require("./haversine");
 
-// Distance in km between any two records that have `lat` and `lng`.
+// distanceBetween(a, b) - km between two records that have lat and lng.
 function distanceBetween(a, b) {
   return haversine([a.lat, a.lng], [b.lat, b.lng]);
 }
 
+// greedyByVolunteer(volunteers, locations) - volunteer-first greedy matching. 1. Remember how many
+// places each school has left. 2. Take volunteers in the order given. 3. For each, look at every
+// school with space and pick the closest. 4. No school with space -> the volunteer gets nothing. 5.
+// Otherwise reduce that school's places and record { volunteer, school, show, distance (km, 2
+// decimals) }.
 function greedyByVolunteer(volunteers, locations) {
-  // How many spaces each location has left (its p5Classes), keyed by location _id.
   const spacesLeft = {};
   for (const location of locations) {
     spacesLeft[location._id] = location.p5Classes;
@@ -27,12 +20,11 @@ function greedyByVolunteer(volunteers, locations) {
 
   const pairs = [];
   for (const volunteer of volunteers) {
-    // Find the closest location that still has a space.
     let closest = null;
     let closestDistance = Infinity;
     for (const location of locations) {
       if (spacesLeft[location._id] <= 0) {
-        continue; // this location is already full
+        continue;
       }
       const distance = distanceBetween(volunteer, location);
       if (distance < closestDistance) {
@@ -41,7 +33,6 @@ function greedyByVolunteer(volunteers, locations) {
       }
     }
 
-    // Every location is full, so this volunteer gets no school.
     if (closest === null) {
       continue;
     }
@@ -57,16 +48,11 @@ function greedyByVolunteer(volunteers, locations) {
   return pairs;
 }
 
-// Greedy (closest-pair-first) matching. Same inputs and outputs as above.
-//
-// How it works: work out the distance for every possible (volunteer, school)
-// pair, sort them from shortest to longest, then go down the list. A pair is
-// accepted if the volunteer has no school yet and the school still has a
-// space. So the single closest pair across everyone is always matched first,
-// and the order of the volunteer list no longer matters.
-// Records come back in the order they were matched (shortest distance first).
+// greedyByPair(volunteers, locations) - closest-pair-first greedy matching (the order of volunteers no
+// longer matters). 1. Build every (volunteer, school) pair with its distance. 2. Sort pairs shortest
+// to longest. 3. Walk down the list; accept a pair when the volunteer has no school yet AND the school
+// still has space. 4. Return the accepted pairs in the order they were matched.
 function greedyByPair(volunteers, locations) {
-  // 1. Every possible pair with its distance.
   const allPairs = [];
   for (const volunteer of volunteers) {
     for (const location of locations) {
@@ -78,15 +64,13 @@ function greedyByPair(volunteers, locations) {
     }
   }
 
-  // 2. Shortest distance first.
   allPairs.sort((a, b) => a.distance - b.distance);
 
-  // 3. Walk down the list, accepting each pair that still works.
   const spacesLeft = {};
   for (const location of locations) {
     spacesLeft[location._id] = location.p5Classes;
   }
-  const taken = {}; // volunteers who already have a school, keyed by _id
+  const taken = {};
 
   const pairs = [];
   for (const candidate of allPairs) {
@@ -109,13 +93,10 @@ function greedyByPair(volunteers, locations) {
   return pairs;
 }
 
-// Runs a matching function once for each show, so that a school is only
-// matched with volunteers who listed its show in `availableShows`, and a
-// volunteer gets at most one school per show.
-// `matcher` is greedyByVolunteer by default; pass greedyByPair to use the
-// closest-pair-first version: greedyByShow(volunteers, locations, greedyByPair)
+// greedyByShow(volunteers, locations, matcher) - runs a matcher once per show. 1) collect each show
+// once 2) for each show keep only volunteers who ticked it and only that show's schools 3) call the
+// matcher (greedyByVolunteer by default) 4) join all results.
 function greedyByShow(volunteers, locations, matcher = greedyByVolunteer) {
-  // Collect each show once, in the order the schools list them.
   const shows = [];
   const seen = {};
   for (const location of locations) {

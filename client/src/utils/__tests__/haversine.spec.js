@@ -1,5 +1,5 @@
-// Unit tests for haversineKm (F1b). These are written already – make them pass.
-// Run: npm run test:unit
+// Unit tests (Vitest) for the distance helper.
+
 import { describe, it, expect } from 'vitest'
 import { haversineKm } from '../haversine'
 

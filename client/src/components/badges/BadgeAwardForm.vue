@@ -1,29 +1,36 @@
+<!-- Admin form on the Badge Awards page for giving a chosen badge to one or many volunteers with a
+     thank-you message. -->
+
 <script setup>
-// Feature 5 – "Give a badge" form on the coordinator page — owner: Hanafi
-// Layout and CSS: AI-generated (declared in README.txt). Logic in the TODOs below: Hanafi.
+// Loads badges, shows and volunteers; handles searching and picking volunteers, validates the form,
+// sends the award and shows which volunteers already had the badge.
+
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
-import PageLoading from '@/components/common/PageLoading.vue' // NEW: fading "Fetching..." overlay
-import AppDropdown from '@/components/common/AppDropdown.vue' // NEW: the project's shared dropdown (replaces the hand-built ones)
+import PageLoading from '@/components/common/PageLoading.vue'
+import AppDropdown from '@/components/common/AppDropdown.vue'
 import { listBadges, listVolunteers, awardBadge } from '@/services/badges.js'
 import { getShows } from '@/services/assignment.js'
 import { getSavedFilter, saveFilter } from '@/services/selected-show'
 
-const badges = ref([]) 
-const volunteers = ref([]) 
-const shows = ref([]) 
+const badges = ref([])
+const volunteers = ref([])
+const shows = ref([])
 const loading = ref(true)
 const loadError = ref('')
 
 const badgeCode = ref(getSavedFilter('awards-badge'))
 const event = ref(getSavedFilter('awards-event'))
-const search = ref('') 
-const picked = ref([]) 
+const search = ref('')
+const picked = ref([])
 const message = ref('')
 
 const sending = ref(false)
-const formError = ref('') 
-const successText = ref('') 
+const formError = ref('')
+const successText = ref('')
 
+// loadData() - 1) fetch badges, volunteers and shows together 2) store them 3) if the remembered show
+// no longer exists use the first show 4) if the remembered badge no longer exists clear it 5) on error
+// show a message 6) always stop loading.
 async function loadData() {
     try {
         const [badgeList, volunteerList, showList] = await Promise.all([listBadges(), listVolunteers(), getShows()])
@@ -35,42 +42,52 @@ async function loadData() {
         if (!badges.value.some((b) => b.code === badgeCode.value)) badgeCode.value = ''
   } catch (e) {
     loadError.value = e.friendlyMessage || 'Something went wrong. Please try again.'
-    console.error(e)         
+    console.error(e)
   } finally {
     loading.value = false
   }
 }
 
+// manualBadges / autoBadges (computed) - badges split by awardType: "manual" thank-you badges and
+// "auto" badges that the app normally gives.
 const manualBadges = computed(() => badges.value.filter(badge => badge.awardType === 'manual'))
+// autoBadges (computed) - only the badges that are awarded automatically.
 const autoBadges = computed(() => badges.value.filter(badge => badge.awardType === 'auto'))
 
+// badgeOptions (computed) - grouped dropdown entries: "Thank-you badges" and "Missed by the app".
+// showOptions (computed) - the show names for the second dropdown.
 const badgeOptions = computed(() => [
     { label: 'Thank-you badges', options: manualBadges.value.map(b => ({ value: b.code, label: b.name })) },
     { label: 'Missed by the app', options: autoBadges.value.map(b => ({ value: b.code, label: b.name })) },
 ])
 
+// showOptions (computed) - the shows as dropdown options.
 const showOptions = computed(() => shows.value.map(s => ({ value: s.name, label: s.name })))
 
+// Save the chosen badge and show whenever they change.
 watch(badgeCode, (v) => saveFilter('awards-badge', v))
+// watch(event) - remember the chosen show.
 watch(event, (v) => saveFilter('awards-event', v))
 
-// REMOVED: badgeMenuOpen / eventMenuOpen / refs / labelFor / chooseBadge / chooseEvent / onDocPointerDown.
-// AppDropdown now handles opening, closing, outside-click and the label itself.
-
+// selectedBadge (computed) - the full badge object of badgeCode, or null (drives the preview).
 const selectedBadge = computed(() => {
-    const badge = badges.value.find(badge => badge.code === badgeCode.value) 
+    const badge = badges.value.find(badge => badge.code === badgeCode.value)
     return badge ? badge : null
 })
 
-const results = computed(() => search.value ? volunteers.value.filter(volunteer => 
+// results (computed) - volunteers whose name or email contains the typed text (not case sensitive), at
+// most 8; empty list when nothing is typed.
+const results = computed(() => search.value ? volunteers.value.filter(volunteer =>
         volunteer.name.toLowerCase().includes(search.value.toLowerCase()) || volunteer.email.toLowerCase().includes(search.value.toLowerCase())
     ).slice(0,8) : []
 )
 
+// isPicked(volunteer) - true if this volunteer is already ticked.
 function isPicked(volunteer) {
     return picked.value.some(vol => vol._id === volunteer._id)
 }
 
+// togglePick(volunteer) - tick the volunteer, or untick if already ticked.
 function togglePick(volunteer) {
     if (isPicked(volunteer)) {
         picked.value = picked.value.filter(vol => vol._id !== volunteer._id)
@@ -79,8 +96,14 @@ function togglePick(volunteer) {
     }
 }
 
+// canSubmit (computed) - true when a badge, a show and at least one volunteer are chosen and nothing
+// is sending.
 const canSubmit = computed(() => badgeCode.value && event.value && picked.value.length !== 0 && !sending.value ? true : false)
 
+// submitAward() - 1) clear the old messages 2) show "sending" 3) collect the picked ids 4) send badge,
+// show and note to the server 5) look up the names of volunteers who already had the badge (skipped)
+// in the loaded list 6) build the success sentence (how many given and who already had it) 7) clear
+// the picked list and the note 8) on error show the message 9) always stop sending.
 async function submitAward() {
     formError.value = ''
     successText.value = ''
@@ -89,8 +112,6 @@ async function submitAward() {
         const ids = picked.value.map(vol => vol._id)
         const result = await awardBadge(ids, badgeCode.value, event.value, message.value)
 
-        // FIX (C3): `?.name ?? 'a volunteer'` so an id missing from the loaded list can't throw.
-        // The badges are already saved at this point, so a lookup problem must not show an error.
         const skippedNames = result.skipped.map(id => volunteers.value.find(vol => vol._id === id)?.name ?? 'a volunteer')
         successText.value = `${selectedBadge.value.name} given to ${result.given.length} volunteer(s).` + (skippedNames.length ? ` Already had it for ${event.value}: ${skippedNames.join(', ')}.` : '')
 
@@ -104,33 +125,41 @@ async function submitAward() {
     }
 }
 
-const pickerEl = ref(null) 
-const open = ref(false)    
+const pickerEl = ref(null)
+const open = ref(false)
 
+// closeIfOutside(e) - close the results panel when a press or focus lands outside the picker.
 function closeIfOutside(e) {
     if (!pickerEl.value?.contains(e.target)) open.value = false
 }
 
+// onPickerKeydown(e) - Escape closes the results panel.
 function onPickerKeydown(e) {
     if (e.key === 'Escape') open.value = false
 }
 
+// onMounted - listen on the whole page for pointerdown, keydown and focusin so the volunteer picker
+// can close itself.
 onMounted(() => {
     document.addEventListener('pointerdown', closeIfOutside)
     document.addEventListener('keydown', onPickerKeydown)
     document.addEventListener('focusin', closeIfOutside)
 })
 
+// onBeforeUnmount - remove those listeners.
 onBeforeUnmount(() => {
     document.removeEventListener('pointerdown', closeIfOutside)
     document.removeEventListener('keydown', onPickerKeydown)
     document.removeEventListener('focusin', closeIfOutside)
 })
 
-onMounted(loadData)         
+// Also load the data once the component is mounted.
+onMounted(loadData)
 </script>
 
 <template>
+  <!-- The form: badge and show dropdowns, the volunteer search with chips, the message box and
+       the Send button with its result messages. -->
   <div class="card-hw award-card" data-testid="awards-form">
     <div class="section-head">
       <span class="head-icon" aria-hidden="true"><i class="bi bi-award"></i></span>
@@ -140,8 +169,6 @@ onMounted(loadData)
       </div>
     </div>
 
-    <!-- NEW: box with a contained overlay. No <Transition> on this box on purpose: if the box faded out while the content
-         appeared, both would take up space for 0.5s and the content would jump. -->
     <div v-if="loading" class="loading-area"><PageLoading contained text="Fetching Badges and Volunteers..." /></div>
 
     <div v-if="!loading && loadError" class="alert alert-danger d-flex align-items-start gap-2 mb-0" role="alert">
@@ -153,7 +180,6 @@ onMounted(loadData)
       <div class="row g-4">
         <div class="col-lg-5">
           <label for="award-badge" class="form-label field-label">Badge</label>
-          <!-- CHANGED: shared AppDropdown (grouped headings, grey placeholder); v-model keeps badgeCode in sync -->
           <AppDropdown
             v-model="badgeCode"
             :groups="badgeOptions"
@@ -177,7 +203,6 @@ onMounted(loadData)
           </div>
 
           <label for="award-event" class="form-label field-label mt-3">For which show</label>
-          <!-- CHANGED: shared AppDropdown; v-model keeps event in sync -->
           <AppDropdown
             v-model="event"
             :options="showOptions"
@@ -261,19 +286,19 @@ onMounted(loadData)
 </template>
 
 <style scoped>
-/* ---------- Colours that change in dark mode (same idea as main.css) ---------- */
+/* Styles for the form, the volunteer picker list and the chips. */
+
 .award-card {
   --tint: rgb(20 33 61 / 0.08);
-  --accent: var(--hw-red); /* ticks, focus edges */
-  --panel: var(--hw-surface); /* the floating results panel */
+  --accent: var(--hw-red);
+  --panel: var(--hw-surface);
   --panel-shadow: 0 12px 28px rgb(20 33 61 / 0.18);
   padding: 1.25rem;
   margin-bottom: 1.5rem;
 }
 [data-bs-theme='dark'] .award-card {
   --tint: rgb(255 255 255 / 0.07);
-  --accent: var(--hw-landing-accent); /* brighter red, readable on navy */
-  /* In dark mode a shadow barely shows, so a raised panel is LIGHTER than the card instead (same "elevation" idea as main.css) */
+  --accent: var(--hw-landing-accent);
   --panel: #1c2540;
   --panel-shadow: 0 12px 28px rgb(0 0 0 / 0.55);
 }
@@ -283,7 +308,6 @@ onMounted(loadData)
   }
 }
 
-/* ---------- Heading (same look as the orders card) ---------- */
 .section-head {
   display: flex;
   align-items: flex-start;
@@ -319,7 +343,6 @@ onMounted(loadData)
   color: var(--hw-muted);
 }
 
-/* ---------- Badge preview ---------- */
 .badge-preview {
   display: flex;
   align-items: center;
@@ -350,7 +373,6 @@ onMounted(loadData)
   color: var(--hw-muted);
 }
 
-/* ---------- Volunteer search ---------- */
 .search-wrap {
   position: relative;
 }
@@ -365,28 +387,24 @@ onMounted(loadData)
 .search-wrap .form-control {
   padding-left: 2.3rem;
 }
-/* The anchor. "position: relative" doesn't move this box; it only says
-   "anything absolute inside me measures from MY edges" */
 .picker {
   position: relative;
 }
-/* The floating panel. "position: absolute" takes it out of the normal flow,
-   so it uses up no space and the Thank-you note below stays where it is */
 .results {
   position: absolute;
-  top: calc(100% + 0.35rem); /* 100% = the anchor's full height, so the panel starts just under the search box */
+  top: calc(100% + 0.35rem);
   left: 0;
-  right: 0; /* left 0 + right 0 = exactly as wide as the search box */
-  z-index: 20; /* above the note and the orders card; below the navbar (1200) */
-  max-height: 18rem; /* about 5 people, then the panel scrolls instead of running down the page */
+  right: 0;
+  z-index: 20;
+  max-height: 18rem;
   overflow-y: auto;
   list-style: none;
   margin: 0;
   padding: 0.25rem;
-  background: var(--panel); /* must be solid: a see-through panel would mix with the text under it */
+  background: var(--panel);
   border: 1px solid var(--bs-border-color);
   border-radius: 0.6rem;
-  box-shadow: var(--panel-shadow); /* the shadow is what makes it read as "floating above" */
+  box-shadow: var(--panel-shadow);
 }
 .results-empty {
   padding: 0.6rem 0.75rem;
@@ -412,7 +430,6 @@ onMounted(loadData)
   outline: 2px solid var(--hw-heading);
   outline-offset: -2px;
 }
-/* Ticked: a filled box with a tick (shape, not only colour) */
 .tick {
   display: grid;
   place-items: center;
@@ -430,7 +447,6 @@ onMounted(loadData)
   color: #fff;
 }
 
-/* ---------- Chips of who is selected ---------- */
 .chips {
   display: flex;
   flex-wrap: wrap;
@@ -451,7 +467,7 @@ onMounted(loadData)
 .chip-x {
   display: grid;
   place-items: center;
-  width: 24px; /* still a fair tap target inside a small chip */
+  width: 24px;
   height: 24px;
   border: 0;
   border-radius: 50%;
@@ -463,8 +479,6 @@ onMounted(loadData)
   color: var(--hw-heading);
 }
 
-/* main.css gives .btn-brand no "disabled" colours, so a greyed-out button looked like an outline button.
-   Keep it red, just faded (Bootstrap fades disabled buttons), same fix as the Badge Studio */
 .award-card .btn-brand {
   --bs-btn-disabled-bg: var(--hw-red);
   --bs-btn-disabled-border-color: var(--hw-red);
@@ -473,9 +487,7 @@ onMounted(loadData)
 
 @media (max-width: 575.98px) {
   .award-card .btn-brand {
-    width: 100%; /* full-width button on phones */
+    width: 100%;
   }
 }
-
-/* REMOVED: the hand-built dropdown styles now live in components/common/AppDropdown.vue */
 </style>

@@ -1,10 +1,9 @@
-// Who is online right now. Lives in server memory only (it resets when the server restarts,
-// and browsers announce themselves again when they reconnect).
-// We COUNT connections per person so closing one browser tab doesn't mark them offline.
-// Only volunteers are tracked, because only HQ sees online/offline.
-const counts = new Map(); // volunteerId (string) -> number of open sockets
+// Keeps track of which volunteers are online (counting every open tab).
 
-// Returns true when this is their FIRST connection (they just came online)
+const counts = new Map();
+
+// connected(userId) - adds 1 to this person's open-connection count; returns true if it is their FIRST
+// connection (they just came online).
 function connected(userId) {
   const id = String(userId);
   const n = (counts.get(id) || 0) + 1;
@@ -12,7 +11,8 @@ function connected(userId) {
   return n === 1;
 }
 
-// Returns true when this was their LAST connection (they just went offline)
+// disconnected(userId) - subtracts 1; when it reaches 0 the person is removed and true is returned
+// (they just went offline).
 function disconnected(userId) {
   const id = String(userId);
   const n = (counts.get(id) || 0) - 1;
@@ -24,7 +24,9 @@ function disconnected(userId) {
   return false;
 }
 
+// isOnline(userId) - true if the person has at least one open connection.
 const isOnline = (userId) => counts.has(String(userId));
+// onlineIds() - the list of everyone currently online.
 const onlineIds = () => [...counts.keys()];
 
 module.exports = { connected, disconnected, isOnline, onlineIds };

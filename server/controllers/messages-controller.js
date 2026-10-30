@@ -1,24 +1,27 @@
+// Chat endpoints: messages of a thread, send a message, the admin inbox, the unread count and the read
+// state.
+
 const mongoose = require("mongoose");
 const Message = require("../models/messages-model");
 const ThreadState = require("../models/thread-state-model");
 const Account = require("../models/account-model");
 const presence = require("../sockets/presence");
-const { emit } = require("../sockets"); // same helper the incidents controller uses
+const { emit } = require("../sockets");
 const sendServerError = require('../utils/send-server-error')
 
-// Decides WHOSE conversation this request is about.
-// Volunteer: always their own (we ignore anything they send, so they can't read someone else's chat).
-// Admin: must say which volunteer.
+// threadFor(req, source) - decides whose conversation a request is about. A volunteer always gets
+// their OWN id (anything they send is ignored, so they cannot read another chat); an admin must supply
+// volunteerId.
 function threadFor(req, source) {
   return req.session.role === "admin" ? source.volunteerId : req.session.userId;
 }
 
-// GET /api/messages?volunteerId=...   (volunteerId only needed for admin)
+// listMessages - 1) work out the thread (400 if missing or not a valid id) 2) reply with the newest
+// 200 messages of it, oldest first.
 exports.listMessages = async (req, res) => {
   try {
     const thread = threadFor(req, req.query);
     if (!thread) return res.status(400).json({ message: "volunteerId is required" });
-    // FIX: an admin sending a malformed volunteerId caused a 500; answer 400 instead
     if (!mongoose.isValidObjectId(thread)) return res.status(400).json({ message: "Invalid volunteer" });
     res.json(await Message.retrieveThread(thread));
   } catch (error) {
@@ -26,8 +29,8 @@ exports.listMessages = async (req, res) => {
   }
 };
 
-// GET /api/messages/read-state?volunteerId=...  (volunteerId only needed for admin)
-// -> { volunteerLastReadAt, adminLastReadAt }. The client uses the OTHER side's time to show "Seen" under my messages.
+// getReadState - 1) work out the thread (400 on missing/invalid) 2) load the thread's read-state
+// record 3) reply with when each side last read (null if never) - the client uses it to show "Seen".
 exports.getReadState = async (req, res) => {
   try {
     const thread = threadFor(req, req.query);
@@ -43,7 +46,11 @@ exports.getReadState = async (req, res) => {
   }
 };
 
-// POST /api/messages   body: { text, volunteerId? }
+// sendMessage - 1) text trimmed, must not be empty and at most 1000 characters (400) 2) work out the
+// thread 3) admins: the target must really be a volunteer (404) 4) save the message with sender and
+// role taken from the session (cannot be faked) 5) sending counts as "read" for the sender's side 6)
+// push "message:new" to the volunteer's private room and to the HQ room 7) push an updated inbox row
+// ("thread:updated") to HQ 8) reply 201.
 exports.sendMessage = async (req, res) => {
   try {
     const text = String(req.body.text || "").trim();
@@ -54,7 +61,6 @@ exports.sendMessage = async (req, res) => {
     if (!thread) return res.status(400).json({ message: "volunteerId is required" });
     if (!mongoose.isValidObjectId(thread)) return res.status(400).json({ message: "Invalid volunteer" });
 
-    // Admin only: make sure the target really is a volunteer, so HQ can't create chats with random ids
     if (req.session.role === "admin") {
       const volunteer = await Account.findById(thread);
       if (!volunteer || volunteer.role !== "volunteer")
@@ -63,18 +69,15 @@ exports.sendMessage = async (req, res) => {
 
     const message = await Message.create({
       thread,
-      sender: req.session.userId, // from the login session, NOT from the request body, so it can't be faked
+      sender: req.session.userId,
       senderRole: req.session.role,
       text,
     });
 
-    // sending a message counts as "read" for the sender's own side
     await ThreadState.markRead(thread, req.session.role, message.createdAt);
 
-    // Push to both people in this chat: the volunteer's private room and the HQ room.
     emit("message:new", message, `user:${thread}`);
     emit("message:new", message, "hq");
-    // update the HQ thread list (preview line, order, unread badge, online dot) for every admin
     const summary = await Message.threadSummary(thread);
     emit("thread:updated", { ...summary, online: presence.isOnline(thread) }, "hq");
 
@@ -84,15 +87,17 @@ exports.sendMessage = async (req, res) => {
   }
 };
 
-// GET /api/messages/threads  (admin only) -> every volunteer + their latest message, newest chats first
+// listThreads (admin) - the HQ inbox. 1) load volunteers, each chat's latest message and unread counts
+// at the same time 2) build one row per volunteer (name, last text/time, unread count, online dot) 3)
+// sort chats with messages first (newest on top), volunteers without a chat at the bottom 4) reply.
 exports.listThreads = async (req, res) => {
   try {
     const [volunteers, latest, unread] = await Promise.all([
       Account.retrieveVolunteers(),
       Message.latestPerThread(),
-      Message.unreadForAdmin(), // NEW
+      Message.unreadForAdmin(),
     ]);
-    const latestById = new Map(latest.map((t) => [String(t._id), t])); // quick lookup by volunteer id
+    const latestById = new Map(latest.map((t) => [String(t._id), t]));
     const unreadById = new Map(unread.map((t) => [String(t._id), t.unread]));
     const threads = volunteers.map((v) => {
       const last = latestById.get(String(v._id));
@@ -101,11 +106,10 @@ exports.listThreads = async (req, res) => {
         name: v.name,
         lastText: last?.lastText || "",
         lastAt: last?.lastAt || null,
-        unreadAdmin: unreadById.get(String(v._id)) || 0, // for the badge
-        online: presence.isOnline(v._id), // green dot
+        unreadAdmin: unreadById.get(String(v._id)) || 0,
+        online: presence.isOnline(v._id),
       };
     });
-    // Chats with messages first (newest on top), volunteers with no chat yet go to the bottom
     threads.sort(
       (a, b) => (b.lastAt ? +new Date(b.lastAt) : 0) - (a.lastAt ? +new Date(a.lastAt) : 0),
     );
@@ -115,8 +119,8 @@ exports.listThreads = async (req, res) => {
   }
 };
 
-// GET /api/messages/unread -> { unread: number } for the navbar badge
-// Volunteer: unread in their own chat. Admin: unread across every chat.
+// getUnread - number for the navbar badge. Admin: total unread across every chat. Volunteer: unread HQ
+// messages in their own chat.
 exports.getUnread = async (req, res) => {
   try {
     if (req.session.role === "admin") {

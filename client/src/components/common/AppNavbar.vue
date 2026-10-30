@@ -1,18 +1,26 @@
+<!-- The top navigation bar for guests, volunteers and admins: logo, links, Chat button, and the
+     phone menu with the red initials circle. -->
+
 <script setup>
+// Works out the initials and the links for the user's role, controls the phone menu (open, close,
+// outside tap) and logs out.
+
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/services/auth'
 import { NAV_LINKS } from '@/router/nav-links'
-import { landingFor } from '@/router/landing' // NEW: where the "Heartware Ops" logo link goes for each role
+import { landingFor } from '@/router/landing'
 import logoUrl from '@/assets/heartware-logo.png'
 import ChatButton from '@/components/chat/ChatButton.vue'
 import ChatPanel from '@/components/chat/ChatPanel.vue'
 
 const auth = useAuthStore()
 const router = useRouter()
-const route = useRoute() // used so the guest buttons hide the one for the page you are already on
+const route = useRoute()
 
-// Example: "Emma Smith Danna" = "ES": first letters of the first two words (same rule as the pass avatar in RegisterView)
+// initials (computed) - 1) take the logged-in user's name (or empty text) 2) trim it and split on
+// spaces 3) drop empty pieces 4) keep the first two words 5) take the first letter of each in capitals
+// 6) join them: "Emma Smith Danna" gives "ES". Shown in the red circle.
 const initials = computed(() =>
   (auth.user?.name ?? '')
     .trim()
@@ -23,27 +31,35 @@ const initials = computed(() =>
     .join(''),
 )
 
+// links (computed) - the menu links for the current role from router/nav-links.js (a guest or unknown
+// role gets none).
 const links = computed(() => NAV_LINKS[auth.role] ?? [])
 
-const menu = ref(null) // the collapsible menu element
-const toggler = ref(null) // the burger button
-const bar = ref(null) // the navbar's own row (brand, chat icon, burger, menu)
-const menuOpen = ref(false) // true while the phone menu is expanded (drives the blur overlay)
+const menu = ref(null)
+const toggler = ref(null)
+const bar = ref(null)
+const menuOpen = ref(false)
 
-// Bootstrap fires these on the menu element when it starts opening / closing
+// onMenuShow / onMenuHide - set menuOpen when Bootstrap's collapse starts opening or closing.
 const onMenuShow = () => (menuOpen.value = true)
+// onMenuHide - the phone menu closed: set menuOpen to false.
 const onMenuHide = () => (menuOpen.value = false)
 
-// Close the mobile menu by clicking the burger, but only if the menu is open
+// closeMenu() - closes the phone menu by clicking the toggler, but only if the menu currently has
+// Bootstrap's "show" class (i.e. it is open).
 function closeMenu() {
   if (menu.value?.classList.contains('show')) toggler.value?.click()
 }
 
-// Close the menu when any link or button inside it is clicked
+// onMenuClick(e) - clicking any link or button inside the menu closes the menu.
 function onMenuClick(e) {
   if (e.target.closest('a, button')) closeMenu()
 }
 
+// onDocumentPointerDown(e) - runs on every press anywhere on the page. 1) do nothing if the menu is
+// closed 2) read the path of elements under the finger 3) ignore presses on the toggler, on any link,
+// or inside the menu 4) otherwise close the menu 5) if the press was outside the navbar bar too,
+// swallow the click that follows so it does not trigger a button underneath.
 function onDocumentPointerDown(e) {
   if (!menu.value?.classList.contains('show')) return
   const path = e.composedPath()
@@ -54,15 +70,19 @@ function onDocumentPointerDown(e) {
   if (!(bar.value && path.includes(bar.value))) swallowNextClick()
 }
 
-// Blocks the very next click from reaching anything (capture phase, so it runs before any button's own handler).
-// It removes itself after one click, if the press turns into a scroll/drag (pointercancel), or after a short timeout.
+// swallowNextClick() - blocks the very next click once. 1) block() cancels the click and stops it
+// spreading 2) a timer removes the blocker after 800 ms 3) cleanup() removes both listeners and the
+// timer 4) the blocker also removes itself when the touch turns into a scroll (pointercancel).
 function swallowNextClick() {
+  // block(e) - swallows the next click (so the tap that closed the menu does not also press something
+  // underneath) and then cleans up.
   const block = (e) => {
     e.preventDefault()
     e.stopPropagation()
     cleanup()
   }
   const timer = setTimeout(() => cleanup(), 800)
+  // cleanup() - removes the click and pointercancel listeners and the timer.
   function cleanup() {
     document.removeEventListener('click', block, true)
     document.removeEventListener('pointercancel', cleanup, true)
@@ -71,20 +91,25 @@ function swallowNextClick() {
   document.addEventListener('click', block, true)
   document.addEventListener('pointercancel', cleanup, true)
 }
+// Add the document pointerdown listener when the navbar appears and remove it when it goes away.
 onMounted(() => document.addEventListener('pointerdown', onDocumentPointerDown))
+// onUnmounted - stop listening for pointer presses on the page.
 onUnmounted(() => document.removeEventListener('pointerdown', onDocumentPointerDown))
 
-// The menu only exists while logged in (guests get plain buttons instead), so it can appear or disappear
-// after the navbar is mounted (log in / log out without a page reload). Watch the element and
-// attach / detach the open + close listeners as it comes and goes.
+// watch(menu) - the menu exists only while logged in, so it can appear or vanish after mount. Whenever
+// the element changes: remove the show/hide listeners from the old element, add them to the new one,
+// and reset menuOpen if it is gone.
 watch(menu, (el, oldEl) => {
   oldEl?.removeEventListener('show.bs.collapse', onMenuShow)
   oldEl?.removeEventListener('hide.bs.collapse', onMenuHide)
   el?.addEventListener('show.bs.collapse', onMenuShow)
   el?.addEventListener('hide.bs.collapse', onMenuHide)
-  if (!el) menuOpen.value = false // menu gone: make sure the blur goes too
+  if (!el) menuOpen.value = false
 })
 
+// logout() - 1) ask the auth store to log out (clears the user and alert history, closes the chat
+// socket, tells the server), 2) go to the login page, 3) always clear the loggingOut flag so the
+// router guard returns to normal.
 async function logout() {
   await auth.logout()
   try {
@@ -96,15 +121,12 @@ async function logout() {
 </script>
 
 <template>
+  <!-- The navbar markup: logo link, collapsible link list, guest buttons, chat button and the
+       user menu. -->
   <nav class="navbar navbar-expand-lg navbar-dark sticky-top app-navbar" data-testid="navbar">
-    <!-- Blur layer over the page while the phone menu is open (hidden on desktop in the CSS below).
-         Pressing it counts as pressing "anywhere else", so onDocumentPointerDown collapses the menu. -->
     <div class="nav-backdrop" :class="{ 'is-open': menuOpen }" aria-hidden="true"></div>
 
-    <!-- flex-nowrap: Bootstrap lets this row wrap below 992px, which pushed the avatar to a second line. Keep everything on one line. -->
     <div ref="bar" class="container flex-nowrap">
-      <!-- CHANGED: the logo link goes to the person's own page (volunteer -> Assignment, admin -> Allocation).
-           A guest (not logged in) still goes to the Home page. -->
       <RouterLink
         class="navbar-brand fw-semibold d-flex align-items-center gap-2"
         :to="landingFor(auth.role)"
@@ -112,16 +134,11 @@ async function logout() {
         @click="closeMenu"
       >
         <img :src="logoUrl" alt="" class="nav-logo" aria-hidden="true" />
-        <!-- d-none d-sm-inline: the name is hidden below 576px (phones) to free room for the icons, only the logo shows.
-             aria-label above keeps the link readable for screen readers. -->
         <span class="d-none d-sm-inline">Heartware Ops</span>
       </RouterLink>
 
-      <!-- NEW: phone-only icon row. d-lg-none = visible below the "lg" breakpoint, hidden on desktop.
-     The same links (from nav-links.js) are used, so nothing is duplicated by hand. -->
       <ul v-if="auth.isLoggedIn" class="navbar-nav flex-row ms-auto d-lg-none nav-icon-row">
         <li v-for="link in links" :key="link.to" class="nav-item">
-          <!-- aria-label + title: the label is hidden visually, but screen readers and long-press still show it -->
           <RouterLink
             class="nav-link px-2"
             :to="link.to"
@@ -133,15 +150,12 @@ async function logout() {
           </RouterLink>
         </li>
       </ul>
-      <!-- phone layout. The menu is collapsed there, so the chat button sits beside the burger and stays visible. -->
-      <!-- nav-chat-mobile: lets the CSS push the chat button to the right when the icon row is hidden (392px and under) -->
       <ChatButton
         v-if="auth.isLoggedIn"
         class="d-lg-none me-2 nav-chat-mobile"
         data-testid="nav-chat-mobile"
       />
 
-      <!-- Avatar + collapsible menu: logged-in users only. Guests get plain buttons (further down). -->
       <button
         v-if="auth.isLoggedIn"
         ref="toggler"
@@ -155,7 +169,6 @@ async function logout() {
         aria-label="Toggle navigation"
         data-testid="nav-toggle"
       >
-        <!-- logged in: the user's initials replace the dropdown icon. Guests keep the burger. -->
         <span v-if="auth.isLoggedIn && initials" class="nav-avatar" aria-hidden="true">
           {{ initials }}
         </span>
@@ -169,17 +182,13 @@ async function logout() {
         class="collapse navbar-collapse"
         @click="onMenuClick"
       >
-        <!-- nav-menu-links: hidden by CSS only between 393px and the desktop layout (the icon row shows the links there) -->
         <ul class="navbar-nav me-auto nav-menu-links">
           <li v-for="link in links" :key="link.to" class="nav-item">
             <RouterLink class="nav-link" :to="link.to" :data-testid="link.testid">
               <i :class="['bi', link.icon, 'me-1']" aria-hidden="true"></i>{{ link.label }}
             </RouterLink>
           </li>
-          <!-- MOVED: desktop chat button now sits right after the last link (Badges) instead of next to the name.
-               d-none d-lg-flex = desktop only; phones keep their own chat button in the bar (nav-chat-mobile). -->
           <li class="nav-item d-none d-lg-flex align-items-center">
-            <!-- show-label: prints the word "Chat" next to the icon, like the other links -->
             <ChatButton show-label class="nav-chat-desktop" data-testid="nav-chat" />
           </li>
         </ul>
@@ -207,8 +216,6 @@ async function logout() {
         </div>
       </div>
 
-      <!-- Guests: Log In / Sign-up sit directly on the navbar at every screen size (no burger, no menu).
-           On /login only Sign-up shows, on /register only Log In shows (you are already on the other page). -->
       <div v-else-if="auth.ready && route.name && !auth.loggingOut" class="ms-auto d-flex align-items-center gap-2 gap-sm-3">
         <RouterLink
           v-if="route.name !== 'login'"
@@ -229,12 +236,14 @@ async function logout() {
       </div>
     </div>
 
-    <!-- the chat panel. Only exists while logged in: logging in opens the live connection, logging out closes it. -->
     <ChatPanel v-if="auth.isLoggedIn" />
   </nav>
 </template>
 
 <style scoped>
+/* Navbar colours (#070b1a), the icons-only layout on phones (down to 393px), and the initials
+   circle. */
+
 .app-navbar {
   background: var(--hw-navy);
   z-index: 1200;
@@ -247,18 +256,15 @@ async function logout() {
   width: auto;
   display: block;
 }
-/* Plain navbar buttons (Log In / Log Out): no frame, so fade slightly on hover/keyboard focus (matches the chat icon) */
 .nav-plain-btn:hover,
 .nav-plain-btn:focus-visible {
   opacity: 0.75;
 }
-/* Log Out: hover/focus fill uses the navbar colour for its text so it stays readable */
 .nav-logout-btn {
   --bs-btn-hover-color: var(--hw-navy);
   --bs-btn-focus-shadow-rgb: 255, 255, 255;
   --bs-btn-active-color: var(--hw-navy);
 }
-/* Initials circle in place of the burger (same look as .pass-avatar in RegisterView: red circle, white bold initials) */
 .nav-avatar-toggler {
   padding: 0;
   border: 0;
@@ -279,41 +285,35 @@ async function logout() {
   font-size: 0.95rem;
   line-height: 1;
 }
-/* Phone icon row: same size as the chat icon (fs-5 = 1.25rem in ChatButton.vue) so all navbar icons match */
 .nav-icon-row .nav-link {
-  font-size: 1.25rem; /* icon size; the icons are <i> font glyphs, so font-size controls them */
-  padding-top: 0.4rem; /* keeps the tap area tall enough for a thumb */
+  font-size: 1.25rem;
+  padding-top: 0.4rem;
   padding-bottom: 0.4rem;
 }
-/* Phone chat button: same vertical padding as the link icons (.nav-icon-row .nav-link uses 0.4rem) */
 .nav-chat-mobile {
   --bs-btn-padding-y: 0.4rem;
 }
 
-/* Desktop chat button: copy the look of the other navbar links (size, padding, colour) */
 .nav-chat-desktop {
-  --bs-btn-font-size: 1rem; /* links use 1rem; btn-sm used 0.875rem */
-  --bs-btn-padding-y: 0.5rem; /* same as .nav-link */
+  --bs-btn-font-size: 1rem;
+  --bs-btn-padding-y: 0.5rem;
   --bs-btn-padding-x: var(
     --bs-navbar-nav-link-padding-x
-  ); /* same side padding as .nav-link (0.5rem) */
+  );
   color: var(
     --bs-navbar-color
-  ) !important; /* same dimmed white as the links; !important needed to beat the .text-white class */
+  ) !important;
 }
 
-/* 392px and under: hide the icon row (the links move into the red-circle menu instead) */
 @media (max-width: 392px) {
   .nav-icon-row {
     display: none;
   }
-  /* the icon row used to push the chat button to the right (ms-auto), so the chat button does it itself now */
   .nav-chat-mobile {
     margin-left: auto;
   }
 }
 
-/* 393px up to the desktop layout (992px): the icon row shows the links, so hide the duplicate list in the menu */
 @media (min-width: 393px) and (max-width: 991.98px) {
   .nav-menu-links {
     display: none;
@@ -324,13 +324,12 @@ async function logout() {
   font-weight: 600;
 }
 
-/* Below lg the menu is collapsed: overlap navlinks over the page */
 @media (max-width: 991.98px) {
   .navbar-collapse {
     position: absolute;
     top: calc(
       100% - 1px
-    ); /* directly under the navbar, overlapping its edge by 1px so no hairline shows between them */
+    );
     left: 0;
     right: 0;
     padding: calc(0.75rem + 1px) 1rem 1rem;
@@ -338,21 +337,20 @@ async function logout() {
     box-shadow: 0 6px 12px rgb(0 0 0 / 0.25);
   }
 
-  /* Blur layer: starts right under the navbar and covers the rest of the screen */
   .nav-backdrop {
     position: absolute;
-    top: calc(100% + 1px); /* starts below the navbar's 1px edge shadow */
+    top: calc(100% + 1px);
     left: 0;
     right: 0;
-    height: 0; /* zero height while closed: no layer under the navbar and no extra page scroll */
-    background: rgb(0 0 0 / 0.25); /* slight dim so the blur reads clearly */
+    height: 0;
+    background: rgb(0 0 0 / 0.25);
     -webkit-backdrop-filter: blur(6px);
     backdrop-filter: blur(2px);
     opacity: 0;
-    pointer-events: none; /* lets clicks through while closed */
+    pointer-events: none;
     transition:
       opacity 0.2s ease,
-      height 0s linear 0.2s; /* collapse to 0 only after the fade-out ends */
+      height 0s linear 0.2s;
   }
   .nav-backdrop.is-open {
     height: calc(100vh - 100% - 1px);
@@ -361,13 +359,11 @@ async function logout() {
     transition: opacity 0.2s ease;
   }
 
-  /* Phone menu: thin divider line above the user/actions group (light line on the navy background) */
   .nav-actions {
     border-top: 1px solid rgb(255 255 255 / 0.2);
   }
 }
 
-/* Desktop: the menu is never collapsed, so there is no blur */
 @media (min-width: 992px) {
   .nav-backdrop {
     display: none;

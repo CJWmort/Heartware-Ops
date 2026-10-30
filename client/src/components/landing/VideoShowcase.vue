@@ -1,20 +1,10 @@
-<!--
-  VideoShowcase.vue — autoplaying video carousel
-  - Plays muted on its own (browsers only allow muted autoplay)
-  - When a video ends, slides to the next one, then loops back to the first
-  - Arrows on the video, pause and sound buttons in the corner, click the video to pause
-  - Always shows the whole picture (no cropping)
-  - Pauses while scrolled off screen; respects "reduce motion"
+<!-- The showcase video player on the home page. The videos are hosted on YouTube and shown through
+     the YouTube iframe player. -->
 
-  The videos are YouTube videos. Change the IDs in utils/youtube.js
-  (or pass your own list:  <VideoShowcase :videos="[{ id: 'pSg-DubiZK0' }]" /> ).
-
-  <VideoShowcase fill />  stretches the player to the full height of its parent
-  on laptops (instead of a fixed 16:9 box).
-  <VideoShowcase :advance-after="15" />  moves on every 15 seconds instead of
-  waiting for each video to end.
--->
 <script setup>
+// Controls one YouTube player per slide: loading, play and pause, sound, the progress bar, moving to
+// the next video, retrying when autoplay is blocked and tilting the frame with the pointer.
+
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import {
   HEARTWARE_VIDEO_ID,
@@ -29,7 +19,6 @@ const props = defineProps({
     default: () => [{ id: HEARTWARE_VIDEO_ID }, { id: HEARTWARE_SHORT_ID }],
   },
   fill: { type: Boolean, default: false },
-  // 0 = move on when each video ends; any other number = move on after that many seconds
   advanceAfter: { type: Number, default: 0 },
 })
 
@@ -38,8 +27,8 @@ const slideEl = ref(null)
 const active = ref(0)
 const direction = ref('next')
 const muted = ref(true)
-const paused = ref(false) // the viewer pressed pause, or the browser blocked autoplay
-const progress = ref(0) // 0 to 1, how far the current video has played
+const paused = ref(false)
+const progress = ref(0)
 const failed = ref(false)
 const reduceMotion = ref(false)
 const tilt = ref({ x: 0, y: 0 })
@@ -53,17 +42,23 @@ let autoBlocked = false
 
 const players = new Map()
 
+// current / hasMany / slideName / frameStyle (computed) - the current video, whether there is more
+// than one, the transition name (slide-next, slide-prev or a plain fade for reduced motion), and the
+// 3D tilt transform for the frame.
 const current = computed(() => props.videos[active.value])
+// hasMany (computed) - true when there is more than one video, so arrows and dots are shown.
 const hasMany = computed(() => props.videos.length > 1)
 
 // slide left/right depending on direction (a simple fade if reduce motion is on)
 const slideName = computed(() => (reduceMotion.value ? 'fade' : 'slide-' + direction.value))
 
+// frameStyle (computed) - the 3D tilt of the video frame, from the pointer position.
 const frameStyle = computed(() => ({
   transform: `perspective(1100px) rotateX(${tilt.value.x}deg) rotateY(${tilt.value.y}deg)`,
 }))
 
-// ---- Moving between videos ----
+// go(index, dir) - 1) do nothing if there is only one video 2) cancel the skip timer 3) remember the
+// slide direction 4) set active with wrap-around 5) reset the progress bar and the failed flag.
 function go(index, dir) {
   if (!hasMany.value) return
   const n = props.videos.length
@@ -74,28 +69,35 @@ function go(index, dir) {
   failed.value = false
 }
 
+// next() / prev() - go forward or back one video.
 function next() {
   go(active.value + 1, 'next')
 }
 
+// prev() - go to the previous video.
 function prev() {
   go(active.value - 1, 'prev')
 }
 
-// ---- Players ----
+// currentEntry() - the player record (player, ready, dead) of the slide on screen, or undefined.
 function currentEntry() {
   return slideEl.value ? players.get(slideEl.value) : undefined
 }
 
+// withPlayer(action) - run an action on the current YouTube player, but only if it is ready.
 function withPlayer(action) {
   const entry = currentEntry()
   if (entry && entry.ready) action(entry.player)
 }
 
+// isActive(el) - true if this slide element is the one currently shown.
 function isActive(el) {
   return el === slideEl.value
 }
 
+// createPlayer(el, id, label) - create a YouTube player inside a slide. 1) add a holder div and
+// register a record, 2) load the YouTube script, 3) unless the slide was removed, create a
+// controls-free player for the video id, 4) onReady and onError callbacks below.
 function createPlayer(el, id, label) {
   const holder = document.createElement('div')
   el.appendChild(holder)
@@ -118,6 +120,8 @@ function createPlayer(el, id, label) {
           origin: window.location.origin,
         },
         events: {
+          // onReady - the player is ready: mark it ready, hide the iframe from keyboard focus, give it
+          // a title, and start playing if this slide is the one on screen.
           onReady: () => {
             if (entry.dead) return
             entry.ready = true
@@ -127,6 +131,8 @@ function createPlayer(el, id, label) {
             if (isActive(el)) playCurrent()
           },
           onStateChange: (event) => onPlayerState(el, entry, event.data),
+          // onError - the video could not play; if this is the slide on screen, show the failure
+          // message.
           onError: () => {
             if (!entry.dead && isActive(el)) onFail()
           },
@@ -138,12 +144,14 @@ function createPlayer(el, id, label) {
     })
 }
 
+// mountCurrent() - create a player for the slide on screen if it does not have one yet.
 function mountCurrent() {
   const el = slideEl.value
   if (!el || players.has(el) || !current.value) return
   createPlayer(el, current.value.id, `Heartware video ${active.value + 1}`)
 }
 
+// destroyEntry(el) - mark a slide's player dead, destroy it and forget it.
 function destroyEntry(el) {
   const entry = players.get(el)
   if (!entry) return
@@ -152,23 +160,26 @@ function destroyEntry(el) {
   players.delete(el)
 }
 
+// onBeforeLeave(el) - a slide is leaving: pause its video.
 function onBeforeLeave(el) {
   const entry = players.get(el)
   if (entry && entry.ready) entry.player.pauseVideo()
 }
 
+// onAfterLeave(el) - a slide has left: destroy its player.
 function onAfterLeave(el) {
   destroyEntry(el)
 }
 
-// ---- Playing ----
+// watchStart(entry) - after asking a video to play, check 2 seconds later: if it is not playing, first
+// retry muted; if that also fails the browser is blocking autoplay, so show it as paused with a Play
+// button.
 function watchStart(entry) {
   clearTimeout(startTimer)
   startTimer = setTimeout(() => {
     if (entry.dead || paused.value || !entry.ready) return
     const state = entry.player.getPlayerState()
     if (state === PLAYER_STATE.PLAYING || state === PLAYER_STATE.BUFFERING) return
-    // browsers block autoplay with sound: try again muted, otherwise show the play button
     if (!muted.value) {
       muted.value = true
       entry.player.mute()
@@ -181,6 +192,8 @@ function watchStart(entry) {
   }, 2000)
 }
 
+// playCurrent() - play the current video unless it is paused, failed, still loading or scrolled off
+// screen; applies the mute setting, then watches that it really started.
 function playCurrent() {
   const entry = currentEntry()
   if (!entry || !entry.ready || paused.value || failed.value || !onScreen) return
@@ -190,6 +203,8 @@ function playCurrent() {
   watchStart(entry)
 }
 
+// togglePause() - the pause / play button: flips paused, pauses or plays the video; ignored if the
+// video failed.
 function togglePause() {
   if (failed.value) return
   paused.value = !paused.value
@@ -202,6 +217,7 @@ function togglePause() {
   }
 }
 
+// toggleSound() - flips muted; turning sound on while paused also resumes playing.
 function toggleSound() {
   muted.value = !muted.value
   withPlayer((player) => (muted.value ? player.mute() : player.unMute()))
@@ -211,7 +227,8 @@ function toggleSound() {
   }
 }
 
-// ---- Player events (ignore any from the video that's sliding out) ----
+// onPlayerState(el, entry, state) - reacts to the player: when it starts playing clear the start
+// check; when it ends go to the next video, or replay if there is only one.
 function onPlayerState(el, entry, state) {
   if (entry.dead || !isActive(el)) return
   if (state === PLAYER_STATE.PLAYING) {
@@ -230,12 +247,15 @@ function onPlayerState(el, entry, state) {
   }
 }
 
+// onFail() - mark the video as failed and, if there are more videos, skip to the next after 2.5
+// seconds.
 function onFail() {
   failed.value = true
-  // skip a video that can't load
   if (hasMany.value) skipTimer = setTimeout(next, 2500)
 }
 
+// tick() - runs every 250 ms: update the progress bar from the video's time and move on after
+// advanceAfter seconds if that option is set.
 function tick() {
   const entry = currentEntry()
   if (!entry || !entry.ready || paused.value || failed.value) return
@@ -247,7 +267,8 @@ function tick() {
   if (props.advanceAfter > 0 && time >= props.advanceAfter) next()
 }
 
-// ---- 3D tilt on hover ----
+// onTilt(event) - mouse hover tilts the frame in 3D by up to 5 and 6 degrees depending on where the
+// pointer is (not for touch, not for reduced motion).
 function onTilt(event) {
   if (reduceMotion.value || event.pointerType === 'touch') return
   const box = event.currentTarget.getBoundingClientRect()
@@ -256,10 +277,12 @@ function onTilt(event) {
   tilt.value = { x: -py * 5, y: px * 6 }
 }
 
+// resetTilt() - flatten the frame when the pointer leaves.
 function resetTilt() {
   tilt.value = { x: 0, y: 0 }
 }
 
+// watch(current id) - when the slide changes, wait for the DOM and create the new slide's player.
 watch(
   () => current.value && current.value.id,
   async () => {
@@ -268,12 +291,13 @@ watch(
   },
 )
 
+// onMounted - read the reduced-motion setting (start paused if on), watch with an IntersectionObserver
+// so it plays only when 20 percent is visible, start the 250 ms progress timer and create the first
+// player.
 onMounted(() => {
   reduceMotion.value = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  // with reduce motion on, wait for the viewer to press play
   if (reduceMotion.value) paused.value = true
 
-  // pause while the player is scrolled off screen
   observer = new IntersectionObserver(
     (entries) => {
       onScreen = entries[entries.length - 1].intersectionRatio >= 0.2
@@ -288,6 +312,7 @@ onMounted(() => {
   mountCurrent()
 })
 
+// onUnmounted - stop the observer and all timers and destroy every player.
 onUnmounted(() => {
   observer?.disconnect()
   clearTimeout(skipTimer)
@@ -298,6 +323,7 @@ onUnmounted(() => {
 </script>
 
 <template>
+  <!-- The video frame, the custom controls (pause, sound, arrows, dots) and the progress bar. -->
   <div ref="root" class="showcase" :class="{ 'is-fill': fill }">
     <div
       class="frame"
@@ -325,7 +351,6 @@ onUnmounted(() => {
 
           <div class="shield" @click="togglePause"></div>
 
-          <!-- previous / next -->
           <template v-if="hasMany">
             <button type="button" class="nav nav-prev" aria-label="Previous video" @click="prev">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7" /></svg>
@@ -335,8 +360,6 @@ onUnmounted(() => {
             </button>
           </template>
 
-          <!-- shown when paused, when autoplay is blocked, or when a video can't load -->
-          <!-- FIX: no visible video title any more; the screen-reader names use the video number (active + 1) instead of a label -->
           <Transition name="cover">
             <button
               v-if="paused || failed"
@@ -355,7 +378,6 @@ onUnmounted(() => {
             </button>
           </Transition>
 
-          <!-- pause and sound -->
           <div class="corner">
             <button
               type="button"
@@ -413,6 +435,8 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+/* Styles for the 3D frame, the controls and the progress bar. */
+
 @property --hw-angle {
   syntax: '<angle>';
   inherits: false;
@@ -425,7 +449,6 @@ onUnmounted(() => {
   cursor: auto;
 }
 
-/* Gradient border that slowly rotates */
 .frame {
   --hw-angle: 0deg;
   position: relative;
@@ -470,12 +493,10 @@ onUnmounted(() => {
     radial-gradient(90% 80% at 0% 100%, rgba(255, 200, 87, 0.16), transparent 60%), #0b1126;
 }
 
-/* everything inside the screen sits on this layer */
 .stage {
   overflow: hidden;
 }
 
-/* fill mode (laptops): stretch to the parent's full height instead of 16:9 */
 @media (min-width: 992px) {
   .showcase.is-fill {
     height: 100%;
@@ -495,13 +516,11 @@ onUnmounted(() => {
     min-height: 240px;
   }
 
-  /* Bootstrap's .ratio sets its height with this; fill mode doesn't need it */
   .showcase.is-fill .screen::before {
     display: none;
   }
 }
 
-/* ---------- Slides ---------- */
 .slide {
   position: absolute;
   inset: 0;
@@ -524,7 +543,6 @@ onUnmounted(() => {
   cursor: pointer;
 }
 
-/* the new video slides in over the old one, which drifts back and dims */
 .slide-next-enter-active,
 .slide-prev-enter-active {
   z-index: 2;
@@ -568,7 +586,6 @@ onUnmounted(() => {
   opacity: 0;
 }
 
-/* ---------- Arrows ---------- */
 .nav {
   position: absolute;
   top: 50%;
@@ -611,7 +628,6 @@ onUnmounted(() => {
   stroke-linejoin: round;
 }
 
-/* arrows slide in when you hover the video */
 .frame:hover .nav,
 .nav:focus-visible {
   opacity: 1;
@@ -623,7 +639,6 @@ onUnmounted(() => {
   border-color: #ef3340;
 }
 
-/* touch screens have no hover, so keep the arrows visible */
 @media (hover: none) {
   .nav {
     opacity: 0.9;
@@ -631,7 +646,6 @@ onUnmounted(() => {
   }
 }
 
-/* ---------- Corner buttons ---------- */
 .corner {
   position: absolute;
   right: 14px;
@@ -687,7 +701,6 @@ onUnmounted(() => {
   outline-offset: 2px;
 }
 
-/* ---------- Paused / error cover ---------- */
 .cover {
   position: absolute;
   inset: 0;
@@ -725,7 +738,6 @@ onUnmounted(() => {
   margin-left: 4px;
 }
 
-/* two rings ripple out from the play button */
 .play::before,
 .play::after {
   content: '';

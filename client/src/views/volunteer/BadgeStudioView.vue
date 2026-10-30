@@ -1,13 +1,14 @@
+<!-- The volunteer Badge Studio (F6): design your own badge (colour, emblem, ribbon text), save it
+     and order it for delivery. -->
+
 <script setup>
-// Feature 5 – Badge Studio — owner: Hanafi
-// Spec: docs/FEATURES.md   ·   API calls: src/services/   ·   Tests: e2e/
-import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue' // watch: runs the OneMap lookup when the postal code changes
-import axios from 'axios' // used to call the existing /api/users/postal-lookup route
+// Holds the design choices, saves the design, checks the delivery address against OneMap using the
+// postal code, places the order and locks the page, and warns about unsaved changes.
+
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
+import axios from 'axios'
 import { onBeforeRouteLeave } from 'vue-router'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
-// FIX (C1): PageLoading was used in the template (line ~192) but never imported, so Vue
-// could not find it and the "Fetching Your Design..." overlay never showed. Importing it
-// here (same as MyBadgesView.vue does) lets <PageLoading v-if="loading"> render.
 import PageLoading from '@/components/common/PageLoading.vue'
 import { getMyDesign, getMyOrders, saveMyDesign, placeOrder } from '@/services/badges.js'
 import { timeAgo } from '@/utils/time.js'
@@ -17,6 +18,9 @@ const shape = ref('circle')
 const ribbonText = ref('')
 const locked = ref(false)
 const secondaryColour = ref('#ffffff')
+// contrastColour(hex) - picks black or white text that stays readable on a background colour. 1) read
+// the red, green and blue parts of "#rrggbb" 2) brightness = 0.299 red + 0.587 green + 0.114 blue (the
+// standard "how bright does it look" weights) 3) over 128 means light, so use black; otherwise white.
 function contrastColour(hex) {
   const red = parseInt(hex.slice(1, 3), 16)
   const green = parseInt(hex.slice(3, 5), 16)
@@ -25,7 +29,10 @@ function contrastColour(hex) {
   return brightness > 128 ? '#000000' : '#ffffff'
 }
 
+// textColour (computed) - ribbon text colour, chosen to contrast with the ribbon. emblemColour (below)
+// does the same for the symbol on the badge colour.
 const textColour = computed(() => contrastColour(secondaryColour.value))
+// emblemColour (computed) - a readable colour for the emblem drawn on the chosen badge colour.
 const emblemColour = computed(() => contrastColour(colour.value))
 
 const emblem = ref('heart')
@@ -37,7 +44,10 @@ const emblems = [
   { key: 'smile', label: 'Smile', icon: 'bi-emoji-smile-fill', glyph: '\uF324' },
   { key: 'balloon', label: 'Balloon', icon: 'bi-balloon-heart-fill', glyph: '\uF707' },
 ]
+// selectedEmblem (computed) - the emblem object for the chosen key (falls back to Heart).
 const selectedEmblem = computed(() => emblems.find((e) => e.key === emblem.value) || emblems[0])
+// ribbonFontSize (computed) - shrinks the ribbon text as it gets longer: 180 divided by the length,
+// but never above 16. (Empty text gives Infinity, so 16 is used.)
 const ribbonFontSize = computed(() => Math.min(16, 180 / ribbonText.value.length))
 
 const errorMessage = ref('')
@@ -49,8 +59,8 @@ const showOrderForm = ref(false)
 const addressLine1 = ref('')
 const unit = ref('')
 const postalCode = ref('')
-const postalStatus = ref('idle') // 'idle' | 'loading' | 'found' | 'notfound' | 'error' (same states as RegisterView)
-let postalTimer = null // debounce timer: wait until the user stops typing before asking OneMap
+const postalStatus = ref('idle')
+let postalTimer = null
 const submitting = ref(false)
 const statusLabels = {
   placed: 'Placed',
@@ -65,7 +75,10 @@ const shapes = [
   { key: 'shield', label: 'Shield' },
 ]
 const statusSteps = ['placed', 'in_production', 'shipped', 'delivered']
-const unitOk = computed(() => unit.value.trim().length > 0 && unit.value.trim().length <= 20) // required, free text (#01-234, 38, 38A)
+// unitOk (computed) - true when the unit box has 1 to 20 characters.
+const unitOk = computed(() => unit.value.trim().length > 0 && unit.value.trim().length <= 20)
+// hasActiveOrder (computed) - true when any order is still on its way (placed, in production or
+// shipped); the orders card then moves to the top of the page.
 const hasActiveOrder = computed(() =>
   orders.value.some(
     (order) =>
@@ -73,12 +86,15 @@ const hasActiveOrder = computed(() =>
   ),
 )
 
-// Place order stays off until OneMap has confirmed the postal code (which fills the locked address) AND a unit is typed
+// orderInfoMissing (computed) - true until OneMap has confirmed the postal code, the address is filled
+// and a unit is typed; this disables Place order.
 const orderInfoMissing = computed(
   () => postalStatus.value !== 'found' || !addressLine1.value || !unitOk.value,
 )
 
-// Ask our server (which asks OneMap) for the address of this postal code, then fill the locked Address box
+// lookupPostal(code) - asks our server (which asks OneMap) for the address of this postal code and
+// fills the locked address box. Old answers are ignored if the user has typed something else
+// meanwhile; on failure it records the problem for the message under the box.
 async function lookupPostal(code) {
   postalStatus.value = 'loading'
   try {
@@ -86,39 +102,43 @@ async function lookupPostal(code) {
       params: { postalCode: code },
       timeout: 15000,
     })
-    if (postalCode.value.trim() !== code) return // user typed something else while we waited: ignore this old answer
-    addressLine1.value = data.address // fill the locked address box from OneMap
+    if (postalCode.value.trim() !== code) return
+    addressLine1.value = data.address
     postalStatus.value = 'found'
   } catch (error) {
     if (postalCode.value.trim() !== code) return
-    // 404 = OneMap has no such postal code; anything else = we could not reach OneMap
     postalStatus.value = error.response?.status === 404 ? 'notfound' : 'error'
   }
 }
 
-// "Try again" link, shown when OneMap could not be reached
+// retryPostal() - the Try again link: repeats the lookup if the postal code is still 6 digits.
 function retryPostal() {
   const code = postalCode.value.trim()
   if (/^\d{6}$/.test(code)) lookupPostal(code)
 }
 
-// Postal code typed -> clear the old address, then look up the new one
+// watch(postalCode) - when the postal code changes, clear the address; if it is 6 digits wait 400 ms
+// and then look it up, otherwise go back to idle.
 watch(postalCode, (value) => {
-  clearTimeout(postalTimer) // cancel the lookup we were waiting to do
-  addressLine1.value = '' // the postal code changed, so the old address is no longer right
+  clearTimeout(postalTimer)
+  addressLine1.value = ''
   const code = value.trim()
   if (!/^\d{6}$/.test(code)) {
-    postalStatus.value = 'idle' // not 6 digits yet: nothing to show
+    postalStatus.value = 'idle'
     return
   }
   postalStatus.value = 'loading'
-  postalTimer = setTimeout(() => lookupPostal(code), 400) // debounce: look up only after 400 ms without typing
+  postalTimer = setTimeout(() => lookupPostal(code), 400)
 })
 
+// stepIndex(status) - position of a status in the four steps (0 to 3), or -1 if unknown. Used to
+// colour the progress tracker.
 function stepIndex(status) {
   return statusSteps.indexOf(status)
 }
 
+// designFromPage() - gathers the controls into the object the server expects (shape, primaryColor,
+// secondaryColor, emblem, ribbonText).
 function designFromPage() {
   return {
     shape: shape.value,
@@ -130,6 +150,8 @@ function designFromPage() {
 }
 
 const savedDesign = ref(null)
+// hasUnsavedChanges (computed) - true when the page is not locked and the design on screen differs
+// from the last saved design.
 const hasUnsavedChanges = computed(
   () =>
     !locked.value &&
@@ -137,14 +159,17 @@ const hasUnsavedChanges = computed(
     JSON.stringify(designFromPage()) !== savedDesign.value,
 )
 
-// FIX (C10): show a success message, then clear it after 5 seconds so it does not hang around
 let successTimer = null
+// showSuccess(text) - shows a green message and hides it again after 5 seconds.
 function showSuccess(text) {
   successMessage.value = text
   clearTimeout(successTimer)
   successTimer = setTimeout(() => (successMessage.value = ''), 5000)
 }
 
+// save() - the Save design button: clear messages, send the design to the server, remember it as saved
+// so the "Unsaved changes" note disappears and show "Design saved!"; on error show the friendly
+// message.
 async function save() {
   errorMessage.value = ''
   successMessage.value = ''
@@ -159,6 +184,10 @@ async function save() {
   }
 }
 
+// placeMyOrder() - the Place order button: clear messages and set submitting, save the design first so
+// the order matches it, place the order with the unit and postal code, put the new order at the top of
+// the list, lock the page and close the form, show "Order placed!" and scroll to the top; on error
+// show the message.
 async function placeMyOrder() {
   errorMessage.value = ''
   successMessage.value = ''
@@ -169,8 +198,8 @@ async function placeMyOrder() {
     savedDesign.value = JSON.stringify(design)
 
     const newOrder = await placeOrder({
-      line1: addressLine1.value, // display only: the server saves OneMap's own address for this postal code
-      unit: unit.value.trim(), // required, free text
+      line1: addressLine1.value,
+      unit: unit.value.trim(),
       postalCode: postalCode.value,
     })
 
@@ -188,6 +217,9 @@ async function placeMyOrder() {
   }
 }
 
+// onMounted (load) - fetch my saved design and my orders together. If a design exists copy it into the
+// controls (including locked). Always remember the loaded design as the saved one and stop loading, so
+// a failed load does not trigger the unsaved warning.
 onMounted(async () => {
   try {
     const [saved, order] = await Promise.all([getMyDesign(), getMyOrders()])
@@ -212,6 +244,9 @@ onMounted(async () => {
 const leaveDialog = ref(null)
 let answerLeave = null
 
+// onBeforeRouteLeave - when the volunteer tries to leave the page with unsaved changes, show the
+// ConfirmDialog and return a Promise that is settled by their answer (true leaves, false stays).
+// Logging out (route name login) is always allowed.
 onBeforeRouteLeave((to) => {
   if (!hasUnsavedChanges.value) return true
   if (to.name === 'login') return true
@@ -226,26 +261,34 @@ onBeforeRouteLeave((to) => {
   return new Promise((resolve) => (answerLeave = resolve))
 })
 
+// onLeaveAnswer(leave) - the ConfirmDialog answer: close it and resolve the waiting navigation with
+// true or false.
 function onLeaveAnswer(leave) {
   leaveDialog.value = null
   answerLeave?.(leave)
   answerLeave = null
 }
 
+// warnBeforeUnload(event) - the browser's own "Leave site?" prompt for a tab close or refresh with
+// unsaved changes. It is added on mount and removed on unmount (below).
 function warnBeforeUnload(event) {
   if (!hasUnsavedChanges.value) return
   event.preventDefault()
   event.returnValue = ''
 }
+// onMounted - start warning the user before they close the tab with unsaved changes.
 onMounted(() => window.addEventListener('beforeunload', warnBeforeUnload))
+// onBeforeUnmount - stop that warning and cancel the success and postal timers.
 onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', warnBeforeUnload)
-  clearTimeout(successTimer) // C10: stop the message timer when leaving the page
-  clearTimeout(postalTimer) // stop a pending OneMap lookup when leaving the page
+  clearTimeout(successTimer)
+  clearTimeout(postalTimer)
 })
 </script>
 
 <template>
+  <!-- The live badge preview, the design controls, the order form with the locked address box
+       and the list of past orders. -->
   <section class="studio" :class="{ 'is-locked': locked, 'is-loading': loading }">
     <div
       v-if="errorMessage"
@@ -257,15 +300,12 @@ onBeforeUnmount(() => {
       <div>{{ errorMessage }}</div>
     </div>
 
-    <!-- NEW: overlay fades in/out while data is fetched (content below only shows once loading is false) -->
     <Transition name="loading-fade">
       <PageLoading v-if="loading" contained text="Fetching Your Design..." />
     </Transition>
 
     <div v-if="!loading" class="d-flex flex-column gap-4">
-      <!-- NEW: wait for the data (was v-else after the old spinner block) -->
       <div class="row g-4">
-        <!-- preview -->
         <div class="col-12 col-md-6 col-lg-5 preview-col">
           <div class="card-hw preview-card">
             <div class="preview-stage">
@@ -339,7 +379,6 @@ onBeforeUnmount(() => {
         </div>
 
         <div class="col-12 col-md-6 col-lg-7">
-          <!-- After ordering -->
           <div
             v-if="locked"
             class="card-hw summary-card p-3 p-lg-4 h-100"
@@ -386,7 +425,6 @@ onBeforeUnmount(() => {
             </dl>
           </div>
 
-          <!-- Before ordering -->
           <template v-else>
             <div class="card-hw p-3 p-lg-4">
               <fieldset>
@@ -432,7 +470,6 @@ onBeforeUnmount(() => {
                   </div>
                 </div>
 
-                <!-- Colours -->
                 <div class="studio-group">
                   <div class="group-label">Colours</div>
                   <div class="row g-2">
@@ -473,7 +510,6 @@ onBeforeUnmount(() => {
                   </div>
                 </div>
 
-                <!-- Emblems -->
                 <div class="studio-group">
                   <div id="emblem-label" class="group-label">Emblem</div>
                   <div
@@ -499,7 +535,6 @@ onBeforeUnmount(() => {
                   </div>
                 </div>
 
-                <!-- Ribbon text -->
                 <div class="studio-group">
                   <div class="d-flex justify-content-between align-items-baseline">
                     <label for="ribbon-text" class="group-label">Ribbon text</label>
@@ -519,7 +554,6 @@ onBeforeUnmount(() => {
                 </div>
               </fieldset>
 
-              <!-- Actions -->
               <div class="action-bar">
                 <button
                   v-if="!showOrderForm"
@@ -553,7 +587,6 @@ onBeforeUnmount(() => {
               </div>
             </div>
 
-            <!-- Order form -->
             <div v-if="showOrderForm" class="card-hw p-3 p-lg-4 mt-3" data-testid="order-form">
               <h2 class="h6 mb-1">
                 <i class="bi bi-truck me-2" aria-hidden="true"></i>Where should we send your badge?
@@ -564,7 +597,6 @@ onBeforeUnmount(() => {
                 <strong class="text-body">Once you place the order, your design is locked.</strong>
               </p>
 
-              <!-- Postal code first: OneMap checks it and fills the locked address below -->
               <div class="mb-3">
                 <label for="order-postal" class="form-label small fw-semibold">Postal code</label>
                 <input
@@ -583,7 +615,6 @@ onBeforeUnmount(() => {
                   aria-describedby="order-postal-help"
                   data-testid="order-postal"
                 />
-                <!-- one message at a time, depending on what OneMap said -->
                 <div id="order-postal-help" class="small mt-1" data-testid="order-postal-status">
                   <span v-if="postalStatus === 'loading'" class="text-muted-hw">
                     <span class="spinner-border spinner-border-sm me-1" aria-hidden="true"></span
@@ -602,7 +633,6 @@ onBeforeUnmount(() => {
               </div>
               <div class="mb-3">
                 <label for="order-line1" class="form-label small fw-semibold">Address</label>
-                <!-- readonly: always filled from the postal code, so the address and postal code can never disagree -->
                 <input
                   id="order-line1"
                   class="form-control"
@@ -616,7 +646,6 @@ onBeforeUnmount(() => {
               </div>
               <div class="mb-4">
                 <label for="order-unit" class="form-label small fw-semibold">Unit number</label>
-                <!-- required, free text: flats use #01-234, landed homes just use the house number such as 38 or 38A -->
                 <input
                   id="order-unit"
                   class="form-control"
@@ -669,7 +698,6 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <!-- Orders -->
       <div
         class="card-hw p-3 p-lg-4"
         :class="{ 'order-first': hasActiveOrder }"
@@ -740,6 +768,8 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+/* Styles for the badge preview and the design controls. */
+
 .studio {
   position: relative;
   --studio-navbar-h: 56px;
@@ -757,7 +787,6 @@ onBeforeUnmount(() => {
   --glow: #24304d;
 }
 
-/* ---------- Preview ---------- */
 .preview-card {
   overflow: hidden;
 }
@@ -844,7 +873,6 @@ onBeforeUnmount(() => {
   color: var(--hw-muted);
 }
 
-/* ---------- Option groups ---------- */
 .studio-group + .studio-group {
   margin-top: 1.5rem;
 }
@@ -928,7 +956,6 @@ onBeforeUnmount(() => {
   outline-offset: 2px;
 }
 
-/* Colour fields */
 .colour-field {
   display: flex;
   align-items: center;
@@ -947,7 +974,6 @@ onBeforeUnmount(() => {
   flex-shrink: 0;
 }
 
-/* ---------- Actions ---------- */
 .action-bar {
   display: flex;
   flex-wrap: wrap;
@@ -971,7 +997,6 @@ onBeforeUnmount(() => {
   }
 }
 
-/* ---------- Locked summary ---------- */
 .locked-note {
   display: flex;
   align-items: flex-start;
@@ -1027,7 +1052,6 @@ onBeforeUnmount(() => {
   box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.15);
 }
 
-/* ---------- Orders ---------- */
 .empty-orders {
   display: flex;
   align-items: flex-start;
@@ -1074,7 +1098,6 @@ onBeforeUnmount(() => {
   white-space: nowrap;
 }
 
-/* Tracker */
 .tracker {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -1152,7 +1175,6 @@ onBeforeUnmount(() => {
   font-weight: 600;
 }
 
-/* Motion */
 @media (prefers-reduced-motion: no-preference) {
   .tracker li.done::after,
   .tracker li.current::after {

@@ -1,7 +1,12 @@
-// Tests middleware/rate-limit.js: allows up to `max` requests per window, then answers 429, then recovers.
+// Server test for the rate limiter.
+
 const path = require('path'); const assert = require('assert');
 const rateLimit = require(path.resolve(__dirname, '../middleware/rate-limit.js'));
+// r.status / r.json / r.set - fake response helpers that record the status code, the JSON body and the
+// headers.
 const mkRes = () => { const r = { code: 200, headers: {} }; r.status = (c) => { r.code = c; return r; }; r.json = (b) => { r.body = b; return r; }; r.set = (k, v) => { r.headers[k] = v; return r; }; return r; };
+// hit(mw, ip) - sends one fake request from an IP through the rate limiter and returns whether it was
+// let through and what response was written.
 const hit = (mw, ip) => { const res = mkRes(); let passed = false; mw({ ip }, res, () => { passed = true; }); return { passed, res }; };
 
 const mw = rateLimit({ windowMs: 200, max: 3, message: 'slow down' });

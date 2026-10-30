@@ -1,34 +1,13 @@
-// Pretends the DEMO volunteers have opened the app and answered their allocation (accept / decline / pull out).
-// Run with:  pnpm run simulate:responses                              (70% accept, 10% decline, rest stay Pending)
-//            pnpm run simulate:responses --accept=80 --decline=5      (your own percentages)
-//            pnpm run simulate:responses --show="NE Show 2"           (only one show)
-//            pnpm run simulate:responses --withdraw=5                 (5% of the accepted volunteers then pull out)
-//            pnpm run simulate:responses --reset                      (accepted answers go back to Pending; declines and
-//                                                                      pull-outs are deleted like in the real app, so press
-//                                                                      "Run Allocations" to fill those places again)
-//            add --seed=7 for a different (but repeatable) random pick
-//
-// WHY this exists: with 400 volunteers nobody is going to click Accept 300 times. This lets you test what happens
-// after answers come in: the green/red/dark badges, the capacity count, a re-run that keeps accepted volunteers, etc.
-//
-// SAFETY RULES (declines and pull-outs use the real Assignments.declineMine / withdrawMine, so the row is deleted,
-// logged in the volunteer's history and the place goes to the nearest reserve, exactly like the real buttons):
-//  - Only DEMO volunteers (demo.volunteerNNN@demo.sg) are touched, never a real account.
-//  - Only PUBLISHED assignments can be answered (press "Publish" on the admin board first), exactly like a real volunteer.
-//  - Only Pending -> Accepted / Declined, and Accepted -> Withdrawn. Every update re-checks the old status, so a row that
-//    changed in the meantime is skipped instead of overwritten.
+// Script that pretends demo volunteers accept, decline or withdraw so the allocation board can be
+// tried out.
 
 const path = require('path')
-const { EMAIL_PATTERN } = require('./seed-volunteers.js') // the same pattern that identifies demo accounts
+const { EMAIL_PATTERN } = require('./seed-volunteers.js')
 
 const DECLINE_REASONS = ['Family commitment', 'Exam clash', 'Out of town', 'Work conflict', 'Not feeling well']
 const WITHDRAW_REASONS = ['MC', 'Urgent matter', 'Family emergency', 'Work called me in']
 
-// ---------------------------------------------------------------------------------------------
-// Small helpers
-// ---------------------------------------------------------------------------------------------
-
-// Seeded random numbers (same idea as seed-volunteers.js): same --seed gives the same people answering the same way
+// makeRandom(seed) - seeded random-number generator (same seed = same people answering).
 function makeRandom(seed) {
   let a = seed >>> 0
   return function () {
@@ -40,6 +19,7 @@ function makeRandom(seed) {
   }
 }
 
+// shuffle(list, random) - shuffled copy of a list.
 function shuffle(list, random) {
   const copy = list.slice()
   for (let i = copy.length - 1; i > 0; i--) {
@@ -49,16 +29,14 @@ function shuffle(list, random) {
   return copy
 }
 
+// pick(list, random) - one random item from a list.
 const pick = (list, random) => list[Math.floor(random() * list.length)]
 
-// ---------------------------------------------------------------------------------------------
-// The decision logic (pure function: no database, easy to test)
-//   pending  = published Pending rows   [{ _id }]
-//   accepted = published Accepted rows  [{ _id }]  (already accepted before this run)
-// Returns which rows to accept / decline / withdraw, with a reason where the real app asks for one.
-// ---------------------------------------------------------------------------------------------
+// planResponses(pending, accepted, pcts, random) - decides who answers how (no database). 1) shuffle
+// the Pending rows 2) first acceptPct% accept, next declinePct% decline (with a random reason), the
+// rest stay Pending 3) withdrawPct% of everyone accepted (old + new) withdraw with a reason 4) return
+// { toAccept, toDecline, toWithdraw }.
 function planResponses(pending, accepted, { acceptPct, declinePct, withdrawPct }, random) {
-  // Shuffle first so WHO answers is random, then cut the list by percentage
   const order = shuffle(pending, random)
   const acceptCount = Math.round((order.length * acceptPct) / 100)
   const declineCount = Math.min(order.length - acceptCount, Math.round((order.length * declinePct) / 100))
@@ -68,10 +46,7 @@ function planResponses(pending, accepted, { acceptPct, declinePct, withdrawPct }
     _id: row._id,
     reason: pick(DECLINE_REASONS, random),
   }))
-  // everything left over stays Pending, like volunteers who have not opened the app yet
 
-  // Withdrawing is a percentage of everyone who is Accepted AFTER the step above (old and new accepts together),
-  // because a volunteer can accept and later change their mind
   const everyoneAccepted = accepted.concat(toAccept)
   const withdrawCount = Math.round((everyoneAccepted.length * withdrawPct) / 100)
   const toWithdraw = shuffle(everyoneAccepted, random)
@@ -81,14 +56,15 @@ function planResponses(pending, accepted, { acceptPct, declinePct, withdrawPct }
   return { toAccept, toDecline, toWithdraw }
 }
 
-// ---------------------------------------------------------------------------------------------
-// Command line options
-// ---------------------------------------------------------------------------------------------
+// readOptions(argv) - reads --accept, --decline, --withdraw, --seed, --show, --reset, --force; rejects
+// values outside 0 to 100 and accept + decline above 100.
 function readOptions(argv) {
+  // num(name, fallback) - reads a --name=number option, or returns the fallback.
   const num = (name, fallback) => {
     const arg = argv.find((a) => a.startsWith(`--${name}=`))
     return arg ? Number(arg.split('=')[1]) : fallback
   }
+  // text(name) - reads a --name=text option (quotes removed), or an empty string.
   const text = (name) => {
     const arg = argv.find((a) => a.startsWith(`--${name}=`))
     return arg ? arg.slice(name.length + 3).replace(/^"|"$/g, '').trim() : ''
@@ -102,7 +78,6 @@ function readOptions(argv) {
     reset: argv.includes('--reset'),
     force: argv.includes('--force'),
   }
-  // Catch typos early, before anything is written
   for (const key of ['acceptPct', 'declinePct', 'withdrawPct']) {
     if (!Number.isFinite(options[key]) || options[key] < 0 || options[key] > 100) {
       throw new Error(`--${key.replace('Pct', '')} must be a number from 0 to 100`)
@@ -114,9 +89,10 @@ function readOptions(argv) {
   return options
 }
 
-// ---------------------------------------------------------------------------------------------
-// Database part
-// ---------------------------------------------------------------------------------------------
+// main() - 1) read the options, refuse production unless --force, 2) find the demo volunteers only, 3)
+// --reset puts answered rows back to Pending, 4) otherwise load the published Pending and Accepted
+// demo rows and make some of the volunteers accept, decline or withdraw, 5) fill the gaps from the
+// reserve list, 6) print a summary and disconnect.
 async function main() {
   const options = readOptions(process.argv.slice(2))
 
@@ -128,8 +104,8 @@ async function main() {
 
   const mongoose = require('mongoose')
   const { connect, disconnect } = require('./_connect')
-  const AccountModel = require('../models/account-model') // registers "Account"
-  const AssignmentModel = require('../models/assignments-model') // registers "Assignments" and its SHOWS list
+  const AccountModel = require('../models/account-model')
+  const AssignmentModel = require('../models/assignments-model')
   const Shows = require('../models/shows-model')
   const { replaceFromReserve } = require('../utils/reserve-replacement')
   const Account = mongoose.model('Account')
@@ -141,7 +117,6 @@ async function main() {
 
   await connect()
 
-  // Only demo volunteers are ever touched
   const demo = await Account.find({ email: { $regex: EMAIL_PATTERN } }).select('_id')
   const ids = demo.map((d) => d._id)
   if (ids.length === 0) {
@@ -150,15 +125,13 @@ async function main() {
     return
   }
 
-  // Limit to one show if asked; rows without a school (Reserve) have nothing to answer, so they are never included
   const base = { volunteer: { $in: ids }, school: { $ne: null }, published: true }
   if (options.show) base.show = options.show
 
-  // ----- --reset: put every answer back to Pending so the test can be repeated -----
   if (options.reset) {
     const result = await Assignments.updateMany(
       { ...base, status: { $in: ['Accepted', 'Declined', 'Withdrawn'] } },
-      { $set: { status: 'Pending' }, $unset: { withdrawReason: '' } } // clear the reason too
+      { $set: { status: 'Pending' }, $unset: { withdrawReason: '' } }
     )
     console.log(`Reset ${result.modifiedCount} answers back to Pending${options.show ? ` (${options.show})` : ''}.`)
     await disconnect()
@@ -176,14 +149,14 @@ async function main() {
   const plan = planResponses(pending, accepted, options, makeRandom(options.seed))
   const ownerOf = new Map([...pending, ...accepted].map((r) => [String(r._id), r.volunteer]))
 
-  // bulkWrite sends everything in one go. Each update re-checks the OLD status (and published), the same guard the real
-  // endpoints use, so a row that changed meanwhile is skipped rather than overwritten.
   const operations = plan.toAccept.map((r) => ({
     updateOne: { filter: { _id: r._id, status: 'Pending', published: true }, update: { $set: { status: 'Accepted' } } },
   }))
   const first = operations.length ? await Assignments.bulkWrite(operations) : { modifiedCount: 0 }
 
   const touchedShows = new Set()
+  // leave(r, status) - makes a demo volunteer decline or withdraw: updates the assignment row, then
+  // records the withdrawn show on the account and returns 1 (0 if the row could not be changed).
   async function leave(r, status) {
     const volunteer = ownerOf.get(String(r._id))
     const row = status === 'Declined'
@@ -213,7 +186,6 @@ async function main() {
 
   let declined = 0
   for (const r of plan.toDecline) declined += await leave(r, 'Declined')
-  // Withdrawals run AFTER the accepts, so people who just accepted can also pull out
   let withdrawn = 0
   for (const r of plan.toWithdraw) withdrawn += await leave(r, 'Withdrawn')
 
@@ -231,7 +203,7 @@ async function main() {
   await disconnect()
 }
 
-module.exports = { planResponses } // exported so the decision logic can be tested without a database
+module.exports = { planResponses }
 
 if (require.main === module) {
   main().catch((err) => {

@@ -1,23 +1,25 @@
-// Automatic replacements. When a volunteer declines or withdraws, their school place opens. This fills it
-// straight away with the NEAREST volunteer on that show's reserve list, so the admin does not have to do anything.
-// Nobody who already has a school is moved; only a Reserve row becomes Pending.
-//
-// If several places are open at once, the place with the FEWEST reserves nearby (within NEARBY_KM) picks first,
-// so a hard-to-reach school is not left with only far-away people (same idea as scarcity-first).
-// There is no distance limit: the nearest reserve is placed even if far, because an empty place is worse.
+// Fills open places from the reserve list with the nearest reserve volunteers.
+
 const Assignments = require('../models/assignments-model');
-const Account = require('../models/account-model'); // NEW: needed to find volunteers who signed up late
+const Account = require('../models/account-model');
 const { haversine } = require('./haversine');
 
 const NEARBY_KM = 10;
 
-// Distance in km (2 decimals) from a school to a reserve volunteer
+// distanceKm(school, person) - straight-line distance in km between a school and a volunteer, rounded
+// to 2 decimals.
 function distanceKm(school, person) {
   return Number(haversine([school.lat, school.lng], [person.lat, person.lng]).toFixed(2));
 }
 
-// Fill every open place of one show from its reserve list. Returns the rows that were filled.
-// Draft (unpublished) shows are skipped: the next Run Allocations fills those.
+// replaceFromReserve(show) - fills open places of a PUBLISHED show from its reserve list. 1. Draft
+// show -> do nothing. 2. Load the open places and the reserves; either empty -> do nothing. 3. For
+// each open place rank every reserve by distance (nearest first). 4. Handle places with the FEWEST
+// nearby reserves (within 10 km) first, so a hard-to-reach school is not left with only far-away
+// people. 5. For each place take reserves in order; skip anyone already placed in this run; try
+// fillFromReserve (Reserve -> Pending). 6. "full" = someone else took the last place: give the person
+// back to the pool and move on. "taken" = they were placed elsewhere: try the next person. 7. Return
+// every row that was filled.
 async function replaceFromReserve(show) {
   const published = await Assignments.publishedShows();
   if (!published.includes(show)) return [];
@@ -25,17 +27,17 @@ async function replaceFromReserve(show) {
   const [places, reserves] = await Promise.all([Assignments.findOpenPlaces(show), Assignments.findReserves(show)]);
   if (places.length === 0 || reserves.length === 0) return [];
 
-  // Each place gets its reserves sorted nearest first; the place with the fewest nearby reserves goes first
   const ranked = places.map((p) => ({
     ...p,
     candidates: reserves
       .map((r) => ({ ...r, distanceKm: distanceKm(p.school, r) }))
       .sort((a, b) => a.distanceKm - b.distanceKm),
   }));
+  // nearby(p) - how many candidate volunteers are within the nearby distance of an open place.
   const nearby = (p) => p.candidates.filter((c) => c.distanceKm <= NEARBY_KM).length;
   ranked.sort((a, b) => nearby(a) - nearby(b));
 
-  const used = new Set(); // reserves already placed in this run
+  const used = new Set();
   const filled = [];
   for (const place of ranked) {
     let open = place.open;
@@ -50,29 +52,26 @@ async function replaceFromReserve(show) {
         filled.push(result.assignment);
         open--;
       } else if (result.problem === 'full') {
-        used.delete(key); // FIX: they were put back on Reserve, so another school in this run may still use them
-        break; // someone else filled this school at the same moment: it has no open place left
+        used.delete(key);
+        break;
       }
-      // "taken": that person was placed elsewhere at the same moment, so try the next nearest
     }
   }
   return filled;
 }
 
-// NEW: for a PUBLISHED show, add volunteers who signed up late as Reserve rows, then let replaceFromReserve
-// place them into any open places. Nobody who already has a school is moved.
-// Returns { added, placed }: how many late volunteers were added and how many of them got a school.
+// topUpPublishedShow(show) - for a published show, adds volunteers who signed up late. 1) find
+// volunteers who already have a row 2) find signed-up volunteers without one (and with coordinates) 3)
+// give each a published Reserve row 4) run replaceFromReserve 5) return { added, placed } = how many
+// newcomers were added and how many of them got a school.
 async function topUpPublishedShow(show) {
-  // everyone who already has a row in this show (already handled, so skipped)
   const hasRow = new Set((await Assignments.volunteerIdsWithRow(show)).map(String));
 
-  // volunteers signed up for the show, with no row yet, and with a home location (needed to measure distance)
   const newcomers = (await Account.findVolunteersByShow(show)).filter(
     (v) => !hasRow.has(String(v._id)) && typeof v.lat === 'number' && typeof v.lng === 'number',
   );
   if (newcomers.length === 0) return { added: 0, placed: 0 };
 
-  // one Reserve row each; published: true because this show is already live
   await Assignments.createMany(
     newcomers.map((v) => ({
       volunteer: v._id, school: null, name: v.name, show,
@@ -80,9 +79,7 @@ async function topUpPublishedShow(show) {
     })),
   );
 
-  // existing logic: nearest reserve -> open place (the row becomes Pending + fromReserve)
   const filled = await replaceFromReserve(show);
-  // count only the NEWCOMERS that got a school (replaceFromReserve may also place older reserves)
   const newIds = new Set(newcomers.map((v) => String(v._id)));
   const placed = filled.filter((row) => newIds.has(String(row.volunteer))).length;
   return { added: newcomers.length, placed };

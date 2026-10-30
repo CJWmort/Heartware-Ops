@@ -1,25 +1,17 @@
-// seeding-incidents.js - adds realistic demo incidents to the "incidents" collection.
-//   pnpm run seed:incidents              adds them (replaces the demo incidents from an earlier run)
-//   pnpm run seed:incidents -- --remove  deletes the demo incidents again
-// Only incidents whose slotId starts with "seed-" are ever deleted, so real reports are safe.
-// It needs volunteers who are already assigned to schools (run Allocations on the admin board first).
+// Script that creates demo incidents for testing the queue.
 
 const mongoose = require("mongoose");
 const { connect, disconnect } = require("./_connect");
-const schedule = require("../data/schedule.json"); // show name -> date (used if the shows collection is empty)
+const schedule = require("../data/schedule.json");
 require("../models/account-model");
 require("../models/assignments-model");
 require("../models/schools-model");
 require("../models/shows-model");
 require("../models/incidents-model");
 
-const COUNT = 60; // how many incidents to create (more pins = a clearer spread on the map)
-const PADANG = { lat: 1.2905591, lng: 103.8529176 }; // the venue (same point the client uses)
+const COUNT = 60;
+const PADANG = { lat: 1.2905591, lng: 103.8529176 };
 
-// One entry per incident type: how often it happens (weight), how severe it is (same as the report page), what HQ would
-// write when it is fixed, and what the volunteer would write at each PLACE it can happen:
-//   school = at the volunteer's own school (spread all over Singapore), road = on the bus between the school and the Padang,
-//   padang = at the venue. {school} and {bus} are filled in.
 const KINDS = [
   {
     type: "STUDENT_UNWELL",
@@ -138,14 +130,19 @@ const KINDS = [
   },
 ];
 
-const PLACE_WEIGHT = { school: 3, road: 2, padang: 2 }; // how often each place is chosen (when the incident type allows it)
+const PLACE_WEIGHT = { school: 3, road: 2, padang: 2 };
 
-const pick = (list) => list[Math.floor(Math.random() * list.length)]; // one random item
-const between = (a, b) => a + Math.random() * (b - a); // a random decimal between a and b
-const nudge = (n) => n + between(-0.001, 0.001); // moves a coordinate by up to ~100 m, so pins are not stacked
-const minutes = (date, m) => new Date(date.getTime() + m * 60000); // date + m minutes
+// pick(list) - a random item from a list.
+const pick = (list) => list[Math.floor(Math.random() * list.length)];
+// between(a, b) - a random number between a and b.
+const between = (a, b) => a + Math.random() * (b - a);
+// nudge(n) - moves a coordinate a tiny random amount so pins do not stack.
+const nudge = (n) => n + between(-0.001, 0.001);
+// minutes(date, m) - a new date m minutes after the given date.
+const minutes = (date, m) => new Date(date.getTime() + m * 60000);
 
-// Pick a kind of incident, bigger weight = more often
+// pickKind() - weighted random choice of an incident kind: roll a number up to the total weight and
+// subtract each kind's weight until it goes below 0.
 function pickKind() {
   let roll = Math.random() * KINDS.reduce((sum, k) => sum + k.weight, 0);
   for (const k of KINDS) {
@@ -155,7 +152,8 @@ function pickKind() {
   return KINDS[0];
 }
 
-// "1:30pm" -> minutes since midnight (810)
+// clockMinutes(text) - "1:30pm" -> minutes since midnight (810); anything unreadable falls back to
+// 2:00 pm.
 function clockMinutes(text) {
   const m = /^(\d{1,2}):(\d{2})\s*([ap]m)$/i.exec(String(text).trim());
   return m
@@ -163,17 +161,21 @@ function clockMinutes(text) {
     : 14 * 60;
 }
 
+// main() - 1) connect 2) --remove deletes the incidents whose slotId starts with "seed-" 3) load show
+// dates, schools and assigned volunteers 4) give every assignment a bus number inside its school and
+// show 5) pick up to 60 random buses and for each choose an incident kind, a place (school / road /
+// padang), a realistic time and position, and a status history 6) delete old demo incidents then
+// insert the new ones directly into the collection (keeps the custom dates).
 async function main() {
   await connect();
   const Incident = mongoose.model("Incident");
-  const old = { slotId: { $regex: "^seed-" } }; // the demo incidents from an earlier run
+  const old = { slotId: { $regex: "^seed-" } };
 
   if (process.argv.includes("--remove")) {
     console.log(`Deleted ${(await Incident.deleteMany(old)).deletedCount} demo incidents.`);
     return;
   }
 
-  // 1. The real data: show dates, schools, and who is assigned where
   const dates = {};
   for (const s of schedule) dates[s.name] = s.date;
   for (const s of await mongoose.model("Shows").find().lean()) dates[s.name] = s.date;
@@ -185,7 +187,6 @@ async function main() {
     .sort({ _id: 1 })
     .lean();
 
-  // 2. Give every assigned volunteer a bus number within their school and show (Bus 1, Bus 2, ...)
   const busCount = {};
   const buses = [];
   for (const row of rows) {
@@ -202,7 +203,6 @@ async function main() {
     return;
   }
 
-  // 3. Make the incidents: each one comes from a different random bus
   const docs = [];
   const chosen = buses
     .slice()
@@ -210,16 +210,14 @@ async function main() {
     .slice(0, COUNT);
   for (const bus of chosen) {
     const kind = pickKind();
+    // text(t) - fills the {school} and {bus} placeholders in a message with this bus's school name and
+    // bus number.
     const text = (t) => t.replace("{school}", bus.school.name).replace("{bus}", bus.busNo);
 
-    // Place: one of the places this kind of incident can happen at (school / road / padang). Schools are all over Singapore,
-    // so a bigger weight for school and road (and a smaller one for the single Padang spot) spreads the pins over the island.
     const places = Object.keys(kind.notes);
     let placeRoll = Math.random() * places.reduce((sum, p) => sum + PLACE_WEIGHT[p], 0);
     const place = places.find((p) => (placeRoll -= PLACE_WEIGHT[p]) < 0) || places[0];
 
-    // When: on the show day. The time fits the place: at the school before the bus leaves, on the road during the trip
-    // to the Padang, at the Padang during the evening.
     const start = clockMinutes(bus.school.reportingTime);
     const [from, to] = {
       school: [start, start + 40],
@@ -231,14 +229,13 @@ async function main() {
       `${bus.date}T${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}:00+08:00`,
     );
 
-    // Where: at the school (its real address and position), on the straight line school -> Padang, or at the Padang
     let lat, lng, address;
     if (place === "school") {
       lat = nudge(bus.school.lat);
       lng = nudge(bus.school.lng);
       address = `${bus.school.address}, Singapore ${bus.school.postalCode}`;
     } else if (place === "road") {
-      const t = between(0.05, 0.6); // how far along the way from the school to the Padang (0.6 = a bit over half way, so pins stay near the school's part of the island)
+      const t = between(0.05, 0.6);
       lat = nudge(bus.school.lat + t * (PADANG.lat - bus.school.lat));
       lng = nudge(bus.school.lng + t * (PADANG.lng - bus.school.lng));
       address = `On the bus, between ${bus.school.name} and the Padang`;
@@ -252,7 +249,6 @@ async function main() {
       ]);
     }
 
-    // Status: most are resolved, some acknowledged, some still new (each step is a few minutes after the one before)
     const history = [{ status: "new", at: created }];
     const roll = Math.random();
     if (roll < 0.8) history.push({ status: "acknowledged", at: minutes(created, between(2, 10)) });
@@ -261,7 +257,7 @@ async function main() {
         status: "resolved",
         note: pick(kind.fixes),
         at: minutes(history[1].at, between(10, 45)),
-      }); // resolving needs a note
+      });
 
     docs.push({
       type: kind.type,
@@ -280,8 +276,6 @@ async function main() {
     });
   }
 
-  // 4. Save: delete the old demo incidents first, so running twice never piles up.
-  // .collection saves the dates exactly as given (Mongoose's own insert would replace them with "now").
   await Incident.deleteMany(old);
   await Incident.collection.insertMany(docs);
   console.log(

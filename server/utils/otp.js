@@ -1,34 +1,30 @@
-// Email OTP (one-time code) for registration – Owner: Kuah (F1a)
-// 1. requestCode(email) makes a 6-digit code, remembers it, and emails it with Brevo
-// 2. checkCode(email, code) checks what the volunteer typed
-// 3. useVerifiedEmail(email) is called when the account is created, so nobody can skip step 2
-//
-// Codes are kept in server memory (a Map). That's fine for this project:
-// if the server restarts, the volunteer just presses "Resend code".
+// Email one-time codes: create, send (or mock), check and remember the verified email.
 
 const crypto = require('crypto')
 
 const CODE_LENGTH = 6
-const CODE_TTL_MS = 10 * 60 * 1000 // a code works for 10 minutes
-const RESEND_SECONDS = 60 // wait 60 s before asking for another code
-const MAX_ATTEMPTS = 5 // 5 wrong tries -> must request a new code
-const VERIFIED_TTL_MS = 15 * 60 * 1000 // after verifying, 15 min to finish creating the account
+const CODE_TTL_MS = 10 * 60 * 1000
+const RESEND_SECONDS = 60
+const MAX_ATTEMPTS = 5
+const VERIFIED_TTL_MS = 15 * 60 * 1000
 
-const codes = new Map() // email -> { hash, expiresAt, attempts, sentAt }
-const verified = new Map() // email -> expiresAt
+const codes = new Map()
+const verified = new Map()
 
-// Never store the code itself, only a hash of it (like passwords)
+// hash(code) - one-way SHA-256 fingerprint of a code, so the real code is never stored.
 const hash = (code) => crypto.createHash('sha256').update(code).digest('hex')
+// clean(email) - trims and lowercases an email so "A@b.com " and "a@b.com" count as the same address.
 const clean = (email) => String(email || '').trim().toLowerCase()
 
-// Test mode: no email is sent, the code is returned to the page instead.
-// On when OTP_MOCK=true, or when no Brevo key is set AND we are not in production.
-// In production a missing key is an error (see requestCode), so the code can never leak to the browser.
+// isMockMode() - true when OTP_MOCK=true, or when there is no Brevo key and the server is NOT in
+// production. Test mode prints the code instead of emailing it.
 const isMockMode = () =>
   process.env.OTP_MOCK === 'true' ||
   (!process.env.BREVO_API_KEY && process.env.NODE_ENV !== 'production')
 
-// Send the email through Brevo's API (https://developers.brevo.com/reference/sendtransacemail)
+// sendWithBrevo(email, code) - emails the code. 1) POST to Brevo's API with the API key, sender and
+// recipient 2) the message contains the code and "expires in 10 minutes" 3) a non-OK reply throws an
+// error that includes Brevo's explanation.
 async function sendWithBrevo(email, code) {
   const response = await fetch('https://api.brevo.com/v3/smtp/email', {
     method: 'POST',
@@ -60,12 +56,15 @@ async function sendWithBrevo(email, code) {
   }
 }
 
-// Returns { resendInSeconds, devCode? }   devCode is only included in test mode
+// requestCode(rawEmail) - makes and sends a code. 1) clean the email 2) if a code was sent less than
+// 60 seconds ago throw a 429 error 3) generate a random 6-digit code (crypto.randomInt, zero-padded)
+// 4) test mode: print it; otherwise require BREVO_API_KEY and email it 5) remember only the HASH with
+// expiry (10 min), attempts = 0 and send time 6) forget any earlier verified status 7) return {
+// resendInSeconds, devCode? } (devCode only in test mode).
 async function requestCode(rawEmail) {
   const email = clean(rawEmail)
   const existing = codes.get(email)
 
-  // Stop people spamming "Resend"
   if (existing) {
     const secondsSinceLast = (Date.now() - existing.sentAt) / 1000
     if (secondsSinceLast < RESEND_SECONDS) {
@@ -76,13 +75,11 @@ async function requestCode(rawEmail) {
     }
   }
 
-  // Random 6-digit code, e.g. "048213" (crypto = properly random)
   const code = String(crypto.randomInt(0, 10 ** CODE_LENGTH)).padStart(CODE_LENGTH, '0')
 
   if (isMockMode()) {
     console.log(`[OTP test mode] code for ${email}: ${code}`)
   } else {
-    // production without a key must fail loudly rather than fall back to test mode (which would reveal the code)
     if (!process.env.BREVO_API_KEY) throw new Error('BREVO_API_KEY is not set on the server.')
     await sendWithBrevo(email, code)
   }
@@ -93,7 +90,10 @@ async function requestCode(rawEmail) {
   return { resendInSeconds: RESEND_SECONDS, ...(isMockMode() ? { devCode: code } : {}) }
 }
 
-// Returns '' if the code is right, otherwise an error message
+// checkCode(rawEmail, rawCode) - checks what the volunteer typed. Returns "" when right, otherwise a
+// message. 1) no code requested -> message 2) expired -> delete it and say so 3) 5 wrong tries already
+// -> message 4) wrong -> add 1 to attempts and say how many tries are left 5) right -> delete the code
+// (cannot be reused) and mark the email verified for 15 minutes.
 function checkCode(rawEmail, rawCode) {
   const email = clean(rawEmail)
   const code = String(rawCode || '').trim()
@@ -115,13 +115,13 @@ function checkCode(rawEmail, rawCode) {
       : 'Too many wrong tries. Press "Resend code" for a new one.'
   }
 
-  // Correct: the code can't be used again, and the email is marked as verified
   codes.delete(email)
   verified.set(email, Date.now() + VERIFIED_TTL_MS)
   return ''
 }
 
-// Used when creating the account. true = email was verified (and it's used up now)
+// useVerifiedEmail(rawEmail) - consumes the verification when the account is created. 1) read and
+// DELETE the saved expiry 2) true only if it existed and has not expired.
 function useVerifiedEmail(rawEmail) {
   const email = clean(rawEmail)
   const expiresAt = verified.get(email)
@@ -129,8 +129,8 @@ function useVerifiedEmail(rawEmail) {
   return Boolean(expiresAt && Date.now() <= expiresAt)
 }
 
-// NEW: look only - true if the email was verified and has not expired. Does NOT use it up, so a failed sign-up
-// (duplicate phone, bad postal code...) lets the volunteer press the button again without a new code.
+// isVerifiedEmail(rawEmail) - same check as useVerifiedEmail but only LOOKS (does not delete), so a
+// failed sign-up can be retried without a new code.
 function isVerifiedEmail(rawEmail) {
   const expiresAt = verified.get(clean(rawEmail))
   return Boolean(expiresAt && Date.now() <= expiresAt)

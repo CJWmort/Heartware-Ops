@@ -1,3 +1,5 @@
+// The incident database model (type, severity, school, note, location, status and history).
+
 const mongoose = require("mongoose");
 
 const IncidentSchema = new mongoose.Schema(
@@ -30,7 +32,11 @@ const IncidentSchema = new mongoose.Schema(
 
 const Incident = mongoose.model("Incident", IncidentSchema, "incidents");
 
+// create(data) - saves a new incident.
 exports.create = (data) => Incident.create(data);
+// retrieveAll(filter) - incidents matching the filter, newest first; the reporter is replaced by {
+// _id, name } only (keeps emails out of the response).
 exports.retrieveAll = (filter) =>
-  Incident.find(filter).sort({ createdAt: -1 }).populate("volunteer", "name"); // swaps the volunteer's ID for { _id, name }; "name" = only fetch that field (keeps emails etc. out of the response);
+  Incident.find(filter).sort({ createdAt: -1 }).populate("volunteer", "name");
+// retrieveById(id) - one incident by id.
 exports.retrieveById = (id) => Incident.findById(id);

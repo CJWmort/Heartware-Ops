@@ -1,14 +1,14 @@
-// Get Schools model
+// School endpoints: all schools, one by name, by show or by postal code.
+
 const mongoose = require('mongoose');
 const Schools = require('../models/schools-model');
 const sendServerError = require('../utils/send-server-error')
 
-// Helper: check that an id is a valid MongoDB ObjectId before querying
+// isValidId(id) - true when the text looks like a real MongoDB id (checked before querying so a bad id
+// gives 400 instead of a crash).
 const isValidId = (id) => mongoose.Types.ObjectId.isValid(id);
 
-// ===== READ =====
-
-// GET /schools  → all schools
+// schoolsGet - replies with all schools sorted by name.
 exports.schoolsGet = async (req, res) => {
     try {
         const schoolList = await Schools.retrieveAll();
@@ -18,7 +18,7 @@ exports.schoolsGet = async (req, res) => {
     }
 };
 
-// GET /schools/name/:name  → one school by name
+// schoolGetByName - 1) find one school by exact name (case-insensitive) 2) none -> 404 3) reply.
 exports.schoolGetByName = async (req, res) => {
     try {
         const school = await Schools.findByName(req.params.name);
@@ -31,7 +31,7 @@ exports.schoolGetByName = async (req, res) => {
     }
 };
 
-// GET /schools/show/:show  → all schools in a show (NE1,NE2,NE3,NE4)
+// schoolsGetByShow - replies with all schools in one show, sorted by name.
 exports.schoolsGetByShow = async (req, res) => {
     try {
         const schoolList = await Schools.findByShow(req.params.show);
@@ -41,7 +41,8 @@ exports.schoolsGetByShow = async (req, res) => {
     }
 };
 
-// GET /schools/postal/:postalCode  → one school by postal code
+// schoolGetByPostalCode - 1) the code must be 6 digits (400) 2) find the school (404 if none) 3)
+// reply.
 exports.schoolGetByPostalCode = async (req, res) => {
     try {
         const { postalCode } = req.params;

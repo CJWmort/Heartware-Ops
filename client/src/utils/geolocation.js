@@ -1,5 +1,8 @@
+// Helpers for the browser's GPS: one-off position, continuous tracking and friendly error messages.
 
-// one-time request for the user's location
+// getUserLocation() - one-time GPS reading wrapped in a Promise. 1) browser without geolocation ->
+// reject with a message 2) otherwise ask for a fresh high-accuracy position (10 s timeout, never reuse
+// an old reading) 3) resolve with the position or reject with the error.
 export function getUserLocation() {
   return new Promise((resolve, reject) => {
     if (!navigator.geolocation) {
@@ -7,13 +10,15 @@ export function getUserLocation() {
       return
     }
     navigator.geolocation.getCurrentPosition(resolve, reject, {
-      enableHighAccuracy: true, // use GPS if available
+      enableHighAccuracy: true,
       timeout: 10000,
-      maximumAge: 0, // always fetch fresh location
+      maximumAge: 0,
     })
   })
 }
 
+// geolocationMessage(err) - turns a browser location error into friendly text: permission denied,
+// position unavailable, timeout, or the error's own message.
 export function geolocationMessage(err) {
   switch (err.code) {
     case err.PERMISSION_DENIED:
@@ -27,11 +32,12 @@ export function geolocationMessage(err) {
   }
 }
 
-// Continuously tracks changes over time
 let watchId = null;
 
+// startTracking(onPosition, onError, options) - starts continuous GPS watching. 1) stop any watch
+// already running 2) call watchPosition so onPosition runs on every new fix and onError on failures 3)
+// remember and return the watch id.
 export function startTracking(onPosition, onError, options = { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 }) {
-  // Clear any existing watch before starting a new one
   if (watchId !== null) {
     stopTracking();
   }
@@ -40,7 +46,7 @@ export function startTracking(onPosition, onError, options = { enableHighAccurac
   return watchId;
 }
 
-// Stop watching the user's location.
+// stopTracking() - 1) if a watch is running, clear it 2) forget the id.
 export function stopTracking() {
   if (watchId !== null) {
     navigator.geolocation.clearWatch(watchId);

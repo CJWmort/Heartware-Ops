@@ -1,4 +1,8 @@
+<!-- The "Fetching data" overlay shown on every data view while the page loads. -->
+
 <script setup>
+// Accepts the text to show and whether the overlay covers only its parent.
+
 defineProps({
   text: { type: String, default: 'Loading...' },
   contained: { type: Boolean, default: false },
@@ -6,6 +10,7 @@ defineProps({
 </script>
 
 <template>
+  <!-- A spinner with the loading text. -->
   <div class="page-loading" :class="{ 'is-contained': contained }" role="status" aria-live="polite">
     <div class="spinner-border text-primary" aria-hidden="true"></div>
     <div class="mt-2 fw-semibold">{{ text }}</div>
@@ -13,6 +18,8 @@ defineProps({
 </template>
 
 <style scoped>
+/* Styles for the overlay and spinner. */
+
 .page-loading {
   display: flex;
   flex-direction: column;

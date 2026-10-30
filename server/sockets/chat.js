@@ -1,36 +1,32 @@
-// Live chat events for the HQ <-> volunteer chat. Called once for every new socket from sockets/index.js.
-//
-// Rooms we reuse from index.js (no new rooms needed):
-//   "hq"             every admin
-//   "user:<userId>"  one person (so "user:<volunteerId>" reaches that volunteer, in any of their tabs)
-//
-// Client -> server:  typing { volunteerId? }     read { volunteerId?, upTo? }
-// Server -> client:  typing, read:update, presence:update, presence:list
-// (message:new and thread:updated are sent from the messages controller)
+// The live chat socket events: typing, read and disconnect, plus the online presence updates.
 
 const mongoose = require("mongoose");
 const presence = require("./presence");
 const ThreadState = require("../models/thread-state-model");
 const Message = require("../models/messages-model");
 
-// Which volunteer's chat is this about? A volunteer can only ever mean their own chat (anything they send is ignored).
-// An admin must say which volunteer, and the id must be valid.
+// threadOf(role, userId, requestedId) - which volunteer's chat does a socket message mean? Volunteer
+// -> always their own id; admin -> the id they sent if it is a valid id; otherwise null (ignored).
 function threadOf(role, userId, requestedId) {
   if (role === "volunteer") return String(userId);
   if (role === "admin" && mongoose.isValidObjectId(requestedId)) return String(requestedId);
   return null;
 }
 
+// registerChat(io, socket) - chat handlers for ONE connected socket: 1. Presence: a volunteer's FIRST
+// connection tells HQ they are online; a newly connected admin receives the list of who is online. 2.
+// "typing": pass it on to the other side only (never saved). 3. "read": validate the chat, clamp the
+// time (not in the future), save it, tell both sides ("read:update"), and if an admin read it refresh
+// every admin's inbox row. 4. "disconnect": when a volunteer's LAST connection closes, tell HQ they
+// are offline.
 function registerChat(io, socket) {
   const { userId, role } = socket.request.session;
 
-  // ---- Presence: HQ sees which volunteers are online ----
   if (role === "volunteer") {
     if (presence.connected(userId)) {
       io.to("hq").emit("presence:update", { volunteerId: String(userId), online: true });
     }
   } else if (role === "admin") {
-    // This admin missed earlier presence events, so send them the current list
     socket.emit("presence:list", presence.onlineIds());
   }
 
@@ -39,12 +35,11 @@ function registerChat(io, socket) {
     const vid = threadOf(role, userId, payload.volunteerId);
     if (!vid) return;
     const data = { volunteerId: vid, role };
-    // socket.to(...) sends to everyone in that room EXCEPT the sender
     if (role === "volunteer") {
       socket.to("hq").emit("typing", data);
     } else {
-      socket.to(`user:${vid}`).emit("typing", data); // the volunteer sees "HQ is typing"
-      socket.to("hq").emit("typing", data); // other admins see it too, so two admins don't reply at once
+      socket.to(`user:${vid}`).emit("typing", data);
+      socket.to("hq").emit("typing", data);
     }
   });
 
@@ -54,8 +49,6 @@ function registerChat(io, socket) {
       const vid = threadOf(role, userId, payload.volunteerId);
       if (!vid) return;
 
-      // Use the time of the last message the browser actually SAW, so a message that arrives at the same
-      // moment is not wrongly marked as read. A time in the future is not allowed.
       const now = new Date();
       let upTo = payload.upTo ? new Date(payload.upTo) : now;
       if (Number.isNaN(upTo.getTime())) return;
@@ -64,11 +57,10 @@ function registerChat(io, socket) {
       await ThreadState.markRead(vid, role, upTo);
 
       const data = { volunteerId: vid, role, readAt: upTo };
-      io.to(`user:${vid}`).emit("read:update", data); // lets the volunteer's screen show "Seen"
+      io.to(`user:${vid}`).emit("read:update", data);
       io.to("hq").emit("read:update", data);
 
       if (role === "admin") {
-        // The admin side is shared, so every admin's badge for this chat clears
         const summary = await Message.threadSummary(vid);
         io.to("hq").emit("thread:updated", { ...summary, online: presence.isOnline(vid) });
       }
@@ -77,6 +69,7 @@ function registerChat(io, socket) {
     }
   });
 
+  // disconnect - when a volunteer's last connection drops, tell HQ they are offline.
   socket.on("disconnect", () => {
     if (role === "volunteer" && presence.disconnected(userId)) {
       io.to("hq").emit("presence:update", { volunteerId: String(userId), online: false });

@@ -1,23 +1,25 @@
+// Assignment endpoints: list, run the allocation, publish, accept, decline, withdraw and the journey
+// stage steps.
+
 const mongoose = require("mongoose");
 const Assignments = require("../models/assignments-model");
 const Account = require("../models/account-model");
 const School = require("../models/schools-model");
 const Shows = require("../models/shows-model");
 const { replaceFromReserve, topUpPublishedShow } = require("../utils/reserve-replacement");
-const { expireOverduePending } = require("../utils/expire-pending"); // NEW // CHANGED: topUpPublishedShow added
-const { emit } = require("../sockets"); // live updates: tells open My Assignment pages to reload
+const { expireOverduePending } = require("../utils/expire-pending");
+const { emit } = require("../sockets");
 const dotenv = require("dotenv");
 
 const { scarcityFirst } = require("../utils/scarcityFirst");
 const { greedyByPair } = require("../utils/greedy");
 const sendServerError = require('../utils/send-server-error')
 
-// dotenv.config({ path: "./config.env" }); //process.env.ONEMAP_TOKEN
-
-// GET /api/assignments/
+// getAssignments (admin) - every assignment. 1) first lapse any unanswered offers whose deadline has
+// passed (a failure is only logged) 2) load all assignments 3) reply with them (500 on error).
 exports.getAssignments = async (req, res) => {
   try {
-    await expireOverduePending().catch((e) => console.error("Expiry sweep failed:", e.message)); // NEW: lapse unanswered offers first (a failure here never blocks the request)
+    await expireOverduePending().catch((e) => console.error("Expiry sweep failed:", e.message));
     const assignments = await Assignments.retrieveAll();
     res.json(assignments);
   } catch (error) {
@@ -25,19 +27,21 @@ exports.getAssignments = async (req, res) => {
   }
 };
 
-// GET /api/assignments/me -- the logged in volunteer's assignments
+// getMyAssignments - the logged-in volunteer's own assignments. 1) lapse overdue offers 2) load rows
+// for req.session.userId 3) withToday() hides stage data that belongs to an earlier day 4) reply.
 exports.getMyAssignments = async (req, res) => {
   try {
-    await expireOverduePending().catch((e) => console.error("Expiry sweep failed:", e.message)); // NEW: lapse unanswered offers first (a failure here never blocks the request)
+    await expireOverduePending().catch((e) => console.error("Expiry sweep failed:", e.message));
     const assignments = await Assignments.findMine(req.session.userId);
-    res.json(assignments.map((a) => Assignments.withToday(a))); // stage / stageHistory only reflect today
+    res.json(assignments.map((a) => Assignments.withToday(a)));
   } catch (error) {
     sendServerError(res, error);
   }
 };
 
-// Reads { show, stage } from the body (advance) or the query string (undo) and checks them.
-// Returns { show, stage } or null when they are not valid.
+// readStageRequest(source) - checks a checkpoint request. 1) read show (trimmed) and stage (as a
+// number) 2) show must be one of the known shows 3) stage must be a whole number from 1 to MAX_STAGE
+// (8) 4) valid -> { show, stage }, otherwise null.
 function readStageRequest(source) {
   const show = String(source.show || "").trim();
   const stage = Number(source.stage);
@@ -46,13 +50,17 @@ function readStageRequest(source) {
   return { show, stage };
 }
 
-// The answer for both stage endpoints: where the volunteer is now
+// stageReply(a) - builds the answer both checkpoint endpoints send back: today's view of the
+// assignment reduced to { show, stage, stageHistory }.
 function stageReply(a) {
   const o = Assignments.withToday(a);
   return { show: o.show, stage: o.stage, stageHistory: o.stageHistory };
 }
 
-// PUT /api/assignments/me/stage -- the volunteer clocks the next checkpoint. Body { show, stage } = the stage they move TO.
+// advanceMyStage (PUT /me/stage) - volunteer clocks the NEXT checkpoint. 1) validate show + stage
+// (else 400) 2) ask the model to move from stage-1 to stage for this volunteer 3) problem "none" ->
+// 403 (no accepted assignment) 4) problem "conflict" -> 409 plus the real current stage (double tap /
+// second phone) 5) success -> reply with stageReply.
 exports.advanceMyStage = async (req, res) => {
   try {
     const input = readStageRequest(req.body || {});
@@ -68,7 +76,8 @@ exports.advanceMyStage = async (req, res) => {
   }
 };
 
-// DELETE /api/assignments/me/stage?show=NE Show 1&stage=3 -- undo the last checkpoint. stage = the stage they are leaving.
+// undoMyStage (DELETE /me/stage) - volunteer removes the LAST checkpoint. Same flow as advanceMyStage
+// but calls undoStage; "stage" in the query is the stage they are leaving.
 exports.undoMyStage = async (req, res) => {
   try {
     const input = readStageRequest(req.query || {});
@@ -84,7 +93,8 @@ exports.undoMyStage = async (req, res) => {
   }
 };
 
-// GET /api/assignments/show/:show
+// getShowAssignments (admin) - assignments for one show: 1) read :show from the URL 2) query by show
+// 3) reply.
 exports.getShowAssignments = async (req, res) => {
   try {
     const show = req.params.show;
@@ -95,44 +105,30 @@ exports.getShowAssignments = async (req, res) => {
   }
 };
 
-// POST /api/assignments/run -- assigns volunteers to schools (admin only)
-// Safe to run again and again. Volunteers who already ACCEPTED keep their school, and anyone
-// who DECLINED / WITHDREW is not given the same show again. Only the rest (Pending, Reserve and
-// brand-new volunteers) are matched, to the places that are still open.
-// Body { reset: true } wipes everything instead (including accepted) for a fresh start.
-// The result is saved as a DRAFT (published = false); volunteers see it only after /publish.
+// runAssignments (POST /run, admin) - the allocation run. 1) lapse overdue pending offers, 2) read
+// reset (wipe everything) and an optional single show name (unknown name gives 400), 3) unless reset,
+// keep accepted, declined and withdrawn rows and skip shows that are already published, 4) for each
+// show to run, match volunteers to schools, 5) save the new draft rows, 6) reply with the results and
+// send a live update.
 exports.runAssignments = async (req, res) => {
   try {
-    await expireOverduePending().catch((e) => console.error("Expiry sweep failed:", e.message)); // NEW: lapse unanswered offers first (a failure here never blocks the request)
-    // Only a real boolean true resets; the string "true" does not, so a typo can't erase accepted volunteers
+    await expireOverduePending().catch((e) => console.error("Expiry sweep failed:", e.message));
     const reset = req.body?.reset === true;
-    // NEW: optional { show } limits the run (and the reset) to ONE show. Left out = every show, as before.
     const only = typeof req.body?.show === "string" ? req.body.show.trim() : "";
     if (only && !Assignments.SHOWS.includes(only)) {
       return res.status(400).json({ message: "Unknown show." });
     }
-    const showsToRun = only ? [only] : Assignments.SHOWS; // the shows this request is allowed to touch
-    // Rows that must survive this run (Accepted / Declined / Withdrawn); nothing is kept on a reset
+    const showsToRun = only ? [only] : Assignments.SHOWS;
     const kept = reset ? [] : await Assignments.findKept();
-    // A published show is locked: re-running it would undo the automatic replacements and rebuild the reserve
-    // list after volunteers have already seen their school. Reset ignores the lock.
-    // (only counts published shows that are part of this run)
     const skippedShows = (reset ? [] : await Assignments.publishedShows()).filter((s) => showsToRun.includes(s));
 
-    // Work out every show first, so a bad record stops the run BEFORE anything is deleted
-    // (before: delete first, so one error halfway left the table empty)
     const results = [];
-    // FIX: was `for (show of [...])` with no `const`, which created an accidental global variable.
-    // Assignments.SHOWS comes from the model's enum, so the list of shows lives in one place instead of four.
-    for (const show of showsToRun) { // CHANGED: was every show in Assignments.SHOWS
+    for (const show of showsToRun) {
       if (skippedShows.includes(show)) continue;
       const keptInShow = kept.filter((a) => a.show === show);
 
-      // Volunteers who already have a final answer for this show are left out of the matching,
-      // otherwise they would get a second row for the same show (the database allows only one)
       const locked = new Set(keptInShow.map((a) => String(a.volunteer)));
 
-      // Places already taken by accepted volunteers, per school (key = school id as text)
       const taken = {};
       for (const a of keptInShow) {
         if (a.status === "Accepted" && a.school) {
@@ -143,8 +139,6 @@ exports.runAssignments = async (req, res) => {
       const volunteers = (await Account.findVolunteersByShow(show)).filter(
         (v) => !locked.has(String(v._id)),
       );
-      // Give the algorithm each school with only its OPEN places (p5Classes minus accepted).
-      // Math.max(0, ...) stops a negative number if a school was over-filled.
       const schools = (await School.findByShow(show)).map((s) => ({
         _id: s._id,
         name: s.name,
@@ -157,7 +151,6 @@ exports.runAssignments = async (req, res) => {
       results.push(...scarcityFirst(volunteers, schools, show));
     }
 
-    // Check every record BEFORE deleting, so a bad record can never leave the table empty
     const problems = Assignments.validateMany(results);
     if (problems.length > 0) {
       return res.status(500).json({
@@ -165,25 +158,15 @@ exports.runAssignments = async (req, res) => {
       });
     }
 
-    // Remove only what is being re-calculated (or everything, on a reset), then save the new matches
-    // CHANGED: delete only inside the shows being re-run (published shows are left alone)
     const rerunShows = showsToRun.filter((s) => !skippedShows.includes(s));
-    if (reset) await Assignments.deleteAll(only || null); // reset ONE show (or all if no show was sent)
+    if (reset) await Assignments.deleteAll(only || null);
     else await Assignments.deleteReplaceable(rerunShows);
     await Assignments.createMany(results);
 
-    // NEW: published shows are still not rebuilt, but volunteers who signed up late are now added to them
-    // (Reserve rows, then placed into any open places). Done AFTER the save above, so a validation error
-    // earlier can never leave a half-finished top-up. On a reset skippedShows is empty, so nothing happens.
     const toppedUp = {};
     for (const show of skippedShows) toppedUp[show] = await topUpPublishedShow(show);
 
-    // read the list AFTER the top-up so the board sees the new rows
     const assignments = await Assignments.retrieveAll();
-    // CHANGED: was the bare list; skippedShows tells the board which published shows were left alone,
-    // toppedUp tells it how many late volunteers were added to each of them, e.g. { "NE Show 1": { added: 2, placed: 1 } }
-    // Live update: open My Assignment pages reload their own data. A reset changes what volunteers see;
-    // an allocate can too (late volunteers topped up into published shows). The event carries no volunteer data.
     emit("assignments:updated", { reason: reset ? "reset" : "allocate", shows: showsToRun });
     res.json({ assignments, skippedShows, toppedUp });
   } catch (error) {
@@ -191,20 +174,17 @@ exports.runAssignments = async (req, res) => {
   }
 };
 
-// POST /api/assignments/publish -- release the draft allocation to volunteers (admin only)
-// body: { show?: "NE Show 1" }  (leave show out to publish every show)
-// Until this is called, volunteers see "Awaiting allocation", so the admin can review and fix first.
+// publishAssignments (POST /publish, admin) - releases the draft allocation to volunteers. 1) optional
+// { show }, an unknown name gives 400, 2) mark the draft rows published (all shows if none given), 3)
+// if any changed, send a live "assignments:updated" event, 4) reply with how many were published.
 exports.publishAssignments = async (req, res) => {
   try {
     const show = typeof req.body?.show === "string" ? req.body.show.trim() : "";
-    // Reject unknown show names instead of silently publishing nothing
     if (show && !Assignments.SHOWS.includes(show)) {
       return res.status(400).json({ message: "Unknown show." });
     }
 
     const result = await Assignments.publish(show || null);
-    // modifiedCount = how many rows were released (0 means everything was already published)
-    // Live update: volunteers in the published show(s) see their school straight away (only if something was released)
     if (result.modifiedCount > 0) emit("assignments:updated", { reason: "publish", shows: show ? [show] : Assignments.SHOWS });
     res.json({ published: result.modifiedCount, show: show || "all" });
   } catch (error) {
@@ -212,10 +192,12 @@ exports.publishAssignments = async (req, res) => {
   }
 };
 
-// PATCH /api/assignments/:id/accept -- logged in volunteer accepts their assignment
+// acceptMyAssignment (PATCH /:id/accept) - 1) lapse overdue offers 2) the id must be a valid Mongo id
+// (else 400) 3) accept only if the row is PENDING, belongs to this volunteer and is published (else
+// 404) 4) reply with the updated assignment.
 exports.acceptMyAssignment = async (req, res) => {
   try {
-    await expireOverduePending().catch((e) => console.error("Expiry sweep failed:", e.message)); // NEW: lapse unanswered offers first (a failure here never blocks the request)
+    await expireOverduePending().catch((e) => console.error("Expiry sweep failed:", e.message));
     const { id } = req.params;
     if (!mongoose.Types.ObjectId.isValid(id)) {
       return res.status(400).json({ message: "Invalid assignment id" });
@@ -231,28 +213,30 @@ exports.acceptMyAssignment = async (req, res) => {
   }
 };
 
-// Shared by decline and withdraw. Deletes the volunteer's assignment, then logs it in their
-// withdrawnShows (show id, reporting date / time / location, status, reason) and removes the show
-// from their availableShows. body: { reason?: "..." }
+// leaveAssignment(req, res, status) - shared by Decline and Withdraw. Steps: 1. Validate the id (400).
+// 2. Read the optional reason (max 300 characters, else 400). 3. Delete the volunteer's row
+// (declineMine for pending, withdrawMine for accepted); nothing matched -> 404. The user id comes from
+// the session, so nobody can act for someone else. 4. Look up the show, build a record (show, date,
+// time, school, status, reason) and log it in the volunteer's withdrawnShows (this also removes the
+// show from availableShows). 5. Try to fill the freed place from the reserve list (failure is only
+// logged). 6. Reply with the record and the volunteer's remaining availableShows. 7. If logging fails,
+// put the deleted row back (restore) so the volunteer does not silently lose their place, then
+// rethrow.
 async function leaveAssignment(req, res, status) {
   const { id } = req.params;
-  // a malformed id would make MongoDB throw, so answer 400 before querying
   if (!mongoose.Types.ObjectId.isValid(id)) {
     return res.status(400).json({ message: "Invalid assignment id" });
   }
 
-  // reason is optional; trim() removes stray spaces, and a missing body (req.body undefined) gives ''
   const reason = typeof req.body?.reason === "string" ? req.body.reason.trim() : "";
   if (reason.length > 300) {
     return res.status(400).json({ message: "Reason must be 300 characters or fewer." });
   }
 
-  // the session user id (not a body field) decides whose row is removed, so nobody can act for someone else
   const userId = req.session.userId;
   const assignment = status === "Declined"
     ? await Assignments.declineMine(id, userId)
     : await Assignments.withdrawMine(id, userId);
-  // nothing matched = not yours, wrong status, or not published yet
   if (!assignment) {
     const message = status === "Declined"
       ? "No pending assignment found to decline."
@@ -261,7 +245,6 @@ async function leaveAssignment(req, res, status) {
   }
 
   try {
-    // FIX: the show lookup is now INSIDE the try. Before, if it threw, the row was already deleted and never restored
     const show = await Shows.findByName(assignment.show);
     const entry = {
       showId: show?._id,
@@ -273,8 +256,6 @@ async function leaveAssignment(req, res, status) {
       reason,
     };
     const user = await Account.logWithdrawnShow(userId, entry);
-    // Their place is open now: give it to the nearest volunteer on the reserve list straight away.
-    // The decline / withdrawal has already succeeded, so a problem here is only logged, never sent to the volunteer.
     try {
       const filled = await replaceFromReserve(assignment.show);
       if (filled.length > 0) console.log(`Reserve replacement: filled ${filled.length} place(s) in ${assignment.show}`);
@@ -283,7 +264,6 @@ async function leaveAssignment(req, res, status) {
     }
     res.json({ entry, availableShows: user?.availableShows || [] });
   } catch (error) {
-    // logging failed: put the assignment back so the volunteer does not silently lose their place
     const restored = assignment.toObject();
     restored.school = assignment.school?._id;
     await Assignments.restore(restored);
@@ -291,7 +271,8 @@ async function leaveAssignment(req, res, status) {
   }
 }
 
-// PATCH /api/assignments/:id/decline -- logged in volunteer declines a pending assignment
+// declineMyAssignment (PATCH /:id/decline) - runs leaveAssignment with status "Declined"; any thrown
+// error becomes a 500.
 exports.declineMyAssignment = async (req, res) => {
   try {
     await leaveAssignment(req, res, "Declined");
@@ -300,7 +281,8 @@ exports.declineMyAssignment = async (req, res) => {
   }
 };
 
-// PATCH /api/assignments/:id/withdraw -- logged in volunteer withdraws from an accepted assignment
+// withdrawMyAssignment (PATCH /:id/withdraw) - runs leaveAssignment with status "Withdrawn"; any
+// thrown error becomes a 500.
 exports.withdrawMyAssignment = async (req, res) => {
   try {
     await leaveAssignment(req, res, "Withdrawn");

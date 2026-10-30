@@ -1,52 +1,42 @@
-<!--
-  HomeView.vue — Heartware Ops landing page
-  Vue 3 (Composition API) + Bootstrap 5.3
-  No navbar in this file: the page sits under your app's own navbar.
+<!-- The home (landing) page: hero, features, showcase videos and the call-to-action buttons. -->
 
-  On laptops, the headline, video and live drill all fit on the first screen:
-  headline and drill on the left, the video filling the right side.
-  If your navbar is taller or shorter than 72px, change --hw-nav-h below.
-
-  Needs, in main.js (as in the Week 5 slides):
-    import 'bootstrap/dist/css/bootstrap.min.css'
-    import 'bootstrap/dist/js/bootstrap.bundle.min.js'
-  Fonts (Barlow Condensed + Instrument Sans): see the note at the top of the <style> block.
--->
 <script setup>
-import { ref, onMounted, onUnmounted } from 'vue'
-import { RouterLink } from 'vue-router' // (useRouter no longer needed: the links use named routes)
-import FireworksSky from '@/components/landing/FireworksSky.vue' // moved into components/landing/ with the other homepage components
-import VideoShowcase from '@/components/landing/VideoShowcase.vue' // moved into components/landing/ with the other homepage components
-import FeatureFlipCard from '@/components/landing/FeatureFlipCard.vue' // click-to-flip card that cycles through our features
+// Handles the page tap that fires fireworks, the burst events, the reduced-motion setting and the
+// sticky-header observer.
 
-// ---- Where the "Sign up to volunteer" and "Log in" buttons go ----
-// FIX (C20): link straight to the named routes (see router/index.js) instead of guessing from the path text.
-// The old fallback '/signup' is not a real page, so a wrong guess gave a 404.
+import { ref, onMounted, onUnmounted } from 'vue'
+import { RouterLink } from 'vue-router'
+import FireworksSky from '@/components/landing/FireworksSky.vue'
+import VideoShowcase from '@/components/landing/VideoShowcase.vue'
+import FeatureFlipCard from '@/components/landing/FeatureFlipCard.vue'
+
 const loginPath = { name: 'login' }
 const signupPath = { name: 'register' }
 
 const titleWords = ['NE', 'Show']
 const mottoWords = ['Success', 'and', 'Safety', 'Always']
 
-// template refs
 const sky = ref(null)
 const topSection = ref(null)
 
-// click or tap anywhere on the page to launch a firework
-// (uses "click", not "pointerdown", so scrolling on a phone doesn't set one off)
+// onPageTap(event) - a click or tap anywhere on the page launches a firework there, except on a video,
+// input, textarea or select. It uses "click" (not pointerdown) so scrolling on a phone does not fire
+// one.
 function onPageTap(event) {
   if (event.target.closest('video, input, textarea, select')) return
   sky.value?.launchAt(event.clientX, event.clientY)
 }
 
-// ---- Headline pulses in time with the fireworks ----
-const wordEls = [] // the headline words, filled by function refs in the template
+const wordEls = []
 const topInView = ref(true)
 const titleRevealed = ref(false)
 let reduceMotion = false
 
-// when a firework explodes, each word expands, glows in the firework's colour and
-// shrinks back; words closer to the burst react first, like a shockwave
+// onBurst({ x, y, color }) - runs when a firework explodes. 1) stop if the top screen is off screen or
+// reduced motion is on 2) for each headline word measure the distance from its centre to the burst 3)
+// cancel any pulse still running on it 4) animate it: grow to 1.08 with a glow in the firework's
+// colour, dip to 0.98, return to 1 (900 ms), starting after a delay that grows with distance (max 450
+// ms), so the pulse spreads like a shockwave.
 function onBurst({ x, y, color }) {
   if (!topInView.value || reduceMotion) return
   wordEls.forEach((el) => {
@@ -72,14 +62,14 @@ function onBurst({ x, y, color }) {
 
 let topObserver = null
 
+// onMounted - 1) read the reduced-motion setting 2) after 2 seconds drop the clip mask on the words so
+// the glow is not cut off 3) start an IntersectionObserver: the top screen counts as "in view" when at
+// least 25% is visible. Ambient fireworks and the pulse only run while it is.
 onMounted(() => {
   reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
-  // once the words have risen in, drop their mask so the pulse and glow aren't clipped
   setTimeout(() => (titleRevealed.value = true), 2000)
 
-  // ambient fireworks and the headline pulse only run while the top section is on screen
-  // (use the latest entry: the browser can deliver several at once while the page is loading)
   topObserver = new IntersectionObserver(
     (entries) => {
       topInView.value = entries[entries.length - 1].intersectionRatio >= 0.25
@@ -89,21 +79,18 @@ onMounted(() => {
   topObserver.observe(topSection.value)
 })
 
+// onUnmounted - stop the observer.
 onUnmounted(() => {
   topObserver?.disconnect()
 })
 </script>
 
 <template>
+  <!-- The hero, the feature cards, the video showcase and the footer call to action. -->
   <div class="hw-page" data-bs-theme="dark" @click="onPageTap">
-    <!-- Top screen (your own navbar sits above this page) -->
     <section id="top" ref="topSection" class="hw-top">
       <div class="hw-horizon" aria-hidden="true"></div>
 
-      <!--
-        Laptops: headline and drill on the left, video filling the right side.
-        Phones: headline, then video, then drill.
-      -->
       <div class="container hw-top-inner hw-top-grid">
         <div class="hw-intro">
           <h1 class="hw-title">
@@ -138,7 +125,6 @@ onUnmounted(() => {
           </p>
 
           <div class="d-flex flex-wrap align-items-center gap-3 hw-fade" style="--d: 1050ms">
-            <!-- E2E: data-testid="cta-register" / "cta-login" let Playwright find these two buttons (see e2e/f1-home-login-register.spec.js, test 1) -->
             <RouterLink
               :to="signupPath"
               data-testid="cta-register"
@@ -155,49 +141,29 @@ onUnmounted(() => {
           <VideoShowcase fill />
         </div>
 
-        <!-- Live drill -->
         <div id="drill" class="hw-drill">
           <h2 class="hw-drill-title">What Heartware Ops does</h2>
           <FeatureFlipCard />
-          <!-- replaces the old checkpoint drill card -->
         </div>
       </div>
 
-      <!-- bottom centre of the screen ("Tap" on phones and tablets) -->
       <p class="hw-sky-hint">
         <span class="hint-click">Click</span><span class="hint-tap">Tap</span> anywhere to launch a
         firework
       </p>
     </section>
 
-    <!-- Fireworks layer: covers the whole screen, clicks pass through it -->
     <FireworksSky ref="sky" :ambient="topInView" @burst="onBurst" />
   </div>
 </template>
 
-<!--
-  Shared styles for this page and its components (not scoped, but every
-  selector starts with .hw-page so nothing leaks into the rest of the app).
-
-  Fonts: add ONE of these
-    a) pnpm add @fontsource/barlow-condensed @fontsource/instrument-sans
-       then in main.js:
-         import '@fontsource/barlow-condensed/700.css'
-         import '@fontsource/barlow-condensed/800.css'
-         import '@fontsource/instrument-sans/400.css'
-         import '@fontsource/instrument-sans/600.css'
-    b) or in index.html <head>:
-       <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@700;800&family=Instrument+Sans:wght@400;600&display=swap" rel="stylesheet">
--->
 <style>
+/* Styles for the landing page: the dark #070b1a background, hero text, cards and animations. */
+
 .hw-page {
-  /* FIX (U9): the real navbar is 56px (was 72px), so the first screen now fits exactly below it */
   --hw-nav-h: 56px;
 
-  /* design tokens */
-  --hw-night: var(--hw-bg); /* was #070b1a; now reads the app-wide page colour (main.css) so there is one source of truth */
-  /* FIX (U9): --hw-navy, --hw-red and --hw-muted are no longer redefined here; they come from main.css,
-     so the landing page uses the same colours as every other page */
+  --hw-night: var(--hw-bg);
   --hw-line: rgba(244, 246, 251, 0.1);
   --hw-red-hot: #ff4d5a;
   --hw-white: #f4f6fb;
@@ -205,7 +171,6 @@ onUnmounted(() => {
   --hw-display: 'Barlow Condensed', 'Arial Narrow', sans-serif;
   --hw-body: 'Instrument Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
 
-  /* Bootstrap overrides via its CSS variables */
   --bs-body-bg: var(--hw-night);
   --bs-body-color: var(--hw-white);
   --bs-body-font-family: var(--hw-body);
@@ -218,7 +183,6 @@ onUnmounted(() => {
   overflow-x: clip;
 }
 
-/* Custom Bootstrap button variants */
 .hw-page .btn-hw {
   --bs-btn-color: #fff;
   --bs-btn-bg: var(--hw-red);
@@ -252,7 +216,6 @@ onUnmounted(() => {
   font-weight: 600;
 }
 
-/* a beam of light sweeps across on hover */
 .hw-page .btn-shine {
   position: relative;
   overflow: hidden;
@@ -295,25 +258,23 @@ onUnmounted(() => {
 </style>
 
 <style scoped>
-/* ---------- Top screen ---------- */
+/* Styles for the landing page: the dark #070b1a background, hero text, cards and animations. */
+
 .hw-top {
-  /* the space left under your navbar */
   --hw-avail: calc(100vh - var(--hw-nav-h));
   position: relative;
   padding: 2rem 0 2.5rem;
   background:
     radial-gradient(60% 45% at 85% 0%, rgba(42, 58, 120, 0.55), transparent 70%),
-    linear-gradient(180deg, var(--hw-navy) 0%, var(--hw-night) 55%); /* top edge now equals the navbar colour, so there is no seam */
+    linear-gradient(180deg, var(--hw-navy) 0%, var(--hw-night) 55%);
   isolation: isolate;
 }
 
-/* everything sits above the background glow */
 .hw-top-inner {
   position: relative;
   z-index: 1;
 }
 
-/* warm parade glow behind the lower half */
 .hw-horizon {
   position: absolute;
   inset: auto 0 0 0;
@@ -323,7 +284,6 @@ onUnmounted(() => {
   z-index: 0;
 }
 
-/* ---------- Headline ---------- */
 .hw-title {
   font-family: var(--hw-display);
   font-weight: 800;
@@ -343,19 +303,16 @@ onUnmounted(() => {
   margin-top: 0.25rem;
 }
 
-/* each word rises up out of a mask */
 .w {
   display: inline-block;
   margin-right: 0.24em;
   clip-path: inset(-30% -20% -4% -20%);
 }
 
-/* after the rise-in, the mask comes off so the firework pulse and glow can spill out */
 .w.revealed {
   clip-path: none;
 }
 
-/* the part that expands and shrinks with each firework (animated from the script) */
 .w-pulse {
   display: inline-block;
   transform-origin: 50% 70%;
@@ -367,7 +324,6 @@ onUnmounted(() => {
   user-select: none;
 }
 
-/* motto words: red, with a gold light sweep that repeats */
 .hw-title-motto .w-in {
   color: var(--hw-red);
   background: linear-gradient(100deg, var(--hw-red) 40%, #ffe3a3 50%, var(--hw-red) 60%) 100% 0 /
@@ -418,7 +374,6 @@ onUnmounted(() => {
   }
 }
 
-/* phones: centred under the drill; laptops: pinned to the bottom centre (see the media query) */
 .hw-sky-hint {
   position: relative;
   z-index: 1;
@@ -434,7 +389,6 @@ onUnmounted(() => {
   display: none;
 }
 
-/* touch screens say "Tap" instead of "Click" */
 @media (hover: none) {
   .hint-click {
     display: none;
@@ -444,14 +398,11 @@ onUnmounted(() => {
   }
 }
 
-/* ---------- Layout ---------- */
-/* phones: one column (headline, video, drill); laptops: see the media query below */
 .hw-top-grid {
   display: grid;
   gap: 2rem;
 }
 
-/* ---------- Live drill ---------- */
 .hw-drill {
   scroll-margin-top: 1rem;
 }
@@ -466,13 +417,11 @@ onUnmounted(() => {
   margin-bottom: 0.85rem;
 }
 
-/* ---------- Laptops: fit everything into one screen ---------- */
 @media (min-width: 992px) {
   .hw-top {
     min-height: var(--hw-avail);
     display: flex;
     align-items: center;
-    /* extra room at the bottom for the firework hint */
     padding: clamp(1rem, 2.5vh, 2rem) 0 calc(clamp(1rem, 2.5vh, 2rem) + 1.6rem);
   }
 
@@ -484,7 +433,6 @@ onUnmounted(() => {
     margin: 0;
   }
 
-  /* sizes follow the screen height as well as the width */
   .hw-title-show {
     font-size: clamp(3.4rem, min(5.6vw, calc(var(--hw-avail) * 0.12)), 5.8rem);
   }
@@ -497,18 +445,12 @@ onUnmounted(() => {
     margin-bottom: clamp(0.6rem, 1.5vh, 1rem);
   }
 
-  /* one line on laptops, which leaves room for a bigger headline */
   .hw-sub {
     max-width: none;
     font-size: 1rem;
     margin-bottom: clamp(0.75rem, 2vh, 1.25rem);
   }
 
-  /*
-    headline top-left, drill bottom-left, video filling the whole right side:
-      [ intro ] [       ]
-      [ drill ] [ video ]
-  */
   .hw-top-grid {
     grid-template-columns: minmax(0, 11fr) minmax(0, 9fr);
     grid-template-areas:
@@ -536,7 +478,6 @@ onUnmounted(() => {
   }
 }
 
-/* ---------- Motion preferences ---------- */
 @media (prefers-reduced-motion: reduce) {
   .w-in,
   .hw-title-motto .w-in,

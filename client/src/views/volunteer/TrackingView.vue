@@ -1,10 +1,16 @@
+<!-- The volunteer Tracking page (F4): shows the volunteer on a map, shares their location with HQ,
+     draws the route and lets them move through the journey stages. -->
+
 <script setup>
+// Watches the GPS, sends the position to the server, glides the marker and heading cone, draws and
+// re-draws the route, works out the journey stage and time left, and handles the stage buttons.
+
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import BaseMap from '@/components/map/BaseMap.vue'
 import { getSavedShow, saveShow } from '@/services/selected-show'
 import MapLoading from '@/components/map/MapLoading.vue'
 import MapNotice from '@/components/map/MapNotice.vue'
-import IncidentReportForm from '@/components/incident/IncidentReportForm.vue' //incident report form is added to the tracking page
+import IncidentReportForm from '@/components/incident/IncidentReportForm.vue'
 import axios from 'axios'
 import polyline from '@mapbox/polyline'
 import {
@@ -24,24 +30,19 @@ import {
   getUserLocation,
 } from '@/utils/geolocation'
 
-/* ------------------------------------------------------------------ */
-/* Settings                                                            */
-/* ------------------------------------------------------------------ */
-const DEST = VENUES['Padang'] // destination { lat, lng }
-const GLIDE_MS = 1000 // how long the marker takes to glide between GPS fixes
-const BIG_JUMP_M = 500 // jumps larger than this snap instead of gliding
-const REROUTE_M = 10 // re-fetch the route after moving this many metres
-const HEADING_MIN_MOVE_M = 5 // ignore GPS jitter smaller than this when computing heading
-const DISPLAY_MAX_ACCURACY_M = 50 // NEW: fixes less accurate than this (in metres) won't move the pin
-const REPORT_MOVE_M = 25 // send to the server after moving this far...
-const REPORT_HEARTBEAT_MS = 30000 // ...or after this long without sending, 30s
-const STILL_REFRESH_MS = 25000 // standing still: ask for a fresh reading after this long without a GPS update
-const REPORT_MIN_GAP_MS = 6000 // never send twice within this time (the server rejects updates closer than 5 s with a 429)
-const REPORT_MAX_ACCURACY_M = 100 // skip fixes less accurate than this
-const REPORT_MAX_FIX_AGE_MS = 120000 // don't re-send a fix older than this
+const DEST = VENUES['Padang']
+const GLIDE_MS = 1000
+const BIG_JUMP_M = 500
+const REROUTE_M = 10
+const HEADING_MIN_MOVE_M = 5
+const DISPLAY_MAX_ACCURACY_M = 50
+const REPORT_MOVE_M = 25
+const REPORT_HEARTBEAT_MS = 30000
+const STILL_REFRESH_MS = 25000
+const REPORT_MIN_GAP_MS = 6000
+const REPORT_MAX_ACCURACY_M = 100
+const REPORT_MAX_FIX_AGE_MS = 120000
 
-// Phones/tablets have a coarse (finger) primary pointer; desktops don't.
-// Used to show the heading cone only on devices that can report a direction.
 const showHeading = window.matchMedia('(pointer: coarse)').matches
 
 const MODES = [
@@ -49,54 +50,59 @@ const MODES = [
   { key: 'walk', label: 'Walk', icon: 'bi-person-walking', verb: 'Walking' },
 ]
 
-/* ------------------------------------------------------------------ */
-/* Vue state (reactive, used by the template)                          */
-/* ------------------------------------------------------------------ */
-const geoError = ref('') // location problem (permission denied, timeout, ...)
-const routeError = ref('') // route could not be loaded
-const showTrackingInfo = ref(false) // brief "tracking is on" message
-const location = ref(null) // latest position: { lat, lng, accuracy }
-const routeInfo = ref(null) // last fetched route summary: { minutes, km }
-const following = ref(true) // true = map camera follows the user's marker
-const travelMode = ref('drive') // 'drive' or 'walk'
-const loadingRoute = ref(false) // shows the "Fetching Routes..." overlay
+const geoError = ref('')
+const routeError = ref('')
+const showTrackingInfo = ref(false)
+const location = ref(null)
+const routeInfo = ref(null)
+const following = ref(true)
+const travelMode = ref('drive')
+const loadingRoute = ref(false)
 const routeBusy = ref(false)
 const toast = ref(null)
-const reporting = ref(true) // turns false if the server says this volunteer isn't tracked
-const showIncidentReport = ref(false) // F4: true = the incident report card is open over the map
+const reporting = ref(true)
+const showIncidentReport = ref(false)
 
+// activeMode (computed) - the MODES entry of the chosen travel mode.
 const activeMode = computed(() => MODES.find((m) => m.key === travelMode.value))
 
-/* My accepted shows */
-const assignments = ref([]) // accepted shows: [{ show, school: { name, p5Classes } | null }]
-const assignStatus = ref('loading') // 'loading' | 'ready' | 'error'
-const selectedShow = ref('') // the show whose school is displayed
-watch(selectedShow, (s) => s && saveShow(s)) // remember the pick for this session
+const assignments = ref([])
+const assignStatus = ref('loading')
+const selectedShow = ref('')
+// watch(selectedShow) - whenever the volunteer picks a show, remember the choice by saving it.
+watch(selectedShow, (s) => s && saveShow(s))
 
+// currentAssignment (computed) - the assignment of the selected show, or null.
+// watch(currentAssignment) redraws the school marker when the selection changes.
 const currentAssignment = computed(
   () => assignments.value.find((a) => a.show === selectedShow.value) ?? null,
 )
 
-watch(currentAssignment, drawSchool) // tapping a pill (or the list loading) redraws the school
+// watch(currentAssignment) - when the current assignment changes, redraw the school pin on the map.
+watch(currentAssignment, drawSchool)
 
-/* Journey: which of the 8 checkpoints the volunteer has clocked today for the selected show */
-const stageBusy = ref(false) // true while a checkpoint request is running (buttons are disabled)
-const stageError = ref('') // set when a checkpoint could not be saved
-const currentStage = computed(() => currentAssignment.value?.stage ?? 0) // 0 = not started, 8 = dismissed
+const stageBusy = ref(false)
+const stageError = ref('')
+// currentStage (computed) - how many journey steps are done for the current assignment (0 if none).
+const currentStage = computed(() => currentAssignment.value?.stage ?? 0)
+// dayEnded (computed) - true once every journey step has been done.
 const dayEnded = computed(() => currentStage.value >= JOURNEY_STAGES.length)
-const nextStage = computed(() => JOURNEY_STAGES[currentStage.value] ?? null) // the checkpoint the big button clocks (null after Dismissal)
-const lastStage = computed(() => JOURNEY_STAGES[currentStage.value - 1] ?? null) // the checkpoint "Undo" would remove
+// nextStage (computed) - the next journey step to do, or null when the day is over.
+const nextStage = computed(() => JOURNEY_STAGES[currentStage.value] ?? null)
+// lastStage (computed) - the journey step done most recently, or null if none yet.
+const lastStage = computed(() => JOURNEY_STAGES[currentStage.value - 1] ?? null)
+// journeyLeg (computed) - the label and icon for the current leg: "Day complete", "Going to Padang" or
+// "Returning to school".
 const journeyLeg = computed(() => {
   if (currentStage.value >= JOURNEY_STAGES.length)
     return { text: 'Day complete', icon: 'bi-check-circle-fill' }
-  // The leg follows the NEXT checkpoint: 1-4 are on the way to Padang, 5-8 on the way back
   return nextStage.value.leg === 'out'
     ? { text: 'Going to Padang', icon: 'bi-arrow-right-circle-fill' }
     : { text: 'Returning to school', icon: 'bi-arrow-left-circle-fill' }
 })
 
-// Where the route goes: Padang on the way there, the volunteer's allocated school from "Reached Padang" onwards
-// (the same moment the journey switches to "Returning to school"). Falls back to Padang if the school has no coordinates.
+// routeTarget (computed) - where the route goes: Padang on the way there, the allocated school from
+// checkpoint 4 ("Reached Padang") onwards; falls back to Padang if the school has no coordinates.
 const routeTarget = computed(() => {
   const school = currentAssignment.value?.school
   if (currentStage.value >= 4 && school?.lat != null && school?.lng != null) {
@@ -105,11 +111,14 @@ const routeTarget = computed(() => {
   return { lat: DEST.lat, lng: DEST.lng, name: 'Padang' }
 })
 
-// The destination changed (stage 4 reached or undone, another show picked, undo back to the outbound leg): fetch the new route
+// watch(routeTarget) - when the destination really changes (stage 4 reached or undone, another show
+// picked) fetch the new route.
 watch(routeTarget, (now, before) => {
   if (now.lat !== before.lat || now.lng !== before.lng) drawRoute(false, true)
 })
 
+// watch(dayEnded) - when the day ends cancel any route request, remove the line, clear the route info
+// and the loading flags; if the day is un-ended (Undo) draw the route again.
 watch(dayEnded, (ended) => {
   if (!map) return
   if (ended) {
@@ -126,28 +135,29 @@ watch(dayEnded, (ended) => {
   }
 })
 
-// The journey row has 4 dots that play twice: left to right on the way to Padang (stages 1-4), then in reverse on the
-// way back (stages 5-8, where dot 4 = Leaving Padang ... dot 1 = Dismissal). This works out each dot's look for the
-// current stage. A dot's left-hand line is the line between it and the previous dot.
+// journeyReturning (computed) - true during the return leg (stages 4 to 7).
 const journeyReturning = computed(
   () => currentStage.value >= 4 && currentStage.value < JOURNEY_STAGES.length,
 )
+// journeyDots (computed) - works out how each of the 4 dots looks for the current stage. The 4 dots
+// play twice: left to right to Padang (stages 1-4), then in reverse on the way back. For each dot it
+// returns its label, title and CSS classes: out and back (reached), link-out and link-back (the line
+// before it is coloured), next (pulses), flow-fwd and flow-back (the animating line).
 const journeyDots = computed(() => {
   const st = currentStage.value
-  const back = st >= 4 // from "Reached Padang" on, the next checkpoints belong to the return leg
-  const nextPos = st >= 8 ? 0 : back ? 8 - st : st + 1 // the dot the next checkpoint lights up (pulses)
-  // The line that is animating: it belongs to the dot on its right
+  const back = st >= 4
+  const nextPos = st >= 8 ? 0 : back ? 8 - st : st + 1
   const flowDot = st >= 8 ? 0 : back ? Math.min(3, 8 - st) + 1 : st + 1
   return [1, 2, 3, 4].map((d) => {
-    const stageForDot = back ? JOURNEY_STAGES[8 - d] : JOURNEY_STAGES[d - 1] // what this dot stands for in the current leg
+    const stageForDot = back ? JOURNEY_STAGES[8 - d] : JOURNEY_STAGES[d - 1]
     const reachedNow = back ? st >= 9 - d && st >= 5 : st >= d
     return {
       pos: d,
       label: stageForDot.label + (reachedNow ? ' (done)' : ''),
       title: stageForDot.label,
       classes: {
-        out: st >= d, // reached on the way to Padang
-        back: st >= 5 && st >= 9 - d, // reached on the way back
+        out: st >= d,
+        back: st >= 5 && st >= 9 - d,
         'link-out': d >= 2 && st >= d,
         'link-back': d >= 2 && st >= 10 - d,
         next: d === nextPos,
@@ -158,8 +168,11 @@ const journeyDots = computed(() => {
   })
 })
 
-// Sends one stage change and applies the server's answer to the selected assignment.
-// 409 = the server's stage differs from ours (double tap, second phone, new day): we just take the server's stage.
+// sendStage(assignment, request) - sends one checkpoint change and applies the server's answer. 1)
+// ignore if a request is running 2) show busy and clear the error 3) call the request 4) store the new
+// stage and history on the assignment 5) onStageChanged shows the toast 6) a 409 means our stage
+// differs from the server's (double tap, second phone, new day): take the server's stage 7) any other
+// error shows a message 8) always clear busy.
 async function sendStage(assignment, request) {
   if (stageBusy.value) return
   stageBusy.value = true
@@ -182,12 +195,15 @@ async function sendStage(assignment, request) {
   }
 }
 
+// showToast(text, icon, tone) - shows the small checkpoint message for 2.6 seconds.
 function showToast(text, icon, tone) {
   toast.value = { text, icon, tone }
   clearTimeout(toastTimer)
   toastTimer = setTimeout(() => (toast.value = null), 2600)
 }
 
+// onStageChanged(before, after) - forward: toast with the checkpoint name (or "Day complete"), a ring
+// pulse on the marker and a short vibration; backward: toast "Checkpoint removed".
 function onStageChanged(before, after) {
   if (after === before) return
   if (after > before) {
@@ -205,25 +221,29 @@ function onStageChanged(before, after) {
   }
 }
 
+// pulseRing() - adds a short-lived ring element to the user's marker (removed when its animation ends,
+// or after 1.5 s).
 function pulseRing() {
   const el = myMarker?.getElement()
   if (!el) return
   const ring = document.createElement('span')
   ring.className = 'checkpoint-ring' + (journeyReturning.value ? ' back' : '')
   el.appendChild(ring)
+  // remove - small helper that removes the pulsing ring from the map.
   const remove = () => ring.remove()
   ring.addEventListener('animationend', remove, { once: true })
   setTimeout(remove, 1500)
 }
 
-// Big button: clock the next checkpoint
+// advanceStage() - the big button: clock the next checkpoint (PUT stage + 1). Ignored when the day is
+// complete.
 function advanceStage() {
   const a = currentAssignment.value
   if (!a || a.stage >= JOURNEY_STAGES.length) return
   sendStage(a, () => axios.put('/api/assignments/me/stage', { show: a.show, stage: a.stage + 1 }))
 }
 
-// Undo link: go back one checkpoint (as many times as needed)
+// undoStage() - the Undo link: DELETE the last checkpoint (can be repeated).
 function undoStage() {
   const a = currentAssignment.value
   if (!a || a.stage < 1) return
@@ -232,11 +252,10 @@ function undoStage() {
   )
 }
 
-/* Tracking and sharing status */
-const trackingOn = ref(false) // true once location tracking has started (needs an accepted show)
-const lastSentAt = ref(0) // time of the last successful send to the server
-const clock = ref(Date.now()) // ticks every 5 s so the pill notices when sends stop
-const SHARE_FRESH_MS = 90000 // counts as "sharing" while the last send is newer than this
+const trackingOn = ref(false)
+const lastSentAt = ref(0)
+const clock = ref(Date.now())
+const SHARE_FRESH_MS = 90000
 
 const SHARE_LABELS = {
   sharing: 'Sharing location',
@@ -245,16 +264,17 @@ const SHARE_LABELS = {
   waiting: 'Connecting…',
 }
 
-// Which pill to show (null = none)
+// shareStatus (computed) - which pill to show: none when not tracking; 'blocked' for a location error;
+// 'off' when the server stopped us; 'sharing' when a send was recent; otherwise 'waiting'.
 const shareStatus = computed(() => {
-  if (!trackingOn.value) return null // not tracking at all
+  if (!trackingOn.value) return null
   if (geoError.value) return 'blocked'
   if (!reporting.value) return 'off'
   if (lastSentAt.value && clock.value - lastSentAt.value < SHARE_FRESH_MS) return 'sharing'
   return 'waiting'
 })
 
-// Tooltip text for the pill
+// shareHint (computed) - the tooltip text for the pill.
 const shareHint = computed(
   () =>
     ({
@@ -265,8 +285,12 @@ const shareHint = computed(
     })[shareStatus.value] ?? '',
 )
 
-// The blur overlay: shown once the shows are known and there is no accepted one
+// showNoShows / noShows (computed) - the blurred "No allocated shows yet" overlay (or "Could not load
+// your shows" on error) shown once the shows are known and none is accepted.
 const showNoShows = computed(() => assignStatus.value !== 'loading' && !assignments.value.length)
+// noShows (computed) - the empty-state message when there are no shows: a "could not load" message if
+// the allocation check failed, otherwise "No allocated shows yet" telling the volunteer to accept a
+// show.
 const noShows = computed(() =>
   assignStatus.value === 'error'
     ? {
@@ -281,17 +305,18 @@ const noShows = computed(() =>
       },
 )
 
-// Loads the volunteer's accepted shows. They follow the order of availableShows,
-// and the first one is selected by default.
-// Loads the volunteer's allocations, keeps the accepted ones in order (NE Show 1, 2, 3, 4).
-// The first one is selected by default.
+// loadAssignments() - 1) GET my assignments 2) keep only Accepted ones, sorted by show number (NE Show
+// 1, 2, 3, 4) 3) reopen on the show picked earlier this session if still accepted, otherwise the first
+// 4) mark ready 5) on any error mark 'error'. Loads the volunteer's accepted shows. They follow the
+// order of availableShows, and the first one is selected by default. Loads the volunteer's
+// allocations, keeps the accepted ones in order (NE Show 1, 2, 3, 4). The first one is selected by
+// default.
 async function loadAssignments() {
   try {
-    const res = await axios.get('/api/assignments/me') // Fetch all assignments allocated to current logged in user
+    const res = await axios.get('/api/assignments/me')
     assignments.value = res.data
       .filter((a) => a.status === 'Accepted')
       .sort((a, b) => a.show.localeCompare(b.show, undefined, { numeric: true }))
-    // reopen on the show picked earlier this session if the volunteer has accepted it, else the first one
     const saved = getSavedShow()
     selectedShow.value = assignments.value.some((a) => a.show === saved)
       ? saved
@@ -302,7 +327,8 @@ async function loadAssignments() {
   }
 }
 
-// The single message shown in the popup. Errors take priority over the info message.
+// notice (computed) - the single popup message. Priority: location error, route error, checkpoint
+// error, then the info "Location tracking is on".
 const notice = computed(() => {
   if (geoError.value) {
     return {
@@ -339,15 +365,12 @@ const notice = computed(() => {
   return null
 })
 
-/* ------------------------------------------------------------------ */
-/* Non-reactive state (Leaflet objects and bookkeeping)                */
-/* ------------------------------------------------------------------ */
 let map = null
-let L = null // Leaflet library, passed in by BaseMap
-let volunteerLayer = null // layer group holding the markers
-let meIcon = null // blue dot icon for the user
-let myMarker = null // the user's marker
-let routeLine = null // the drawn route polyline
+let L = null
+let volunteerLayer = null
+let meIcon = null
+let myMarker = null
+let routeLine = null
 let routeCasing = null
 let revealFrame = null
 let previewing = false
@@ -356,37 +379,35 @@ let pendingShow = null
 let recenterTimer = null
 let recenterFlying = false
 let toastTimer = null
-let routeRenderer = null // shared canvas renderer for route lines
-let routeLabel = null // "xx min" pill sitting on the route
-let schoolMarker = null // badge for the allocated school of the selected show
+let routeRenderer = null
+let routeLabel = null
+let schoolMarker = null
 
-let firstFix = true // true until the first GPS position arrives
-let lastRouteLoc = null // where the route was last fetched from
-let animFrame = null // id of the running glide animation
-let recentering = false // true while the recenter pan is animating
-let heading = null // degrees clockwise from north, null if unknown
-let prevFix = null // last position used for the bearing fallback
-let shownHeading = null // NEW: the angle currently drawn on the cone, so it can turn smoothly
-let routeBase = null // snapshot of the last route, used for live estimates
-let routeRequestId = 0 // guards against slow responses overwriting newer ones
-let lastFixAt = 0 // time the latest GPS fix arrived
-let lastReported = null // { lat, lng, time } of the last position sent to the server
-let reportInFlight = false // true while a send is in progress
-let refreshing = false // true while a still-position refresh is running
-let lastAttemptAt = 0 // time the last send was started (successful or not)
-let reportTimer = null // interval that sends the heartbeat
-let catchUp = false // true = send the next fix straight away (set when the tab becomes visible again)
+let firstFix = true
+let lastRouteLoc = null
+let animFrame = null
+let recentering = false
+let heading = null
+let prevFix = null
+let shownHeading = null
+let routeBase = null
+let routeRequestId = 0
+let lastFixAt = 0
+let lastReported = null
+let reportInFlight = false
+let refreshing = false
+let lastAttemptAt = 0
+let reportTimer = null
+let catchUp = false
 
-/* ------------------------------------------------------------------ */
-/* Distance and direction helpers                                      */
-/* ------------------------------------------------------------------ */
-
-// Straight-line distance in metres between two { lat, lng } points (haversine)
+// distanceMeters(a, b) - straight-line distance between two points in metres.
 const distanceMeters = (a, b) => haversineKm(a, b) * 1000
 
-// Compass bearing in degrees (0 = north, 90 = east) from point a to point b
+// bearingDeg(a, b) - compass bearing from a to b in degrees (0 north, 90 east).
 function bearingDeg(a, b) {
+  // toRad(d) - converts degrees to radians.
   const toRad = (d) => (d * Math.PI) / 180
+  // toDeg(r) - converts radians to degrees.
   const toDeg = (r) => (r * 180) / Math.PI
   const dLng = toRad(b.lng - a.lng)
   const y = Math.sin(dLng) * Math.cos(toRad(b.lat))
@@ -396,13 +417,12 @@ function bearingDeg(a, b) {
   return (toDeg(Math.atan2(y, x)) + 360) % 360
 }
 
-/* ------------------------------------------------------------------ */
-/* Map icons                                                           */
-/* ------------------------------------------------------------------ */
-
-// Point halfway along the route's length (not just the middle vertex)
+// routeMidpoint(coords) - the point halfway along the route's LENGTH (not just the middle vertex): add
+// up the segment lengths, then walk until half is reached and interpolate inside that segment. Used to
+// place the "xx min" pill.
 function routeMidpoint(coords) {
   if (coords.length < 2) return coords[0]
+  // segLen(i) - length of route segment i, between point i-1 and point i, in metres.
   const segLen = (i) => L.latLng(coords[i - 1]).distanceTo(coords[i])
 
   let total = 0
@@ -421,15 +441,16 @@ function routeMidpoint(coords) {
   return coords[0]
 }
 
-// Create the label on first call, then move and refresh it on later calls
+// placeRouteLabel(coords, minutes) - creates the "xx min" pill on first call, then moves it and
+// refreshes its text on later calls.
 function placeRouteLabel(coords, minutes) {
   const pos = routeMidpoint(coords)
   if (!routeLabel) {
     routeLabel = L.marker(pos, {
       icon: createRouteLabelIcon(minutes),
-      interactive: false, // clicks pass through to the map
+      interactive: false,
       keyboard: false,
-      zIndexOffset: -100, // stays below your dot and the flag
+      zIndexOffset: -100,
     }).addTo(volunteerLayer)
   } else {
     routeLabel.setLatLng(pos)
@@ -437,11 +458,8 @@ function placeRouteLabel(coords, minutes) {
   }
 }
 
-/* ------------------------------------------------------------------ */
-/* Map setup                                                           */
-/* ------------------------------------------------------------------ */
-
-// Shows the allocated school of the selected show. The camera is never moved.
+// drawSchool() - replaces the school marker with the allocated school of the selected show (with a
+// hover tooltip). The camera never moves.
 function drawSchool() {
   if (!map) return
 
@@ -460,12 +478,14 @@ function drawSchool() {
   )
 }
 
-// Runs once BaseMap has created the map: sets up layers, the destination
-// marker, and draws anything we already have a location for.
+// onMapReady(m, leaflet) - BaseMap is ready. 1) keep map and L 2) make a shared canvas renderer for
+// the route 3) make the marker layer 4) add the Padang flag marker 5) move the zoom buttons to the
+// bottom right 6) dragging the map turns off "following" 7) tapping the map closes the sheet 8) draw
+// my marker, the route and the school if we already have data.
 function onMapReady(m, leaflet) {
   map = m
   L = leaflet
-  routeRenderer = L.canvas() // reused so the route stays visible during zoom animations
+  routeRenderer = L.canvas()
   volunteerLayer = L.layerGroup().addTo(map)
   meIcon = createDotIcon()
 
@@ -474,25 +494,23 @@ function onMapReady(m, leaflet) {
   )
   bindTip(destMarker, tipCard({ icon: 'bi-flag-fill', tone: 'dest', title: 'Padang' }))
 
-  map.zoomControl?.setPosition('bottomright') // move +/- buttons to the bottom right
+  map.zoomControl?.setPosition('bottomright')
+  // map dragstart - when the user drags the map by hand, stop following their position, cancel any
+  // pending re-centre and finish any route preview.
   map.on('dragstart', () => {
     following.value = false
     clearTimeout(recenterTimer)
     recenterFlying = false
     flushPreview(true)
   })
-  map.on('click', collapseSheet) // tapping / clicking the map closes the bottom sheet
+  map.on('click', collapseSheet)
   drawMyMarker(true)
   drawRoute(false, false)
   drawSchool()
 }
 
-/* ------------------------------------------------------------------ */
-/* User marker                                                         */
-/* ------------------------------------------------------------------ */
-
-// Creates the user's marker on the first call, then glides it to the latest
-// position. Pass shouldCenter = true to also center the map on the user.
+// drawMyMarker(shouldCenter) - creates the user's marker on the first call, otherwise glides it to the
+// latest position; optionally centres the map; then refreshes the direction cone.
 function drawMyMarker(shouldCenter = false) {
   if (!map || !location.value) return
   const { lat, lng } = location.value
@@ -510,15 +528,14 @@ function drawMyMarker(shouldCenter = false) {
   updateHeadingUI()
 }
 
-// Animates the marker from its current spot to (lat, lng) so it glides
-// instead of jumping. The camera follows each frame while `following` is on.
+// moveMarkerSmooth(lat, lng) - animates the marker from its current spot to the new one over GLIDE_MS
+// (snaps if the jump is over 500 m). While "following" the camera pans along each frame.
 function moveMarkerSmooth(lat, lng, duration = GLIDE_MS) {
   const from = myMarker.getLatLng()
   const to = L.latLng(lat, lng)
 
-  cancelAnimationFrame(animFrame) // stop any glide still in progress
+  cancelAnimationFrame(animFrame)
 
-  // Big jump (e.g. first fix or GPS recovery): snap instead of gliding
   if (from.distanceTo(to) > BIG_JUMP_M) {
     myMarker.setLatLng(to)
     if (following.value && !recentering && !previewing) map.panTo(to, { animate: false })
@@ -526,8 +543,11 @@ function moveMarkerSmooth(lat, lng, duration = GLIDE_MS) {
   }
 
   const start = performance.now()
+  // step(now) - one animation frame of the marker glide: works out progress from 0 to 1, moves the dot
+  // part of the way, keeps the map centred on it when following, and asks for the next frame until
+  // done.
   const step = (now) => {
-    const t = Math.min((now - start) / duration, 1) // progress from 0 to 1
+    const t = Math.min((now - start) / duration, 1)
     const cur = [from.lat + (to.lat - from.lat) * t, from.lng + (to.lng - from.lng) * t]
     myMarker.setLatLng(cur)
     if (following.value && !recentering && !previewing) map.panTo(cur, { animate: false })
@@ -536,7 +556,7 @@ function moveMarkerSmooth(lat, lng, duration = GLIDE_MS) {
   animFrame = requestAnimationFrame(step)
 }
 
-// Recenter button: turns following back on and pans the map to the volunteer.
+// flyToMe(ms) - animates the map to the user at max zoom and blocks other camera moves for that time.
 function flyToMe(ms = 900) {
   clearTimeout(recenterTimer)
   recentering = true
@@ -548,6 +568,8 @@ function flyToMe(ms = 900) {
   }, ms + 150)
 }
 
+// recenter() - the recenter button: turn following back on, end any route preview and fly to the user
+// (skipped when already centred).
 function recenter() {
   if (!map || !myMarker) return
   following.value = true
@@ -560,13 +582,9 @@ function recenter() {
   flyToMe()
 }
 
-/* ------------------------------------------------------------------ */
-/* Heading (look direction)                                           */
-/* ------------------------------------------------------------------ */
-
-// Updates `heading` from a GPS reading. Uses the device's own heading when
-// available, otherwise the bearing between the last two meaningful positions.
-// Heading is cleared on desktop, where the cone is never shown.
+// updateHeading(pos) - works out the direction in degrees: the device's own heading if present,
+// otherwise the bearing between the last two positions that are at least 3 m apart. Cleared on
+// desktop.
 function updateHeading(pos) {
   const gpsHeading = pos.coords.heading
   const movedFar = prevFix && distanceMeters(prevFix, location.value) > HEADING_MIN_MOVE_M
@@ -579,13 +597,13 @@ function updateHeading(pos) {
     heading = bearingDeg(prevFix, location.value)
   }
 
-  // Only advance the reference point after real movement (ignores GPS jitter)
   if (!prevFix || movedFar) {
     prevFix = { lat: location.value.lat, lng: location.value.lng }
   }
 }
 
-// Shows and rotates the cone on the user's dot, or hides it if heading is unknown
+// updateHeadingUI() - shows and rotates the blue direction cone on the user's dot (smoothly, taking
+// the shortest turn), or hides it when the direction is unknown.
 function updateHeadingUI() {
   const el = myMarker?.getElement()?.querySelector('.me-dot-cone')
   if (!el) return
@@ -594,20 +612,13 @@ function updateHeadingUI() {
     return
   }
   el.style.display = 'block'
-  // NEW: turn the short way round (350° to 10° is a 20° turn, not 340°) and ease towards the new angle
-  if (shownHeading === null) shownHeading = heading // first time: start straight at the real angle
-  const diff = ((((heading - shownHeading + 180) % 360) + 360) % 360) - 180 // shortest turn, -180 to 180
-  shownHeading += diff * 0.35 // move 35% of the way each update
+  if (shownHeading === null) shownHeading = heading
+  const diff = ((((heading - shownHeading + 180) % 360) + 360) % 360) - 180
+  shownHeading += diff * 0.35
   el.style.transform = `rotate(${shownHeading}deg)`
 }
 
-/* ------------------------------------------------------------------ */
-/* Routing                                                             */
-/* ------------------------------------------------------------------ */
-
-// Fetches the route from the user's location to the current destination (Padang, or the school when returning) and draws it.
-// background = true refreshes quietly (no overlay, old line stays until the
-// new one is ready); false is used for first load and travel-mode changes.
+// removeRoute() - removes the route line, its white casing and the "xx min" pill from the map.
 function removeRoute() {
   cancelAnimationFrame(revealFrame)
   routeLine?.remove()
@@ -620,6 +631,8 @@ function removeRoute() {
   }
 }
 
+// routeStyles() - the line styles: blue on the way to Padang, teal on the way back; the walk mode uses
+// dots instead of a solid line.
 function routeStyles() {
   const color = journeyReturning.value ? '#0d9488' : '#1a73e8'
   const walk = travelMode.value === 'walk'
@@ -646,9 +659,13 @@ function routeStyles() {
   }
 }
 
+// revealRoute(coords, casing, line, ms) - animates the route being drawn from the start to the end by
+// adding more of the points each frame (ease-out).
 function revealRoute(coords, casing, line, ms = 800) {
   cancelAnimationFrame(revealFrame)
   const start = performance.now()
+  // step(now) - one animation frame of the route reveal: eases the progress and draws more and more of
+  // the route line each frame until the whole route shows.
   const step = (now) => {
     const t = Math.min((now - start) / ms, 1)
     const eased = 1 - Math.pow(1 - t, 3)
@@ -660,8 +677,10 @@ function revealRoute(coords, casing, line, ms = 800) {
   revealFrame = requestAnimationFrame(step)
 }
 
+// sleep(ms) - waits that long (used by the route preview steps).
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
 
+// fadeRoute(visible) - fades the whole canvas route layer in or out.
 function fadeRoute(visible) {
   const el = routeRenderer?._container
   if (!el) return
@@ -669,6 +688,8 @@ function fadeRoute(visible) {
   el.style.opacity = visible ? '1' : '0'
 }
 
+// flushPreview(showPending) - ends a route preview straight away: bumps the run id, clears the flags,
+// optionally places the pending route, and fades the route back in.
 function flushPreview(showPending = true) {
   previewRun++
   previewing = false
@@ -679,8 +700,14 @@ function flushPreview(showPending = true) {
   fadeRoute(true)
 }
 
+// previewRoute(coords, place) - the route "flythrough". 1) zoom the camera to fit the whole route and
+// my position 2) after 1 s draw the route 3) after 2 more seconds fade it 4) fly back to me if still
+// following 5) fade the route in. Every step checks it is still the latest run (alive) so a new action
+// cancels it.
 async function previewRoute(coords, place) {
   const run = ++previewRun
+  // alive() - true while this route preview is still the latest one; older previews stop when it turns
+  // false.
   const alive = () => run === previewRun
   pendingShow = place
   const narrow = window.matchMedia('(max-width: 991.98px)').matches
@@ -712,6 +739,13 @@ async function previewRoute(coords, place) {
   fadeRoute(true)
 }
 
+// drawRoute(background, preview) - fetches and draws the route from my position to routeTarget. 1)
+// stop if no map, no position or the day ended 2) a normal call clears preview and (soft) dims the old
+// line or (hard) removes it and shows the overlay 3) number the request so a slow old answer cannot
+// overwrite a newer one 4) GET /api/users/route (no timeout set) 5) decode the line, save a snapshot
+// for live estimates and the summary 6) place() draws casing and line (animated unless background) 7)
+// when previewing play the flythrough 8) on error restore the line and show "Could not load route." 9)
+// clear the loading flags if still the latest request.
 async function drawRoute(background = false, preview = false) {
   if (!map || !location.value || dayEnded.value) return
 
@@ -762,6 +796,9 @@ async function drawRoute(background = false, preview = false) {
       km: (sum.total_distance / 1000).toFixed(1),
     }
 
+    // place() - draws the new route: creates the outline and coloured line (only the first two points
+    // if it will animate), removes the old route, stores the new one and starts the reveal animation
+    // when needed.
     const place = () => {
       const styles = routeStyles()
       const animate = !background && coords.length > 2
@@ -805,9 +842,9 @@ async function drawRoute(background = false, preview = false) {
   }
 }
 
-// Time and distance shown in the card. Between route fetches it shrinks as the
-// user gets closer to the destination (scaled by straight-line distance), and each
-// re-route replaces it with exact numbers from the API.
+// liveInfo (computed) - the time and distance in the sheet. Between route fetches they shrink in
+// proportion to the straight-line distance still to go; each new route replaces them with exact
+// numbers.
 const liveInfo = computed(() => {
   if (!routeInfo.value || !routeBase || !location.value) return routeInfo.value
   if (routeBase.straight < 1) return routeInfo.value
@@ -821,7 +858,8 @@ const liveInfo = computed(() => {
   }
 })
 
-// Keep the pill's minutes in step with the sheet as the user moves
+// Keep the pill's minutes in step with the sheet as the user moves Keep the pill's minutes in step
+// with the sheet as the user moves.
 watch(
   () => liveInfo.value?.minutes,
   (min) => {
@@ -829,24 +867,23 @@ watch(
   },
 )
 
-// Switches between drive/walk and fetches a fresh route
+// setTravelMode(mode) - switch Drive/Walk (ignored if unchanged) and fetch a new route with the
+// preview.
 function setTravelMode(mode) {
   if (mode === travelMode.value) return
   travelMode.value = mode
   drawRoute(false, true)
 }
 
-/* ------------------------------------------------------------------ */
-/* Reporting to the server                                             */
-/* ------------------------------------------------------------------ */
-
-// Sends the latest position to the server so admins can see it on the Live Board.
-// Skips the send if the fix is poor or old, or if nothing has changed enough.
-// force = true skips the distance/time check (used for the first fix).
+// reportLocation(force) - sends my position to the server so the admin Live Board shows it. Skips
+// when: not reporting, a send is running, no position, the fix is older than 2 minutes, the last
+// attempt was under 6 s ago, accuracy is worse than 100 m, or (unless forced) I moved under 25 m and
+// waited under 30 s. On success remember the time (the pill turns green); on 401/403 stop reporting
+// (retrying will not help); other errors are ignored and retried later.
 async function reportLocation(force = false) {
   if (!reporting.value || reportInFlight || !location.value) return
-  if (Date.now() - lastFixAt > REPORT_MAX_FIX_AGE_MS) return // stale fix: don't present it as live
-  if (Date.now() - lastAttemptAt < REPORT_MIN_GAP_MS) return // too soon after the last send, even when forced: the next 5 s check retries
+  if (Date.now() - lastFixAt > REPORT_MAX_FIX_AGE_MS) return
+  if (Date.now() - lastAttemptAt < REPORT_MIN_GAP_MS) return
 
   const { lat, lng, accuracy } = location.value
   if (accuracy > REPORT_MAX_ACCURACY_M) return
@@ -862,22 +899,19 @@ async function reportLocation(force = false) {
   try {
     await axios.put('/api/locations/me', { lat, lng, accuracy })
     lastReported = { lat, lng, time: Date.now() }
-    lastSentAt.value = Date.now() // the pill turns green
+    lastSentAt.value = Date.now()
     clock.value = lastSentAt.value
   } catch (err) {
     const status = err.response?.status
-    // Not logged in or no confirmed assignment: retrying won't help, so stop
     if (status === 401 || status === 403) reporting.value = false
-    // Anything else (429, network, 500): ignore, the next check tries again
   } finally {
     reportInFlight = false
   }
 }
 
-// The browser only reports a new position when you MOVE, so standing still makes the last fix grow old. It would
-// then be rejected as stale and the pill would drop to "Connecting…" even though you are still there.
-// So after a quiet spell, ask for one fresh reading. If it works the fix is current again; if GPS is really lost
-// it fails quietly, the fix goes stale, and the pill honestly changes.
+// refreshIfStill() - the browser only reports a new position when you MOVE, so standing still makes
+// the last fix grow old and the pill would drop to "Connecting". After 25 s without a fix ask for one
+// fresh reading; if GPS is really lost it fails quietly and the pill changes honestly.
 async function refreshIfStill() {
   if (refreshing || !trackingOn.value || !location.value) return
   if (Date.now() - lastFixAt < STILL_REFRESH_MS) return
@@ -885,56 +919,50 @@ async function refreshIfStill() {
   try {
     onPosition(await getUserLocation())
   } catch {
-    // ignore: the stale check in reportLocation handles a real loss of signal
   } finally {
     refreshing = false
   }
 }
 
-// When the tab becomes visible again, get a fresh GPS fix and send it right away
+// onVisibilityChange() - when the tab becomes visible again: allow reporting again, mark catch-up
+// (send straight away) and restart the GPS watch.
 function onVisibilityChange() {
   if (document.visibilityState !== 'visible' || !trackingOn.value) return
-  reporting.value = true // retry once, in case the show was accepted while away
+  reporting.value = true
   catchUp = true
-  startTracking(onPosition, onGeoError) // restarts the watch, which delivers a fresh fix
+  startTracking(onPosition, onGeoError)
 }
 
-/* ------------------------------------------------------------------ */
-/* Geolocation callbacks                                               */
-/* ------------------------------------------------------------------ */
-
-// Called by watchPosition on every new GPS fix
+// onPosition(pos) - runs on every new GPS fix. After the first fix, a fix that is too inaccurate is
+// ignored. Otherwise it stores the location, clears any location error, records the time, and then
+// updates the heading, the marker and the route.
 function onPosition(pos) {
-  // NEW: a very inaccurate fix would drag the pin sideways, so skip it once we already have a good position.
-  // The first fix is always accepted so the map can load.
   if (!firstFix && pos.coords.accuracy > DISPLAY_MAX_ACCURACY_M) {
-    lastFixAt = Date.now() // GPS is still alive, so don't let the "stale" check mark the volunteer as lost
+    lastFixAt = Date.now()
     return
   }
   location.value = {
     lat: pos.coords.latitude,
     lng: pos.coords.longitude,
-    accuracy: pos.coords.accuracy, // metres
+    accuracy: pos.coords.accuracy,
   }
-  geoError.value = '' // a fix arrived, clear any location error
+  geoError.value = ''
   lastFixAt = Date.now()
-  const forceReport = catchUp // true only for the first fix after returning to the tab
+  const forceReport = catchUp
   catchUp = false
 
   updateHeading(pos)
 
   if (firstFix) {
-    // First fix: center the map and draw the initial route
     firstFix = false
     showTrackingNotice()
-    reportLocation(true) // update volunteer's location in the server right away
+    reportLocation(true)
     drawMyMarker(true)
     drawRoute(false, false)
     lastRouteLoc = { ...location.value }
   } else {
-    // Later fixes: glide the marker, and quietly re-route after enough movement
     drawMyMarker(false)
-    reportLocation(forceReport) // normally only sends after 25 m or 30 s; forced to send after returning to the tab
+    reportLocation(forceReport)
     if (distanceMeters(lastRouteLoc, location.value) > REROUTE_M) {
       drawRoute(true)
       lastRouteLoc = { ...location.value }
@@ -942,24 +970,22 @@ function onPosition(pos) {
   }
 }
 
-// Called by watchPosition when location fails (permission denied, timeout, etc.)
+// onGeoError(err) - turns a location error (permission denied, timeout...) into a readable message.
 function onGeoError(err) {
   geoError.value = geolocationMessage(err)
 }
 
-/* ------------------------------------------------------------------ */
-/* Notice popup                                                        */
-/* ------------------------------------------------------------------ */
 let noticeTimer = null
 
-// Shows the "tracking is on" message, then hides it after 5 seconds
+// showTrackingNotice() - shows "Location tracking is on" for 5 seconds.
 function showTrackingNotice() {
   showTrackingInfo.value = true
   clearTimeout(noticeTimer)
   noticeTimer = setTimeout(() => (showTrackingInfo.value = false), 5000)
 }
 
-// Close button: dismisses whatever message is currently showing
+// dismissNotice() - the popup X: clears whichever message is showing (location, route, checkpoint or
+// info).
 function dismissNotice() {
   if (geoError.value) geoError.value = ''
   else if (routeError.value) routeError.value = ''
@@ -967,29 +993,27 @@ function dismissNotice() {
   else showTrackingInfo.value = false
 }
 
-/* ------------------------------------------------------------------ */
-/* Bottom sheet                                                        */
-/* ------------------------------------------------------------------ */
-const sheetEl = ref(null) // the whole sheet
-const peekEl = ref(null) // the part that's always visible (handle + Drive/Walk)
-const expanded = ref(false) // true = fully open
-const dragging = ref(false) // true while the finger is dragging the handle
-const sheetAnimated = ref(false) // false until first layout, so it doesn't animate on load
-const sheetFull = ref(0) // height when fully open (px)
-const sheetPeek = ref(0) // height when collapsed (px)
-const sheetVisible = ref(0) // how many px of the sheet are currently showing
+const sheetEl = ref(null)
+const peekEl = ref(null)
+const expanded = ref(false)
+const dragging = ref(false)
+const sheetAnimated = ref(false)
+const sheetFull = ref(0)
+const sheetPeek = ref(0)
+const sheetVisible = ref(0)
 
 let dragStartY = 0
 let dragStartVisible = 0
 let dragMoved = false
 let sheetObserver = null
 
-// Moves the sheet down by the hidden part; the open sheet has no offset
+// sheetStyle (computed) - slides the sheet down by the hidden part with translateY.
 const sheetStyle = computed(() => ({
   transform: `translateY(${sheetFull.value - sheetVisible.value}px)`,
 }))
 
-// Measures the sheet and snaps it to its open or collapsed height
+// measureSheet() - measures the open and collapsed heights and snaps to the current state (not while
+// dragging).
 function measureSheet() {
   if (!sheetEl.value || !peekEl.value) return
   sheetFull.value = sheetEl.value.offsetHeight
@@ -997,7 +1021,8 @@ function measureSheet() {
   if (!dragging.value) sheetVisible.value = expanded.value ? sheetFull.value : sheetPeek.value
 }
 
-// Closes the sheet (used when the map is tapped)
+// collapseSheet() - closes the sheet (a tap on the map). toggleSheet() below opens it if closed and
+// closes it if open.
 function collapseSheet() {
   if (!expanded.value) return
   expanded.value = false
@@ -1010,23 +1035,26 @@ function toggleSheet() {
   sheetVisible.value = expanded.value ? sheetFull.value : sheetPeek.value
 }
 
+// onSheetPointerDown(e) - start of a drag or tap on the handle: remember the start position and
+// capture the pointer so moves outside the handle still arrive.
 function onSheetPointerDown(e) {
   dragging.value = true
   dragMoved = false
   dragStartY = e.clientY
   dragStartVisible = sheetVisible.value
-  e.currentTarget.setPointerCapture(e.pointerId) // keep receiving moves outside the handle
+  e.currentTarget.setPointerCapture(e.pointerId)
 }
 
-// Sheet height follows the finger, clamped between collapsed and open
+// onSheetPointerMove(e) - the sheet height follows the finger, clamped between collapsed and open; a
+// move over 4 px counts as a drag.
 function onSheetPointerMove(e) {
   if (!dragging.value) return
-  const dy = dragStartY - e.clientY // dragging up is positive
+  const dy = dragStartY - e.clientY
   if (Math.abs(dy) > 4) dragMoved = true
   sheetVisible.value = Math.min(sheetFull.value, Math.max(sheetPeek.value, dragStartVisible + dy))
 }
 
-// A tap toggles; a drag snaps to whichever end is closer
+// onSheetPointerUp() - a tap toggles; a drag snaps to whichever end is nearer.
 function onSheetPointerUp() {
   if (!dragging.value) return
   dragging.value = false
@@ -1038,37 +1066,42 @@ function onSheetPointerUp() {
   sheetVisible.value = expanded.value ? sheetFull.value : sheetPeek.value
 }
 
-let disposed = false // true once the page is closed (stops a late load from starting tracking)
+let disposed = false
 
-// Starts location tracking and reporting. Only called when the volunteer has an accepted show.
+// beginTracking() - runs once when the volunteer has an accepted show: marks tracking on, starts the
+// GPS watch and a 5 second timer that updates the clock, refreshes a stale fix and checks whether to
+// report.
 function beginTracking() {
   if (trackingOn.value) return
   trackingOn.value = true
   startTracking(onPosition, onGeoError)
   reportTimer = setInterval(() => {
-    clock.value = Date.now() // lets the pill notice when sends stop
-    refreshIfStill() // standing still? get a fresh reading so the fix doesn't go stale
-    reportLocation() // heartbeat check every 5 s (sends only if 30 s have passed)
+    clock.value = Date.now()
+    refreshIfStill()
+    reportLocation()
   }, 5000)
 }
 
-// Loads the volunteer's shows, and starts tracking only if they have an accepted one
+// setupTracking() - load the accepted shows, then start tracking only if there is at least one (and
+// the page is still open).
 async function setupTracking() {
   assignStatus.value = 'loading'
   await loadAssignments()
   if (!disposed && assignments.value.length) beginTracking()
 }
 
+// onMounted - listen for tab visibility, measure the sheet and watch its size, enable the sheet
+// animation after first layout, then run setupTracking.
 onMounted(() => {
   document.addEventListener('visibilitychange', onVisibilityChange)
   measureSheet()
-  sheetObserver = new ResizeObserver(measureSheet) // re-measure when the content changes height
+  sheetObserver = new ResizeObserver(measureSheet)
   sheetObserver.observe(sheetEl.value)
-  requestAnimationFrame(() => (sheetAnimated.value = true)) // enable animations after first layout
+  requestAnimationFrame(() => (sheetAnimated.value = true))
   setupTracking()
 })
 
-// Stop tracking and any running animation when leaving the page
+// onUnmounted - stop GPS, timers, animation frames and listeners when leaving the page.
 onUnmounted(() => {
   disposed = true
   document.removeEventListener('visibilitychange', onVisibilityChange)
@@ -1085,6 +1118,7 @@ onUnmounted(() => {
 </script>
 
 <template>
+  <!-- The map, the route card, the stage buttons, the sharing status pill and the empty states. -->
   <div class="map-page">
     <div
       class="map-stage"
@@ -1108,7 +1142,6 @@ onUnmounted(() => {
         <i class="bi" :class="following ? 'bi-geo-alt-fill' : 'bi-crosshair2'"></i>
       </button>
 
-      <!-- NEW: <Transition> makes the overlay fade in/out instead of popping -->
       <Transition name="loading-fade">
         <MapLoading
           v-if="loadingRoute || assignStatus === 'loading'"
@@ -1116,8 +1149,6 @@ onUnmounted(() => {
         />
       </Transition>
 
-      <!-- Sharing status pill -->
-      <!-- E2E: data-testid="share-status" (on the pill below) lets Playwright read "Sharing location" (see e2e/f4-tracking-live.spec.js) -->
       <Transition name="fade" mode="out-in">
         <div
           v-if="shareStatus"
@@ -1132,7 +1163,6 @@ onUnmounted(() => {
         </div>
       </Transition>
 
-      <!-- No accepted show: blur the map and display that error. Nothing is tracked. -->
       <Transition name="fade">
         <div v-if="showNoShows" class="noshow" role="status">
           <div class="noshow-card">
@@ -1157,8 +1187,6 @@ onUnmounted(() => {
         </div>
       </Transition>
 
-      <!-- F4: the report card floats over the map; it reuses this page's GPS through the location prop -->
-      <!-- FIX: pass the volunteer's current school (:school) so the incident is saved with it -->
       <IncidentReportForm
         v-if="showIncidentReport"
         :location="location"
@@ -1166,10 +1194,8 @@ onUnmounted(() => {
         @close="showIncidentReport = false"
       />
 
-      <!-- Bottom sheet: Drive/Walk always visible, route details when expanded. Hidden while the report card is open (F4). -->
       <div v-show="!showIncidentReport" ref="sheetEl" class="sheet" :style="sheetStyle">
         <div ref="peekEl" class="sheet-peek">
-          <!-- E2E: data-testid="sheet-toggle" lets Playwright find this element (see e2e/f4-tracking-live.spec.js) -->
           <div
             class="sheet-handle"
             role="button"
@@ -1255,7 +1281,6 @@ onUnmounted(() => {
             </div>
           </div>
 
-          <!-- My accepted shows: pills pick the show, cards show its school -->
           <div class="assign" :class="{ 'day-ended': dayEnded }">
             <template v-if="assignStatus === 'ready' && assignments.length">
               <div class="show-pills" role="group" aria-label="My shows">
@@ -1277,7 +1302,6 @@ onUnmounted(() => {
                   <div class="info-label">
                     <i class="bi bi-mortarboard-fill" aria-hidden="true"></i>Allocated school
                   </div>
-                  <!-- E2E: data-testid="track-school" lets Playwright find this element (see e2e/f4-tracking-live.spec.js) -->
                   <div class="info-value" data-testid="track-school">
                     {{ currentAssignment?.school?.name || '—' }}
                   </div>
@@ -1292,14 +1316,12 @@ onUnmounted(() => {
                 </div>
               </div>
 
-              <!-- Journey: where the volunteer is in today's 8 checkpoints (the admin sees the same on the Live Board) -->
               <div class="journey" :class="{ done: !nextStage, returning: journeyReturning }">
                 <div class="journey-head">
                   <span class="journey-leg"
                     ><i class="bi" :class="journeyLeg.icon" aria-hidden="true"></i
                     >{{ journeyLeg.text }}</span
                   >
-                  <!-- E2E: data-testid="journey-count" lets Playwright find this element (see e2e/f4-tracking-live.spec.js) -->
                   <span class="journey-count" data-testid="journey-count"
                     >{{ currentStage }}/{{ JOURNEY_STAGES.length }}</span
                   >
@@ -1347,12 +1369,10 @@ onUnmounted(() => {
                   {{ nextStage.label }}
                 </button>
                 <div v-else class="journey-complete" data-testid="journey-complete">
-                  <!-- E2E: data-testid="journey-complete" lets Playwright check the "Day complete" message (see e2e/f4-tracking-live.spec.js) -->
                   <i class="bi bi-check-circle-fill" aria-hidden="true"></i> Day complete
                 </div>
               </div>
 
-              <!-- Incident Reporting Button to trigger a report -->
               <button
                 type="button"
                 class="report-open-btn"
@@ -1383,12 +1403,13 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-/* Recenter button */
+/* Styles for the map overlays, the route card and the stage buttons. */
+
 .recenter-btn {
   position: absolute;
   right: 10px;
-  bottom: calc(30px + var(--map-inset-bottom, 0px)); /* rides up with the sheet */
-  z-index: 1000; /* above Leaflet panes */
+  bottom: calc(30px + var(--map-inset-bottom, 0px));
+  z-index: 1000;
   width: 40px;
   height: 40px;
   padding: 0;
@@ -1422,20 +1443,18 @@ onUnmounted(() => {
   outline-offset: 2px;
 }
 
-/* "Following the user" icon: blue */
 .recenter-btn.active {
   color: #1a73e8;
 }
 
-/* Bottom sheet */
 .sheet {
   position: absolute;
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 1050; /* above Leaflet controls (1000), below the loading overlay (1100) */
+  z-index: 1050;
   background: #fff;
-  color: #1f2430; /* CHANGED: dark text on this fixed-white panel; without it the text follows the dark theme and turns pale */
+  color: #1f2430;
   border-radius: 16px 16px 0 0;
   box-shadow: 0 -2px 12px rgb(0 0 0 / 0.15);
 }
@@ -1445,7 +1464,7 @@ onUnmounted(() => {
   justify-content: center;
   padding: 10px 0 8px;
   cursor: grab;
-  touch-action: none; /* lets us handle the drag instead of the browser scrolling */
+  touch-action: none;
 }
 
 .sheet-grip {
@@ -1459,7 +1478,6 @@ onUnmounted(() => {
   padding-bottom: 12px;
 }
 
-/* Drive / Walk segmented control */
 .mode-toggle {
   position: relative;
   display: grid;
@@ -1514,10 +1532,9 @@ onUnmounted(() => {
 
 .sheet-title {
   font-size: 1.1rem;
-  overflow-wrap: anywhere; /* long school names wrap instead of overflowing */
+  overflow-wrap: anywhere;
 }
 
-/* Icon on the left, text on the right */
 .route-summary {
   display: flex;
   align-items: center;
@@ -1647,28 +1664,23 @@ onUnmounted(() => {
   font-size: 0.9rem;
   color: #666;
 }
-/* Move Leaflet's bottom controls (zoom + attribution) up with the sheet */
 
-/* Phones / tablets: the map itself shrinks as the sheet opens, so it only ever reaches 16px (the sheet's rounded
-   corners) under the sheet. The zoom buttons and recenter button therefore use a fixed 16px inset (set inline). */
 @media (max-width: 991.98px) {
   .map-stage :deep(.leaflet-container) {
     height: calc(100% - max(var(--sheet-visible, 0px) - 16px, 0px));
   }
 
-  /* The recenter button sits on the stage (not inside the map), so it rides up with the sheet to stay visible */
   .recenter-btn {
     bottom: calc(30px + var(--sheet-visible, 0px));
   }
 }
 
-/* Animate everything together, but not while the finger is dragging */
 .map-stage.sheet-anim:not(.is-dragging) .sheet {
   transition: transform 0.25s ease;
 }
 
 .map-stage.sheet-anim:not(.is-dragging) :deep(.leaflet-container) {
-  transition: height 0.25s ease; /* same timing as the sheet, so the two stay in step */
+  transition: height 0.25s ease;
 }
 
 .map-stage.sheet-anim:not(.is-dragging) .recenter-btn {
@@ -1679,11 +1691,6 @@ onUnmounted(() => {
     color 0.15s;
 }
 
-/* Hide hairline seams between map tiles */
-
-/* Popup message (tracking info and errors) */
-
-/* My shows: pills + school cards (same look as the Live Board) */
 .assign {
   margin-top: 14px;
   padding-top: 14px;
@@ -1700,7 +1707,7 @@ onUnmounted(() => {
   display: flex;
   gap: 6px;
   overflow-x: auto;
-  scrollbar-width: none; /* scrolls sideways if a volunteer has many shows */
+  scrollbar-width: none;
 }
 .show-pills::-webkit-scrollbar {
   display: none;
@@ -1738,7 +1745,6 @@ onUnmounted(() => {
   margin-top: 10px;
 }
 
-/* Smaller school / P5 cards in the sheet, to leave room for the journey section */
 .assign .info-card {
   padding: 6px 10px;
   border-radius: 10px;
@@ -1754,7 +1760,6 @@ onUnmounted(() => {
   font-size: 1.15rem;
 }
 
-/* Journey: label, row of dots, next-checkpoint button, undo */
 .journey {
   margin-top: 12px;
 }
@@ -1786,17 +1791,15 @@ onUnmounted(() => {
 }
 .jdot {
   position: relative;
-  flex: 1 1 0; /* each segment (line + the dot at its right end) takes an equal share */
+  flex: 1 1 0;
   display: flex;
   align-items: center;
   justify-content: flex-end;
   height: 20px;
 }
-/* The first dot has no line: it sits flush with the button's left edge, and the last dot with its right edge */
 .jdot:first-child {
   flex: 0 0 12px;
 }
-/* Line from the previous dot to this one */
 .jdot::before {
   content: '';
   position: absolute;
@@ -1811,14 +1814,12 @@ onUnmounted(() => {
 .jdot:first-child::before {
   display: none;
 }
-/* Blue = on the way to Padang, teal = on the way back */
 .jdot.link-out::before {
   background: #2563eb;
 }
 .jdot.link-back::before {
   background: #0d9488;
 }
-/* The line the trip is travelling along: dashes keep moving forwards (to Padang) or backwards (to school) */
 .jdot.flow-fwd::before {
   background: repeating-linear-gradient(90deg, #2563eb 0 6px, #bcd0fb 6px 12px);
   background-size: 12px 100%;
@@ -1917,7 +1918,6 @@ onUnmounted(() => {
   opacity: 0.5;
 }
 
-/* F4: "Report incident" button: soft red, secondary to the blue journey button, same shape and spacing */
 .report-open-btn {
   display: flex;
   align-items: center;
@@ -1928,7 +1928,7 @@ onUnmounted(() => {
   padding: 11px 12px;
   border: 0;
   border-radius: 12px;
-  background: #fef2f2; /* light red tint */
+  background: #fef2f2;
   color: #dc2626;
   font-weight: 600;
 }
@@ -1978,7 +1978,6 @@ onUnmounted(() => {
   color: #888;
 }
 
-/* Sharing status pill (top right, above the alert cards) */
 .share-pill {
   position: absolute;
   top: 12px;
@@ -2032,11 +2031,10 @@ onUnmounted(() => {
   }
 }
 
-/* No accepted show: blurred map with a card */
 .noshow {
   position: absolute;
   inset: 0;
-  z-index: 1120; /* above the sheet (1050) and the loading overlay (1100) */
+  z-index: 1120;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2051,7 +2049,7 @@ onUnmounted(() => {
   max-width: 340px;
   padding: 22px 20px;
   background: #fff;
-  color: #1f2430; /* CHANGED: dark text on this fixed-white panel; without it the text follows the dark theme and turns pale */
+  color: #1f2430;
   border-radius: 18px;
   box-shadow: 0 4px 20px rgb(0 0 0 / 0.2);
   text-align: center;
@@ -2116,7 +2114,6 @@ onUnmounted(() => {
   }
 }
 
-/* Desktop: no drag. Show the same content as a card at the top left */
 @media (min-width: 992px) {
   .sheet {
     top: 12px;
@@ -2125,7 +2122,7 @@ onUnmounted(() => {
     right: auto;
     width: 400px;
     border-radius: 12px;
-    transform: none !important; /* always fully open */
+    transform: none !important;
   }
   .sheet-handle {
     display: none;
