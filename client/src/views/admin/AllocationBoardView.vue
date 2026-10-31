@@ -171,18 +171,43 @@ const stats = computed(() => {
   }
   return s
 })
-// statChips (computed) - the chip list for the template: Schools (no filter), Accepted, Pending.
+// statChips (computed) - the three cards. Every number counts SCHOOLS from baseSchools (after search,
+// zone and time), so a card's number always matches what the list shows when you press it.
 const statChips = computed(() => [
-  { key: '', label: 'Schools', value: stats.value.schools },
-  { key: 'Accepted', label: 'Accepted', value: stats.value.Accepted },
-  { key: 'Pending', label: 'Pending', value: stats.value.Pending },
+  { key: 'all', label: 'Schools', value: baseSchools.value.length },
+  {
+    key: 'Pending',
+    label: 'Pending',
+    value: baseSchools.value.filter((s) => hasStatus(s, 'Pending')).length,
+  },
+  {
+    key: 'needs',
+    label: 'Need volunteers',
+    value: baseSchools.value.filter(needsVolunteers).length,
+  },
 ])
 
 const statusFilter = ref('')
 
-// toggleStatus(key) - a stat chip was clicked: pressing the active chip again clears the filter.
+// toggleStatus(key) - a card was pressed. 'all' (Schools) clears both card filters; 'needs' flips the
+// needs-volunteers filter; any other key is a volunteer status and pressing it again clears it.
 function toggleStatus(key) {
-  statusFilter.value = statusFilter.value === key ? '' : key
+  if (key === 'all') {
+    statusFilter.value = ''
+    needsOnly.value = false
+  } else if (key === 'needs') {
+    needsOnly.value = !needsOnly.value
+  } else {
+    statusFilter.value = statusFilter.value === key ? '' : key
+  }
+}
+
+// isChipActive(chip) - whether a card shows as pressed. Schools is pressed when no card filter is on;
+// the others are pressed when their own filter is on. Search no longer hides this: filters combine.
+function isChipActive(chip) {
+  if (chip.key === 'all') return !statusFilter.value && !needsOnly.value
+  if (chip.key === 'needs') return needsOnly.value
+  return statusFilter.value === chip.key
 }
 
 const needsOnly = ref(false)
@@ -246,24 +271,32 @@ watch(timeOptions, (opts) => {
   if (opts.length && timeFilter.value && !opts.includes(timeFilter.value)) timeFilter.value = ''
 })
 
-// filtersActive and activeFilterCount (computed) - whether any zone or time filter is on and how many;
-// used by the Clear button. clearSchoolFilters() clears both.
-const filtersActive = computed(() => !!(zoneFilter.value || timeFilter.value))
-// activeFilterCount (computed) - how many of the zone and time filters are switched on.
+// activeFilterCount (computed) - how many of ALL five filters are on (search, zone, time, the status
+// card and the needs card). filtersActive is true when any is on; used by Clear all and the results line.
 const activeFilterCount = computed(
-  () => [zoneFilter.value, timeFilter.value].filter(Boolean).length,
+  () =>
+    [searchbar.value.trim(), zoneFilter.value, timeFilter.value, statusFilter.value, needsOnly.value]
+      .filter(Boolean).length,
 )
-// clearSchoolFilters() - the Clear button: reset both filters.
+const filtersActive = computed(() => activeFilterCount.value > 0)
+// clearSchoolFilters() - the Clear all button: reset every filter.
 function clearSchoolFilters() {
+  searchbar.value = ''
   zoneFilter.value = ''
   timeFilter.value = ''
+  statusFilter.value = ''
+  needsOnly.value = false
 }
 
-// visibleSchools (computed) - the schools whose cards are listed. A school is kept when ALL of these
-// hold: it matches the search (school name, or any volunteer name or phone), it has a free place when
-// the switch is on, it has a volunteer with the pressed status (ignored while searching), and it
-// matches the zone and time filters.
-const visibleSchools = computed(() => {
+// needsVolunteers(s) - true when the school still has free places (same rule the old switch used).
+const needsVolunteers = (s) => filledCount(s) < s.p5Classes
+// hasStatus(s, status) - true when the school has at least one volunteer with that status.
+const hasStatus = (s, status) => s.volunteers.some((v) => v.status === status)
+
+// baseSchools (computed) - the selected show's schools after the filters that are always applied: the
+// search box (school name, or any volunteer name or phone), the zone and the time. The cards count from
+// this list and the card filters then narrow it, so card numbers always match the list.
+const baseSchools = computed(() => {
   const data = groupedAssignments.value[selectedShow.value]
   if (!data) return []
   const q = searchbar.value.trim().toUpperCase()
@@ -274,17 +307,23 @@ const visibleSchools = computed(() => {
         s.volunteers.some(
           (v) => (v.name || '').toUpperCase().includes(q) || String(v.phone || '').includes(q),
         )) &&
-      (!needsOnly.value || filledCount(s) < s.p5Classes) &&
-      (!statusFilter.value || q || s.volunteers.some((v) => v.status === statusFilter.value)) &&
       (!zoneFilter.value || s.zone === zoneFilter.value) &&
       (!timeFilter.value || s.reportingTime === timeFilter.value),
   )
 })
-// watch(selectedShow) - on a new show: unfocus the school, clear the filters and the pressed chip.
+
+// visibleSchools (computed) - baseSchools narrowed by the pressed cards. The cards combine (both = AND).
+const visibleSchools = computed(() =>
+  baseSchools.value.filter(
+    (s) =>
+      (!needsOnly.value || needsVolunteers(s)) &&
+      (!statusFilter.value || hasStatus(s, statusFilter.value)),
+  ),
+)
+// watch(selectedShow) - on a new show: unfocus the school and clear every filter.
 watch(selectedShow, () => {
   focusedSchoolId.value = null
-  clearSchoolFilters()
-  statusFilter.value = ''
+  clearSchoolFilters() // also resets the pressed cards
 })
 // capacityPercent(school) - width of the capacity bar: filled divided by places, capped at 100; 0 when
 // the school needs no places (avoids dividing by zero).
@@ -818,10 +857,8 @@ loadData()
                 <button
                   type="button"
                   class="stat-btn card-hw py-1 px-0 text-center w-100"
-                  :class="{
-                    'is-active': !!chip.key && statusFilter === chip.key && !searchbar.trim(),
-                  }"
-                  :aria-pressed="!!chip.key && statusFilter === chip.key && !searchbar.trim()"
+                  :class="{ 'is-active': isChipActive(chip) }"
+                  :aria-pressed="isChipActive(chip)"
                   :data-testid="`alloc-stat-${chip.label.toLowerCase()}`"
                   @click="toggleStatus(chip.key)"
                 >
@@ -855,7 +892,7 @@ loadData()
                   class="btn btn-sm btn-outline-secondary text-nowrap"
                   @click="clearSchoolFilters"
                 >
-                  Clear ({{ activeFilterCount }})
+                  Clear all ({{ activeFilterCount }})
                 </button>
               </div>
               <input
@@ -864,17 +901,11 @@ loadData()
                 placeholder="Search school or volunteer"
                 v-model="searchbar"
               />
-              <div class="form-check form-switch mb-0">
-                <input
-                  class="form-check-input"
-                  type="checkbox"
-                  role="switch"
-                  id="needsOnly"
-                  v-model="needsOnly"
-                />
-                <label class="form-check-label" for="needsOnly">Needs Volunteers</label>
-              </div>
             </div>
+            <!-- results line: only shown while something is filtering, so you can see how many schools are hidden -->
+            <p v-if="filtersActive" class="small text-muted-hw mb-0 mt-2">
+              Showing {{ visibleSchools.length }} of {{ stats.schools }} schools
+            </p>
           </div>
 
           <div class="alloc-panel-scroll">
@@ -934,13 +965,12 @@ loadData()
               There are no assignments. Press "Allocate" to create them.
             </p>
             <template v-else>
+              <!-- one message for every filter; Clear all gets the admin back to the full list -->
               <p v-if="visibleSchools.length === 0" class="text-muted-hw">
                 {{
-                  needsOnly && !searchbar.trim()
-                    ? 'Every school has enough volunteers.'
-                    : statusFilter && !searchbar.trim()
-                      ? `No schools with ${statusFilter} volunteers.`
-                      : 'No schools or volunteers match.'
+                  filtersActive
+                    ? 'No schools match your filters. Try "Clear all".'
+                    : 'No schools or volunteers match.'
                 }}
               </p>
               <div class="alloc-grid">

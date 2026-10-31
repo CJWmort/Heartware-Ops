@@ -13,7 +13,7 @@ A web app that helps Heartware run the **NDP show volunteer programme**. Volunte
 | #   | Feature              | Who uses it       | What it does                                                                                                                                                                                                    |
 | --- | -------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | F1  | Smart Registration   | Volunteer         | Email OTP stops fake sign-ups. The postal code is geocoded with OneMap so the address is accurate. A progress card tracks the form.                                                                             |
-| F2  | Smart Allocation     | Admin             | ScarcityFirst (primary) and Greedy (secondary) algorithms match volunteers to schools within 10 km (haversine). The admin reviews a draft and publishes it per show. New volunteers are assigned automatically. |
+| F2  | Smart Allocation     | Admin             | ScarcityFirst (primary) and Greedy (secondary) algorithms match volunteers to schools within 10 km (haversine). The admin reviews a draft and publishes it per show. Once a show is published, volunteers who join later are placed automatically in any open place nearby. |
 | F3  | Automated Assignment | Volunteer         | Submit availability, then accept, decline or withdraw. Directions via OneMap, with a Google Maps link as backup. A freed place goes to the nearest reserve.                                                     |
 | F4  | Live Tracking        | Volunteer + Admin | Checkpoint-based journey tracking. The HQ live board shows volunteers on a map with zone alerts.                                                                                                                |
 | F5  | Incident Reporting   | Volunteer + Admin | Volunteers report incidents. HQ triages them on a queue and map and chats with volunteers in real time.                                                                                                         |
@@ -57,7 +57,7 @@ What it does:
 
 - Builds the allocation for one show with **ScarcityFirst** (primary) and **Greedy** (secondary), using haversine direct distance with a 10 km limit.
 - Allocation is a **draft** until the admin publishes it. Volunteers only see their school after **Publish**.
-- Volunteers who submit their availability later are assigned automatically.
+- Before Publish, volunteers wait for the admin to press **Allocate**. After a show is published, volunteers who tick it later are placed automatically in an open place within 10 km, or kept on the reserve list if none is free.
 
 How to try it (needs several volunteers who have ticked the show; `pnpm run seed:volunteers` adds 400):
 
