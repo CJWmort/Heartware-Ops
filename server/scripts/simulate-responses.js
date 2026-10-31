@@ -1,5 +1,12 @@
 // Script that pretends demo volunteers accept, decline or withdraw so the allocation board can be
 // tried out.
+// HOW TO RUN (from the server folder):
+//   pnpm run simulate:responses                          -> 70% accept, 10% decline
+//   pnpm run simulate:responses -- --accept=80 --decline=10 --withdraw=5
+//   pnpm run simulate:responses -- --show="NE Show 2"    -> only that show
+//   pnpm run simulate:responses -- --reset               -> puts answers back to Pending
+//   --seed=N picks a different (but repeatable) set of people. --force allows production.
+// Before this: seed:volunteers, then Run Allocations and press "Publish" on the admin board.
 
 const path = require('path')
 const { EMAIL_PATTERN } = require('./seed-volunteers.js')

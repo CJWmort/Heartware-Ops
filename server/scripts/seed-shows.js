@@ -1,4 +1,8 @@
 // Script that creates the show records.
+// HOW TO RUN (from the server folder):
+//   pnpm run seed:shows
+// Run this first. Safe to repeat: existing shows are updated, not duplicated.
+// Needs: DB set in config.env.
 
 const { connect, disconnect } = require('./_connect')
 const Shows = require('../models/shows-model')

@@ -1,5 +1,12 @@
 // Script that creates (or removes) demo volunteers for testing. It refuses to run on a production
 // database unless --force is given.
+// HOW TO RUN (from the server folder):
+//   pnpm run seed:volunteers                    -> creates 400 demo volunteers
+//   pnpm run seed:volunteers -- --count=50      -> creates 50 instead (1 to 1000)
+//   pnpm run seed:volunteers -- --remove        -> deletes all demo volunteers
+//   Add --force only if you really mean to run on a production database.
+// Demo login: demo.volunteer001@demo.sg / DemoPass123! (or DEMO_PASSWORD from config.env).
+// Run seed:shows and seed:schools first.
 
 const path = require('path')
 const schoolsData = require('../data/primary_schools.json')

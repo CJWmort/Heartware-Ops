@@ -1,4 +1,5 @@
 // Shared helper for the scripts: connect to and disconnect from MongoDB.
+// NOT run directly. The other scripts import it. Needs DB set in server/config.env.
 
 const path = require('path')
 require('dotenv').config({ path: path.join(__dirname, '..', 'config.env') })

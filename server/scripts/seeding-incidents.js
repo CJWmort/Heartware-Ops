@@ -1,4 +1,8 @@
 // Script that creates demo incidents for testing the queue.
+// HOW TO RUN (from the server folder):
+//   pnpm run seed:incidents               -> adds 60 demo incidents (replaces old demo ones)
+//   pnpm run seed:incidents -- --remove   -> deletes the demo incidents
+// Before this: volunteers must already be assigned to schools (Run Allocations on the admin board).
 
 const mongoose = require("mongoose");
 const { connect, disconnect } = require("./_connect");

@@ -1,5 +1,10 @@
 // Script that loads the schools from the data export into the database and spreads them over the
 // shows.
+// HOW TO RUN (from the server folder):
+//   pnpm run seed:schools                 -> loads all schools (stops if schools already exist)
+//   pnpm run seed:schools -- --missing    -> keeps existing schools, adds only the missing ones
+//   pnpm run seed:schools -- --force      -> DELETES all schools, then loads them again
+// Run seed:shows first. The "--" before the flag is needed so pnpm passes the flag to the script.
 
 const { connect, disconnect } = require("./_connect");
 const mongoose = require("mongoose");

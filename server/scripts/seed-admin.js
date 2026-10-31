@@ -1,4 +1,10 @@
 // Script that creates the admin (coordinator) account.
+// HOW TO RUN (from the server folder). It needs an email and a password (min 8 characters):
+//   PowerShell (Windows):
+//     $env:ADMIN_EMAIL="you@example.com"; $env:ADMIN_PASSWORD="at-least-8-chars"; pnpm run seed:admin
+//   Git Bash / Mac / Linux:
+//     ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='at-least-8-chars' pnpm run seed:admin
+// Safe to repeat: running again with the same email resets that admin's password.
 
 const bcrypt = require('bcrypt')
 const mongoose = require('mongoose')
