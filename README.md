@@ -249,7 +249,13 @@ The tests log in as the admin from `seed:admin`. By default they expect `admin@h
 E2E_ADMIN_EMAIL=you@example.com E2E_ADMIN_PASSWORD='your-password' pnpm run test:e2e
 ```
 
-They also use the demo volunteer `demo.volunteer001@demo.sg` (password `DemoPass123!`, or `E2E_DEMO_PASSWORD`). The OneMap postal lookup is faked inside the tests so they do not depend on the outside website.
+They also use the demo volunteer `demo.volunteer001@demo.sg` (password `DemoPass123!`, or `E2E_DEMO_PASSWORD`).
+
+Things to know before you run them:
+
+- **Email code (OTP):** the F1 sign-up test needs the code to be shown on the page. Set `OTP_MOCK=true` in `server/config.env`, or leave `BREVO_API_KEY` empty when running locally.
+- **OneMap:** the browser's postal lookup is faked in the F1 and F5 tests, but the **server** still calls OneMap when the F1 sign-up test creates an account and when the F6 ordering test places an order. The server needs internet for those two tests.
+- **They change the database.** F2 to F5 reset and re-allocate one show (`NE Show 4` by default, or set `E2E_SHOW`), which erases every assignment in it. Each F6 run orders a badge for one demo volunteer, and that volunteer's design stays locked for good (the app never deletes orders), so each run uses up one of the 400 demo volunteers. F5 leaves incidents behind (their notes start with "E2E"). Use a local or test database only. **Never run these tests against the deployed database.**
 
 ## Deploy
 

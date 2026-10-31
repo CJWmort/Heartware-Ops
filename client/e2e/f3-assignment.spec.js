@@ -139,8 +139,8 @@ test.describe('F3 Assignment', () => {
     await expect(page.getByTestId(`availability-${SHOW}`)).toHaveCount(0)
   })
 
-  // TEST 5 – Unticking a show cancels its pending offer; ticking it again does not bring the offer
-  // back
+  // TEST 5 – Unticking a show cancels its pending offer; ticking it again puts the volunteer back on the
+  // reserve list (or gives a fresh offer if a place is open)
   test('unticking a show removes its pending offer', async ({ page }) => {
     const card = await openMyCard(page, volunteerC)
     await expect(card.getByTestId('assignment-status')).toHaveText(/pending/i)
@@ -154,13 +154,13 @@ test.describe('F3 Assignment', () => {
       await expect(card.getByTestId('assignment-accept')).toHaveCount(0)
     })
 
-    await test.step('tick it again: available once more, but the old offer is not restored', async () => {
+    await test.step('tick it again: back on the reserve list, or a fresh offer', async () => {
       await page.getByTestId('change-availability').click()
       await page.getByTestId(`availability-${SHOW}`).check()
       await page.getByTestId('availability-save').click()
       await expect(page.getByTestId('availability-modal')).toBeHidden()
-      await expect(card.getByTestId('assignment-status')).not.toHaveText(/not available/i)
-      await expect(card.getByTestId('assignment-accept')).toHaveCount(0)
+      // Ticking again puts the volunteer back on the reserve list (or gives a new offer if a place is open)
+      await expect(card.getByTestId('assignment-status')).toHaveText(/on reserve list|pending/i)
     })
   })
 })
