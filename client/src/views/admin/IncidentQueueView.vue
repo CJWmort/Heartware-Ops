@@ -22,7 +22,9 @@ const incidents = ref([])
 const templatesByType = ref({})
 const selectedId = ref(null)
 const searchbar = ref('')
-const statusFilter = ref('')
+// Start with the "New" chip pressed, so the first load highlights the New stats button and
+// lists only new incidents. Pressing a chip again (toggleStatus) clears the filter to show all.
+const statusFilter = ref('new')
 const panelOpen = ref(true)
 const showResolved = ref(false)
 
@@ -212,6 +214,16 @@ const visibleIncidents = computed(() => {
   const compare = sorters[sortBy.value]
   if (!compare) return filtered
   return [...filtered].sort((a, b) => compare(a, b) || byNewest(a, b))
+})
+
+// highlightedStatuses (computed) - which stat chips should light up.
+// 1) No search text: only the chip the admin pressed (same as before).
+// 2) Search text: every status that appears in the search results, so the admin can see at a
+//    glance which statuses the matching incidents are in.
+const highlightedStatuses = computed(() => {
+  if (!searchbar.value.trim()) return statusFilter.value ? [statusFilter.value] : []
+  // A Set keeps each status once, even if several results share it.
+  return [...new Set(visibleIncidents.value.map((incident) => incident.status))]
 })
 
 let mapRef = null
@@ -531,7 +543,7 @@ onUnmounted(() => {
                 <button
                   type="button"
                   class="stat-btn card-hw py-1 px-0 text-center w-100"
-                  :class="{ 'is-active': statusFilter === chip.key && !searchbar.trim() }"
+                  :class="{ 'is-active': highlightedStatuses.includes(chip.key) }"
                   :aria-pressed="statusFilter === chip.key && !searchbar.trim()"
                   :data-testid="`stat-${chip.key}`"
                   @click="toggleStatus(chip.key)"
