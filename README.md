@@ -1,0 +1,268 @@
+# Heartware Volunteer Ops (IS216 G5T1)
+
+A web app that helps Heartware run the **NDP show volunteer programme**. Volunteers register and say when they are free, the app **automatically assigns each volunteer to a nearby primary school**, volunteers follow their route on show day, and the HQ team watches everything live.
+
+- **Live app:** https://heartware-ops.vercel.app
+- **Hero videos on the home page** (about volunteering for NDP Show Management):
+  - Video 1: https://youtu.be/pSg-DubiZK0
+  - Video 2: https://youtube.com/shorts/UxlLOv2rBpM
+- **Course:** IS216 Web Application Development 2, Group 5 Team 1
+
+## Features at a glance
+
+| #   | Feature              | Who uses it       | What it does                                                                                                                                                                                                    |
+| --- | -------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| F1  | Smart Registration   | Volunteer         | Email OTP stops fake sign-ups. The postal code is geocoded with OneMap so the address is accurate. A progress card tracks the form.                                                                             |
+| F2  | Smart Allocation     | Admin             | ScarcityFirst (primary) and Greedy (secondary) algorithms match volunteers to schools within 10 km (haversine). The admin reviews a draft and publishes it per show. New volunteers are assigned automatically. |
+| F3  | Automated Assignment | Volunteer         | Submit availability, then accept, decline or withdraw. Directions via OneMap, with a Google Maps link as backup. A freed place goes to the nearest reserve.                                                     |
+| F4  | Live Tracking        | Volunteer + Admin | Checkpoint-based journey tracking. The HQ live board shows volunteers on a map with zone alerts.                                                                                                                |
+| F5  | Incident Reporting   | Volunteer + Admin | Volunteers report incidents. HQ triages them on a queue and map and chats with volunteers in real time.                                                                                                         |
+| F6  | Badges               | Volunteer + Admin | Badge studio, badge wall, and automatic awards (Full Route, Early Bird, Super Sub).                                                                                                                             |
+
+The coordinator role in the code is called **admin** in the app.
+
+## Features and how to use them
+
+Pages are reached from the navbar after logging in. **Volunteers** land on _My assignment_. **Admins** land on _Allocation_.
+
+### Home page (everyone)
+
+- Hero video player with two Heartware videos about volunteering for NDP Show Management (use the arrows or dots to switch).
+- Feature cards explaining what the app does, and buttons to **Sign up to volunteer** or **Log in**.
+
+### F1 Smart Registration (volunteer)
+
+Pages: `/register`, `/login`
+
+What it does:
+
+- The postal code is checked with OneMap and the address is filled in, so allocation distances are accurate.
+- A 6-digit email code (OTP) must be entered before the account is created, so fake emails cannot register.
+- A progress card on the left tracks how much of the form is complete.
+- Location sharing consent must be switched on before **Sign up** is enabled.
+
+How to try it:
+
+1. Open **Sign up to volunteer** and fill in name, email, phone, password and confirm password.
+2. Enter a real Singapore postal code. A wrong one shows "This postal code doesn't exist in Singapore."
+3. Switch on **Location Sharing**, then press **Sign up**.
+4. Enter the code from the email. If `BREVO_API_KEY` is empty (local test mode) the code is shown on the page.
+5. You are logged in and taken to _My assignment_. Log out and log back in on `/login` to test login, including the wrong-password error.
+
+### F2 Smart Allocation (admin)
+
+Page: _Allocation_
+
+What it does:
+
+- Builds the allocation for one show with **ScarcityFirst** (primary) and **Greedy** (secondary), using haversine direct distance with a 10 km limit.
+- Allocation is a **draft** until the admin publishes it. Volunteers only see their school after **Publish**.
+- Volunteers who submit their availability later are assigned automatically.
+
+How to try it (needs several volunteers who have ticked the show; `pnpm run seed:volunteers` adds 400):
+
+1. Log in as admin and pick a show in the show dropdown.
+2. Press **Allocate** and confirm. Rows appear tagged _Draft_, grouped by school on the list and the map. Use **Needs Volunteers** to see schools that are short.
+3. Click a school to see its places filled and its volunteers. The _Unassigned volunteers_ panel lists anyone left over.
+4. Press **Publish** for the show and confirm. Re-running Allocate is safe: volunteers who already accepted keep their school.
+5. **Reset** erases all assignments, including accepted ones. Use it only to start over.
+
+### F3 Automated Assignment (volunteer)
+
+Page: _My assignment_
+
+What it does:
+
+- The volunteer submits availability and the backend assigns a school automatically. Each card shows the show, school, reporting time, reporting location and status.
+- Offers can be **Accepted** or **Declined** (with a reason). An accepted place can later be **withdrawn** (with a reason).
+- **Directions** shows the route on a map with Drive, Walk and Transit modes. A **Google Maps** link is the backup in case OneMap is limited or down.
+- A show that has been declined or withdrawn is locked in availability, so it cannot be ticked again.
+- If a volunteer withdraws, the freed place goes to the nearest reserve.
+
+How to try it:
+
+1. Log in as a volunteer and press **Change Availability**. Tick the shows you can attend and press **Save**.
+2. Wait for the admin to Allocate and Publish (see F2). The card then shows the offer with **Accept** and **Decline**.
+3. Press **Directions** and switch between Drive, Walk and Transit. Press the Google Maps link to open the backup.
+4. Press **Decline**, confirm, and give a reason. The buttons disappear and the show is locked in _Change Availability_.
+5. For an accepted place, use the withdraw button, confirm and give a reason.
+
+### F4 Live Tracking (volunteer and admin)
+
+Pages: volunteer _Event day_, admin _Live board_
+
+What it does:
+
+- The volunteer's phone shares its location (if consent was given) and the volunteer clocks through **8 checkpoints**: reached school, departed school, reached pick-up/drop-off, reached Padang, leaving Padang, reached pick-up/drop-off, back at school, dismissal. **Undo** steps back one.
+- The HQ Live board shows every volunteer on a map with the stage they have reached. Zones are Inner, Outer and Outside. A bell and a _Zone activity_ list raise an alert when a volunteer enters a ring.
+- Location updates are limited to one every 5 seconds per volunteer.
+
+How to try it:
+
+1. As a volunteer with an accepted place, open _Event day_ and allow location access in the browser. It shows your school, your journey and that you are sharing your location.
+2. Pull up the bottom sheet and press the next checkpoint button. The journey count moves forward. Press **Undo** to go back.
+3. In another window, log in as admin, open _Live board_, pick the show, and search for the volunteer. Their card shows the checkpoint reached.
+4. Watch the bell for zone alerts when a volunteer moves into the inner ring.
+
+### F5 Incident Reporting (volunteer and admin)
+
+Pages: volunteer _Event day_ (report form), admin _Incidents_ and the live chat
+
+What it does:
+
+- A volunteer reports an incident: choose a type (Student Unwell, Student Missing, Bus Delayed, Bus Breakdown, Items Missing, Others), check the severity, add a note and send.
+- HQ sees new reports instantly (no reload) on a map and list with **New**, **Acknowledged** and **Resolved** counters.
+- HQ **acknowledges** an incident, then **resolves** it. A resolving note is required.
+- HQ and volunteers can chat in real time.
+
+How to try it:
+
+1. As a volunteer, press **Report an incident**, pick _Bus Delayed_, add a note and send. You see "Report sent!".
+2. As admin, open _Incidents_. The report appears as **New** with the right school. Use the search box to find it.
+3. Open the incident, press **Acknowledge**, then **Resolve** and write a note. The counters update.
+4. Open the chat button to message the volunteer.
+5. Demo data: `pnpm run seed:incidents` adds 60 incidents (assign volunteers to schools first).
+
+### F6 Badges (volunteer and admin)
+
+Pages: volunteer _Badge Studio_ and _My badges_, admin _Badges & orders_
+
+What it does:
+
+- **Badge Studio:** design a custom badge with an emblem (heart, star, crescent, trophy, smile, balloon), a shape (circle, hexagon, star, shield), colours and ribbon text (up to 20 characters). The preview updates live.
+- A design can be saved, then **ordered** with a valid Singapore address. Once ordered the design is locked for good.
+- HQ moves each order from **Placed** to **Delivered**, and the volunteer sees the new status.
+- **Auto awards:** Full Route Completed (all 8 checkpoints), Early Bird (reached school before reporting time), Super-Sub (filled a dropped place).
+- **Manual awards:** HQ can give _Heart of Gold_ or _Calm Under Pressure_ with a thank-you note.
+- _My badges_ shows what is earned and what is still to earn.
+
+How to try it:
+
+1. As a volunteer, open _Badge Studio_, change the emblem, shape, colours and ribbon. Press **Save** ("Design saved!") and reload to see it kept.
+2. Enter an address and postal code and place the order ("Order placed!"). The design now shows as locked.
+3. As admin, open _Badges & orders_, find the order and advance it to **Delivered**. The volunteer sees the update under _My orders_.
+4. As admin, use **Give badge** to award _Heart of Gold_ with a note. The volunteer's _My badges_ page shows "1 badge earned" and the note.
+
+### Suggested 10-minute walkthrough for markers
+
+1. Run the seed commands in _Run locally_ below (or use the live site and the test accounts).
+2. Register a new volunteer (F1) and tick a show in **Change Availability** (F3).
+3. As admin, **Allocate** then **Publish** (F2).
+4. As the volunteer, **Accept** the place and open **Directions** (F3).
+5. Open _Event day_, clock a few checkpoints (F4), and **Report an incident** (F5).
+6. As admin, watch the _Live board_, then **Acknowledge** and **Resolve** the incident (F4, F5).
+7. As the volunteer, design a badge and order it. As admin, mark it Delivered and give a badge (F6).
+
+## Tech stack
+
+- **Client:** Vue 3, Vite, Pinia, vue-router, Bootstrap 5.3, Bootstrap Icons, Leaflet
+- **Server:** Node 22, Express 5, Mongoose, Socket.IO, express-session
+- **Data:** MongoDB Atlas
+- **External services:** OneMap (geocoding, routing), data.gov.sg (MOE schools), Brevo (OTP emails)
+- **Hosting:** Vercel (client), Render (server)
+
+## Project layout
+
+```
+client/   Vue single-page app
+server/   Express API
+```
+
+| Folder                                   | What is in it                                                                                                         |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| `client/src/views/`                      | One file per page: `HomeView`, `LoginView`, plus `volunteer/` and `admin/` pages                                      |
+| `client/src/components/`                 | Reusable pieces grouped by area: `common` (navbar, dropdown, dialogs), `map`, `chat`, `incident`, `badges`, `landing` |
+| `client/src/services/`                   | One file per feature holding the API and socket calls, plus the login state in `auth.js`                              |
+| `client/src/router/`                     | URLs, role guards and navbar links                                                                                    |
+| `client/src/utils/`                      | Shared helpers: constants, haversine distance, time, geolocation, YouTube                                             |
+| `client/e2e/`                            | One Playwright spec per feature (F1 to F6)                                                                            |
+| `server/routes`, `controllers`, `models` | The API: URL, logic and database model for each feature                                                               |
+| `server/services/onemap.js`              | OneMap geocoding and routing                                                                                          |
+| `server/sockets/`                        | Socket.IO chat and presence                                                                                           |
+| `server/scripts/`                        | Seed and demo-data scripts                                                                                            |
+| `server/data/`                           | Schools, badges, schedule and incident template data                                                                  |
+| `server/tests/`                          | Server tests                                                                                                          |
+
+## Test accounts
+
+| Role             | Email                                                 | Password       |
+| ---------------- | ----------------------------------------------------- | -------------- |
+| Admin            | `admin@gmail.com`                                     | `admin123`     |
+| Volunteer (demo) | `demo.volunteer001@demo.sg` (after `seed:volunteers`) | `DemoPass123!` |
+
+> Do not leave real passwords in this file when the repo is public.
+
+## Run locally
+
+Needs **Node 22+** and **pnpm**.
+
+1. **Database.** Create a free MongoDB Atlas cluster and copy its connection string.
+2. **Server settings.** Copy `server/config.env.example` to `server/config.env` and fill it in (never commit it). The main values are `DB`, `SECRET`, `ONEMAP_API_EMAIL`, `ONEMAP_API_PASSWORD`, `BREVO_API_KEY` and `BREVO_SENDER_EMAIL`. Leave `BREVO_API_KEY` empty locally and the 6-digit sign-up code is shown on the page instead of emailed.
+3. **Start the server.**
+   ```bash
+   cd server
+   pnpm install
+   pnpm run seed:shows
+   pnpm run seed:schools
+   ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='at-least-8-chars' pnpm run seed:admin
+   pnpm run dev        # http://localhost:8000
+   ```
+4. **Start the client** (new terminal).
+   ```bash
+   cd client
+   pnpm install
+   pnpm run dev        # http://localhost:5173 (forwards /api and /socket.io to the server)
+   ```
+   Other client commands: `pnpm run build` (production build into `dist/`), `pnpm run preview`, `pnpm run format`.
+   Copy `client/.env.example` to `client/.env` only if you need it. `VITE_SOCKET_URL` must stay **empty**, both locally and on Vercel, because the proxy and rewrites already forward live updates. Setting it would bypass the login cookie and stop live updates.
+
+### Optional demo data
+
+| Command (in `server/`)               | What it does                                                                                          |
+| ------------------------------------ | ----------------------------------------------------------------------------------------------------- |
+| `pnpm run seed:schools -- --missing` | Keeps stored schools and adds any missing ones from `primary_schools.json`.                           |
+| `pnpm run seed:volunteers`           | Adds 400 demo volunteers around Singapore. Add `--remove` to delete them.                             |
+| `pnpm run seed:incidents`            | Adds 60 demo incidents. Needs volunteers assigned to schools first. Add `-- --remove` to delete them. |
+| `pnpm run simulate:responses`        | Demo volunteers accept or decline their published assignments. `--reset` undoes it.                   |
+
+## Tests
+
+| What                              | Command                                    |
+| --------------------------------- | ------------------------------------------ |
+| Server tests (no database needed) | `cd server && pnpm test`                   |
+| Client unit tests                 | `cd client && pnpm run test:unit -- --run` |
+| End-to-end tests (Playwright)     | `cd client && pnpm run test:e2e`           |
+| Lint                              | `cd client && pnpm run lint`               |
+
+### Running the end-to-end tests
+
+There are 30 browser tests, 5 per feature (F1 to F6), in `client/e2e/`. Each feature file sets up its own data and runs in order. Every test runs on a desktop browser and on an iPhone-sized screen.
+
+1. Start the server (`cd server && pnpm run dev`) with the database seeded: `seed:shows`, `seed:schools`, `seed:admin` and `seed:volunteers` (see _Run locally_ and _Optional demo data_).
+2. Install the browser once: `cd client && pnpm install && pnpm exec playwright install chromium`.
+3. Run `pnpm run test:e2e`. Playwright starts the client on http://localhost:5173 by itself.
+4. Useful extras: `pnpm run test:e2e:ui` (watch the tests run), `pnpm exec playwright test e2e/f2-allocation.spec.js` (one feature), `pnpm exec playwright show-report` (open the HTML report).
+
+The tests log in as the admin from `seed:admin`. By default they expect `admin@heartware.sg` with password `ChangeMe123!`. If you seeded a different admin, pass it in:
+
+```bash
+E2E_ADMIN_EMAIL=you@example.com E2E_ADMIN_PASSWORD='your-password' pnpm run test:e2e
+```
+
+They also use the demo volunteer `demo.volunteer001@demo.sg` (password `DemoPass123!`, or `E2E_DEMO_PASSWORD`). The OneMap postal lookup is faked inside the tests so they do not depend on the outside website.
+
+## Deploy
+
+- **Server (Render):** start command `node server.js`. Set `NODE_ENV=production`, `NODE_VERSION=22`, `DB`, `SECRET`, `ONEMAP_*`, `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, `CLIENT_ORIGINS=<frontend URL>`.
+- **Client (Vercel):** root directory `client`, build command `pnpm run build`, output `dist`. `client/vercel.json` forwards `/api/*` and `/socket.io/*` to the Render server, so the browser talks to one origin and the login cookie works. Leave `VITE_SOCKET_URL` empty.
+
+## Team
+
+| Member        | Feature                  |
+| ------------- | ------------------------ |
+| Kuah Kuay Zen | F1 Smart Registration    |
+| Fanny Lin     | F2 Smart Allocation      |
+| Yap Wei-Jian  | F3 Automated Assignment  |
+| Chin Jun Wen  | F4 Live Monitoring       |
+| Tan Wei Ming  | F5 Incident Reports      |
+| Hanafi Sani   | F6 Badges & Badge Studio |
