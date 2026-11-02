@@ -194,7 +194,18 @@ server/   Express API
 
 ## Run locally
 
-Needs **Node 22+** and **pnpm**.
+Needs **Node 22.18+** and **pnpm**. If you don't have pnpm, install it once with `npm install -g pnpm`
+(or `corepack enable`).
+
+The `node_modules` folders are not included in the submission. Install the packages for each part
+yourself. The client and server each have their own `package.json` and `pnpm-lock.yaml`, and there
+is nothing to install in the project root:
+
+    cd server && pnpm install
+    cd ../client && pnpm install
+
+If the server fails with a `bcrypt` error, run `pnpm approve-builds` and then `pnpm rebuild bcrypt`
+inside `server/`.
 
 1. **Database.** Create a free MongoDB Atlas cluster and copy its connection string.
 2. **Server settings.** Copy `server/config.env.example` to `server/config.env` and fill it in (never commit it). The main values are `DB`, `SECRET`, `ONEMAP_API_EMAIL`, `ONEMAP_API_PASSWORD`, `BREVO_API_KEY` and `BREVO_SENDER_EMAIL`. Leave `BREVO_API_KEY` empty locally and the 6-digit sign-up code is shown on the page instead of emailed.
@@ -232,7 +243,7 @@ Needs **Node 22+** and **pnpm**.
 | Server tests (no database needed) | `cd server && pnpm test`                   |
 | Client unit tests                 | `cd client && pnpm run test:unit -- --run` |
 | End-to-end tests (Playwright)     | `cd client && pnpm run test:e2e`           |
-| Lint                              | `cd client && pnpm run lint`               |
+| Lint                              | `cd client && pnpm run lint:oxlint`               |
 
 ### Running the end-to-end tests
 
@@ -243,7 +254,7 @@ There are 30 browser tests, 5 per feature (F1 to F6), in `client/e2e/`. Each fea
 3. Run `pnpm run test:e2e`. Playwright starts the client on http://localhost:5173 by itself.
 4. Useful extras: `pnpm run test:e2e:ui` (watch the tests run), `pnpm exec playwright test e2e/f2-allocation.spec.js` (one feature), `pnpm exec playwright show-report` (open the HTML report).
 
-The tests log in as the admin from `seed:admin`. By default they expect `admin@heartware.sg` with password `ChangeMe123!`. If you seeded a different admin, pass it in:
+The tests log in as the admin from `seed:admin`. By default they expect `admin@gmail.com` with password `admin123`. If you seeded a different admin, pass it in:
 
 ```bash
 E2E_ADMIN_EMAIL=you@example.com E2E_ADMIN_PASSWORD='your-password' pnpm run test:e2e
