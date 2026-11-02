@@ -54,8 +54,19 @@ test.describe('F6 Badges', () => {
     const everyone = await (await admin.get('/api/badges/volunteers')).json()
     const orders = await (await admin.get('/api/badges/orders')).json()
     const alreadyOrdered = new Set(orders.map((order) => order.volunteer?.email))
-    const free = everyone.find((v) => DEMO_EMAIL.test(v.email) && !alreadyOrdered.has(v.email))
-    expect(free, 'every demo volunteer has already ordered a badge: run seed:volunteers or use a fresh database').toBeTruthy()
+    const candidates = everyone.filter((v) => DEMO_EMAIL.test(v.email) && !alreadyOrdered.has(v.email))
+    let free = null
+    for (const v of candidates) {
+      const ctx = await playwright.request.newContext({ baseURL: testInfo.project.use.baseURL })
+      const res = await ctx.post('/api/users/login', { data: { email: v.email, password: DEMO_PASSWORD } })
+      if (res.ok()) {
+        const design = await (await ctx.get('/api/badges/design/me')).json()
+        if (!design?.locked) free = v
+      }
+      await ctx.dispose()
+      if (free) break
+    }
+    expect(free, 'no demo volunteer is free: every one has ordered or has a locked design. Run seed:volunteers or use a fresh database').toBeTruthy()
     volunteer = { email: free.email, name: free.name }
     await admin.dispose()
   })
@@ -74,8 +85,10 @@ test.describe('F6 Badges', () => {
     await expect(preview.locator('[data-part="primary"]')).toHaveAttribute('fill', '#00aa55')
     await expect(preview.locator('[data-part="secondary"]')).toHaveAttribute('fill', '#112233')
 
-    await page.getByTestId('studio-ribbon').pressSequentially('ABCDEFGHIJKLMNOPQRSTUVWXY')
-    await expect(page.getByTestId('studio-ribbon')).toHaveValue('ABCDEFGHIJKLMNOPQRST')
+    const ribbon = page.getByTestId('studio-ribbon')
+    await ribbon.fill('')   // start from empty, whatever design was saved before
+    await ribbon.pressSequentially('ABCDEFGHIJKLMNOPQRSTUVWXY')
+    await expect(ribbon).toHaveValue('ABCDEFGHIJKLMNOPQRST')
     await expect(page.getByTestId('studio-ribbon-count')).toHaveText('20/20')
     await expect(preview).toContainText('ABCDEFGHIJKLMNOPQRST')
   })
@@ -99,8 +112,7 @@ test.describe('F6 Badges', () => {
     await expect(page.getByTestId('studio-secondary-color')).toHaveValue(DESIGN.secondary)
   })
 
-  // Test 3 - ordering needs a valid address (postal code and unit) and then locks the design for good,
-  // so it can no longer be changed.
+  // TEST 3 – ordering needs a valid address and then locks the design for good
   test('ordering needs a valid address and then locks the design for good', async ({ page }) => {
     await openStudio(page)
     await page.getByTestId('studio-lock').click()
@@ -125,7 +137,12 @@ test.describe('F6 Badges', () => {
     await expect(submit).toBeEnabled()
     await submit.click()
 
-    await expect(page.getByTestId('studio-locked')).toBeVisible()
+    const locked = page.getByTestId('studio-locked')
+    const problem = page.getByTestId('studio-error')
+    await expect(locked.or(problem)).toBeVisible({ timeout: 20000 })
+    const msg = (await problem.count()) ? await problem.innerText() : ''
+    expect(msg, 'the Studio showed an error after Place order').toBe('')
+    await expect(locked).toBeVisible()
     await expect(page.getByTestId('order-status').first()).toHaveText('Placed')
 
     await page.reload()

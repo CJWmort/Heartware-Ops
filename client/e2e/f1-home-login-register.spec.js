@@ -145,21 +145,17 @@ test.describe('F1 Home, Login & Register', () => {
     })
   })
 
-  // TEST 5 – Register happy path: sign up -> type the emailed code -> account exists and we are logged
-  // in
-  // test('a new volunteer can sign up with the email code and ends up logged in', async ({ page }) => {
-  //   await mockPostalLookup(page)
-  //   await page.goto('/register')
-  //   await fillRegisterForm(page, newVolunteer())
-  //   await page.getByTestId('reg-submit').click()
+  // TEST 5 – Logout: Log Out takes you back to the login page and the protected pages need a login again
+  test('logging out returns to the login page and locks the admin pages again', async ({ page }) => {
+    await page.goto('/login')
+    await submitLogin(page, ACCOUNTS.admin)
+    await expectLoggedIn(page)
 
-  //   await expect(page.getByTestId('reg-otp')).toBeVisible()
-  //   const devCode = page.getByTestId('reg-otp-dev-code')
-  //   test.skip(!(await devCode.isVisible()), 'needs OTP_MOCK=true on the server (the code is not shown otherwise)')
-  //   await page.getByTestId('reg-otp-code').fill((await devCode.innerText()).trim())
-  //   await page.getByTestId('reg-otp-submit').click()
+    await page.getByTestId('nav-logout').click()
+    await expect(page).toHaveURL(/\/login$/)
+    await expect(page.getByTestId('login-submit')).toBeVisible()
 
-  //   await page.waitForURL((url) => !url.pathname.startsWith('/register'))
-  //   await expectLoggedIn(page)
-  // })
+    await page.goto('/admin/allocation')
+    await expect(page).toHaveURL(/\/login\?redirect=/)
+  })
 })
