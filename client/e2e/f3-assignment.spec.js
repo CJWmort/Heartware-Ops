@@ -159,7 +159,6 @@ test.describe('F3 Assignment', () => {
       await page.getByTestId(`availability-${SHOW}`).check()
       await page.getByTestId('availability-save').click()
       await expect(page.getByTestId('availability-modal')).toBeHidden()
-      // Ticking again puts the volunteer back on the reserve list (or gives a new offer if a place is open)
       await expect(card.getByTestId('assignment-status')).toHaveText(/on reserve list|pending/i)
     })
   })

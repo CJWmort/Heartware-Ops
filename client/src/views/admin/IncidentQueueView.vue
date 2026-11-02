@@ -219,10 +219,9 @@ const visibleIncidents = computed(() => {
 // highlightedStatuses (computed) - which stat chips should light up.
 // 1) No search text: only the chip the admin pressed (same as before).
 // 2) Search text: every status that appears in the search results, so the admin can see at a
-//    glance which statuses the matching incidents are in.
+//    glance which statuses the matching incidents are in (a Set keeps each status once).
 const highlightedStatuses = computed(() => {
   if (!searchbar.value.trim()) return statusFilter.value ? [statusFilter.value] : []
-  // A Set keeps each status once, even if several results share it.
   return [...new Set(visibleIncidents.value.map((incident) => incident.status))]
 })
 

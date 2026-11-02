@@ -70,7 +70,8 @@ exports.listMyAwards = async (req, res) => {
 // awardBadge (admin) - gives a badge to one or many volunteers. 1) volunteerIds must be a non-empty
 // array, badgeCode must be a real badge, event must be a real show and every id must be a valid id
 // (else 400), 2) create one award row per volunteer, 3) a duplicate (same badge, show and volunteer)
-// is skipped instead of failing, 4) reply with how many were awarded and how many were skipped.
+// is skipped instead of failing, 4) send "badges:updated" to each volunteer who got a badge so their
+// My Badges page refreshes live, 5) reply with how many were awarded and how many were skipped.
 exports.awardBadge = async (req, res) => {
   try {
     const { volunteerIds, badgeCode, event, message } = req.body;
@@ -137,8 +138,9 @@ exports.saveMyDesign = async (req, res) => {
 // placeOrder (volunteer) - orders the saved badge. 1) the postal code must be 6 digits and the unit 1
 // to 20 characters (else 400), 2) load their design (none: 400 "save your design first"), 3) a design
 // that is already locked gives 409, 4) look up the address for the postal code from OneMap and use
-// that address (not the typed one), 5) create the order and lock the design, 6) reply with the new
-// order; if something fails after locking, the lock is undone.
+// that address (not the typed one), 5) create the order and lock the design, 6) send "orders:updated"
+// to HQ so the Badges & orders page refreshes live, 7) reply with the new order; if something fails
+// after locking, the lock is undone.
 exports.placeOrder = async (req, res) => {
   let lockedByMe = false
   try {
@@ -230,8 +232,8 @@ exports.listAllOrders = async (req, res) => {
 
 // updateOrderStatus (admin) - moves an order forward one step. 1) load the order (none -> 404) 2)
 // already delivered -> 409 3) the new status must be exactly the next one in placed -> in_production
-// -> shipped -> delivered (else 409 telling the allowed next status) 4) save and reply. An invalid id
-// gives 400.
+// -> shipped -> delivered (else 409 telling the allowed next status) 4) save 5) send "orders:updated"
+// to HQ and to that volunteer so both pages refresh live 6) reply. An invalid id gives 400.
 exports.updateOrderStatus = async (req, res) => {
   try {
     const newStatus = req.body.status
@@ -276,8 +278,9 @@ exports.listVolunteers = async (req, res) => {
 // checkpoints. 3. EARLY_BIRD winners = volunteers whose first checkpoint was at least 30 minutes
 // before the school's reporting time (schools without a reporting time are skipped). 4. SUPER_SUB
 // winners = volunteers filled in from the reserve list who started the journey. 5. Create one award
-// per winner; a duplicate is counted in "skipped" (so pressing the button twice is safe). 6. Reply
-// with how many of each badge were given and the skipped count.
+// per winner; a duplicate is counted in "skipped" (so pressing the button twice is safe). 6. Send
+// "badges:updated" once to every volunteer who got at least one new badge. 7. Reply with how many of
+// each badge were given and the skipped count.
 exports.autoAward = async (req, res) => {
   try {
     const { event } = req.body

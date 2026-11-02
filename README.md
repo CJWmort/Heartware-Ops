@@ -13,11 +13,11 @@ A web app that helps Heartware run the **NDP show volunteer programme**. Volunte
 | #   | Feature              | Who uses it       | What it does                                                                                                                                                                                                    |
 | --- | -------------------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | F1  | Smart Registration   | Volunteer         | Email OTP stops fake sign-ups. The postal code is geocoded with OneMap so the address is accurate. A progress card tracks the form.                                                                             |
-| F2  | Smart Allocation     | Admin             | ScarcityFirst (primary) and Greedy (secondary) algorithms match volunteers to schools within 10 km (haversine). The admin reviews a draft and publishes it per show. Once a show is published, volunteers who join later are placed automatically in any open place nearby. |
-| F3  | Automated Assignment | Volunteer         | Submit availability, then accept, decline or withdraw. Directions via OneMap, with a Google Maps link as backup. A freed place goes to the nearest reserve.                                                     |
+| F2  | Smart Allocation     | Admin             | The ScarcityFirst algorithm matches volunteers to schools by straight-line (haversine) distance, filling the hardest-to-staff school first. The admin reviews a draft and publishes it per show. Once a show is published, volunteers who join later go on the reserve list and open places are filled from it, nearest volunteer first. |
+| F3  | Automated Assignment | Volunteer         | Submit availability, then accept, decline or withdraw. Directions via OneMap (drive or walk), with a Google Maps link as backup. A freed place goes to the nearest reserve.                                                     |
 | F4  | Live Tracking        | Volunteer + Admin | Checkpoint-based journey tracking. The HQ live board shows volunteers on a map with zone alerts.                                                                                                                |
 | F5  | Incident Reporting   | Volunteer + Admin | Volunteers report incidents. HQ triages them on a queue and map and chats with volunteers in real time.                                                                                                         |
-| F6  | Badges               | Volunteer + Admin | Badge studio, badge wall, and automatic awards (Full Route, Early Bird, Super Sub).                                                                                                                             |
+| F6  | Badges               | Volunteer + Admin | Badge studio and orders, badge wall, and automatic awards (Full Route, Early Bird, Super Sub). Badge and order changes show up live.                                                                                                                             |
 
 The coordinator role in the code is called **admin** in the app.
 
@@ -55,16 +55,18 @@ Page: _Allocation_
 
 What it does:
 
-- Builds the allocation for one show with **ScarcityFirst** (primary) and **Greedy** (secondary), using haversine direct distance with a 10 km limit.
+- Builds the allocation for one show with **ScarcityFirst**: it finds the school that is hardest to staff (the one whose nearest free volunteers are furthest away, by haversine straight-line distance), gives it its nearest free volunteers, and repeats. Volunteers left over go on the **reserve list**. There is no distance limit in this step.
+- A **Greedy** matcher (`server/utils/greedy.js`) is also in the code, but the allocation run does not call it at the moment.
 - Allocation is a **draft** until the admin publishes it. Volunteers only see their school after **Publish**.
-- Before Publish, volunteers wait for the admin to press **Allocate**. After a show is published, volunteers who tick it later are placed automatically in an open place within 10 km, or kept on the reserve list if none is free.
+- Before Publish, volunteers wait for the admin to press **Allocate**. After a show is published, volunteers who tick it later join the reserve list, and any open place is filled from the reserve list, nearest volunteer first. Places with the fewest reserves within 10 km are filled first, so hard-to-reach schools are not left with only far-away people.
+- Three number cards at the top (**Schools**, **Pending**, **Need volunteers**) double as filters. All filters (search, zone, time and the cards) combine, and **Clear all** resets them.
 
 How to try it (needs several volunteers who have ticked the show; `pnpm run seed:volunteers` adds 400):
 
 1. Log in as admin and pick a show in the show dropdown.
-2. Press **Allocate** and confirm. Rows appear tagged _Draft_, grouped by school on the list and the map. Use **Needs Volunteers** to see schools that are short.
+2. Press **Allocate** and confirm. Rows appear tagged _Draft_, grouped by school on the list and the map. Press the **Need volunteers** card to see only schools that are short.
 3. Click a school to see its places filled and its volunteers. The _Unassigned volunteers_ panel lists anyone left over.
-4. Press **Publish** for the show and confirm. Re-running Allocate is safe: volunteers who already accepted keep their school.
+4. Press **Publish** (it shows how many drafts are waiting) and confirm. Re-running Allocate is safe: volunteers who already accepted keep their school.
 5. **Reset** erases all assignments, including accepted ones. Use it only to start over.
 
 ### F3 Automated Assignment (volunteer)
@@ -75,17 +77,17 @@ What it does:
 
 - The volunteer submits availability and the backend assigns a school automatically. Each card shows the show, school, reporting time, reporting location and status.
 - Offers can be **Accepted** or **Declined** (with a reason). An accepted place can later be **withdrawn** (with a reason).
-- **Directions** shows the route on a map with Drive, Walk and Transit modes. A **Google Maps** link is the backup in case OneMap is limited or down.
-- A show that has been declined or withdrawn is locked in availability, so it cannot be ticked again.
+- **Directions** shows the route on a map with **Drive** and **Walk** modes. A **Google Maps** link is the backup in case OneMap is limited or down.
+- A show that has been declined or withdrawn is locked in availability, so it cannot be ticked again. An accepted show cannot be unticked either (withdraw instead).
 - If a volunteer withdraws, the freed place goes to the nearest reserve.
 
 How to try it:
 
 1. Log in as a volunteer and press **Change Availability**. Tick the shows you can attend and press **Save**.
 2. Wait for the admin to Allocate and Publish (see F2). The card then shows the offer with **Accept** and **Decline**.
-3. Press **Directions** and switch between Drive, Walk and Transit. Press the Google Maps link to open the backup.
+3. Press **Directions** and switch between Drive and Walk. Press the Google Maps link to open the backup.
 4. Press **Decline**, confirm, and give a reason. The buttons disappear and the show is locked in _Change Availability_.
-5. For an accepted place, use the withdraw button, confirm and give a reason.
+5. For an accepted place, press **Withdraw**, confirm and give a reason.
 
 ### F4 Live Tracking (volunteer and admin)
 
@@ -100,7 +102,7 @@ What it does:
 How to try it:
 
 1. As a volunteer with an accepted place, open _Event day_ and allow location access in the browser. It shows your school, your journey and that you are sharing your location.
-2. Pull up the bottom sheet and press the next checkpoint button. The journey count moves forward. Press **Undo** to go back.
+2. On a phone, pull up the bottom sheet (on a wider screen the panel is already open) and press the next checkpoint button. The journey count moves forward. Press **Undo** to go back.
 3. In another window, log in as admin, open _Live board_, pick the show, and search for the volunteer. Their card shows the checkpoint reached.
 4. Watch the bell for zone alerts when a volunteer moves into the inner ring.
 
@@ -110,7 +112,7 @@ Pages: volunteer _Event day_ (report form), admin _Incidents_ and the live chat
 
 What it does:
 
-- A volunteer reports an incident: choose a type (Student Unwell, Student Missing, Bus Delayed, Bus Breakdown, Items Missing, Others), check the severity, add a note and send.
+- A volunteer reports an incident: choose a type (Student Unwell, Student Missing, Bus Delayed, Bus Breakdown, Items Missing, Others), add a note and send. The severity comes from the type, and the address is filled in from the volunteer's location.
 - HQ sees new reports instantly (no reload) on a map and list with **New**, **Acknowledged** and **Resolved** counters.
 - HQ **acknowledges** an incident, then **resolves** it. A resolving note is required.
 - HQ and volunteers can chat in real time.
@@ -118,7 +120,7 @@ What it does:
 How to try it:
 
 1. As a volunteer, press **Report an incident**, pick _Bus Delayed_, add a note and send. You see "Report sent!".
-2. As admin, open _Incidents_. The report appears as **New** with the right school. Use the search box to find it.
+2. As admin, open _Incidents_. The report appears as **New** with the right school. Use the search box to find it; while searching, every status found in the results lights up on the counters.
 3. Open the incident, press **Acknowledge**, then **Resolve** and write a note. The counters update.
 4. Open the chat button to message the volunteer.
 5. Demo data: `pnpm run seed:incidents` adds 60 incidents (assign volunteers to schools first).
@@ -130,17 +132,17 @@ Pages: volunteer _Badge Studio_ and _My badges_, admin _Badges & orders_
 What it does:
 
 - **Badge Studio:** design a custom badge with an emblem (heart, star, crescent, trophy, smile, balloon), a shape (circle, hexagon, star, shield), colours and ribbon text (up to 20 characters). The preview updates live.
-- A design can be saved, then **ordered** with a valid Singapore address. Once ordered the design is locked for good.
-- HQ moves each order from **Placed** to **Delivered**, and the volunteer sees the new status.
-- **Auto awards:** Full Route Completed (all 8 checkpoints), Early Bird (reached school before reporting time), Super-Sub (filled a dropped place).
-- **Manual awards:** HQ can give _Heart of Gold_ or _Calm Under Pressure_ with a thank-you note.
+- A design can be saved, then **ordered** with a 6-digit postal code and a unit number (both required). The address is looked up from OneMap. Once ordered the design is locked for good.
+- HQ moves each order one step at a time: **Placed**, **In production**, **Shipped**, **Delivered**. The volunteer sees the new status without reloading.
+- **Auto awards:** Full Route Completed (all 8 checkpoints), Early Bird (first checkpoint at least 30 minutes before the school's reporting time), Super-Sub (filled a dropped place).
+- **Manual awards:** HQ can give _Heart of Gold_ or _Calm Under Pressure_ with a thank-you note (up to 300 characters). The volunteer's _My badges_ page updates without reloading.
 - _My badges_ shows what is earned and what is still to earn.
 
 How to try it:
 
 1. As a volunteer, open _Badge Studio_, change the emblem, shape, colours and ribbon. Press **Save** ("Design saved!") and reload to see it kept.
-2. Enter an address and postal code and place the order ("Order placed!"). The design now shows as locked.
-3. As admin, open _Badges & orders_, find the order and advance it to **Delivered**. The volunteer sees the update under _My orders_.
+2. Enter the postal code and unit number and place the order ("Order placed!"). The design now shows as locked.
+3. As admin, open _Badges & orders_, find the order and advance it step by step to **Delivered**. The volunteer sees the update under _My orders_.
 4. As admin, use **Give badge** to award _Heart of Gold_ with a note. The volunteer's _My badges_ page shows "1 badge earned" and the note.
 
 ### Suggested 10-minute walkthrough for markers
@@ -157,8 +159,8 @@ How to try it:
 
 - **Client:** Vue 3, Vite, Pinia, vue-router, Bootstrap 5.3, Bootstrap Icons, Leaflet
 - **Server:** Node 22, Express 5, Mongoose, Socket.IO, express-session
-- **Data:** MongoDB Atlas
-- **External services:** OneMap (geocoding, routing), data.gov.sg (MOE schools), Brevo (OTP emails)
+- **Data:** MongoDB Atlas. The school list comes from the MOE schools dataset (data.gov.sg) and is stored in `server/data/primary_schools.json`, so it is not fetched while the app runs.
+- **External services:** OneMap (postal code lookup, routing), Brevo (OTP emails), YouTube (home page videos)
 - **Hosting:** Vercel (client), Render (server)
 
 ## Project layout
@@ -218,6 +220,7 @@ inside `server/`.
    ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='at-least-8-chars' pnpm run seed:admin
    pnpm run dev        # http://localhost:8000
    ```
+   On Windows PowerShell, set the admin details like this instead: `$env:ADMIN_EMAIL="you@example.com"; $env:ADMIN_PASSWORD="at-least-8-chars"; pnpm run seed:admin`. Running it again with the same email resets that admin's password.
 4. **Start the client** (new terminal).
    ```bash
    cd client
@@ -229,12 +232,18 @@ inside `server/`.
 
 ### Optional demo data
 
-| Command (in `server/`)               | What it does                                                                                          |
-| ------------------------------------ | ----------------------------------------------------------------------------------------------------- |
-| `pnpm run seed:schools -- --missing` | Keeps stored schools and adds any missing ones from `primary_schools.json`.                           |
-| `pnpm run seed:volunteers`           | Adds 400 demo volunteers around Singapore. Add `--remove` to delete them.                             |
-| `pnpm run seed:incidents`            | Adds 60 demo incidents. Needs volunteers assigned to schools first. Add `-- --remove` to delete them. |
-| `pnpm run simulate:responses`        | Demo volunteers accept or decline their published assignments. `--reset` undoes it.                   |
+Run these in `server/`. The `--` before a flag is needed so pnpm passes the flag to the script.
+
+| Command | What it does |
+| ------- | ------------ |
+| `pnpm run seed:schools -- --missing` | Keeps stored schools and adds any missing ones from `primary_schools.json`. |
+| `pnpm run seed:schools -- --force` | Deletes all schools, then loads them again. |
+| `pnpm run seed:volunteers` | Adds 400 demo volunteers around Singapore (`-- --count=50` for a different number, 1 to 1000). |
+| `pnpm run seed:volunteers -- --remove` | Deletes the demo volunteers. |
+| `pnpm run seed:incidents` | Adds 60 demo incidents (replacing old demo ones). Needs volunteers assigned to schools first. |
+| `pnpm run seed:incidents -- --remove` | Deletes the demo incidents. |
+| `pnpm run simulate:responses` | Demo volunteers answer their published offers (70% accept, 10% decline by default). Options: `--accept=80 --decline=10 --withdraw=5`, `--show="NE Show 2"`. |
+| `pnpm run simulate:responses -- --reset` | Puts the demo answers back to Pending. |
 
 ## Tests
 
@@ -264,8 +273,9 @@ They also use the demo volunteer `demo.volunteer001@demo.sg` (password `DemoPass
 
 Things to know before you run them:
 
-- **Email code (OTP):** the F1 sign-up test needs the code to be shown on the page. Set `OTP_MOCK=true` in `server/config.env`, or leave `BREVO_API_KEY` empty when running locally.
-- **OneMap:** the browser's postal lookup is faked in the F1 and F5 tests, but the **server** still calls OneMap when the F1 sign-up test creates an account and when the F6 ordering test places an order. The server needs internet for those two tests.
+- **No email code needed:** no test creates a new account, so the tests do not need the OTP email.
+- **OneMap:** the browser's OneMap-based requests are faked in F1 (postal lookup), F3 (route) and F5 (incident address), so those tests do not depend on the outside website. The **server** still calls OneMap when the F6 ordering test places an order, so the server needs internet for that test.
+- **Login limit:** the login rate limit is switched off in `server/routes/accounts-routes.js`, so the many test logins are not blocked.
 - **They change the database.** F2 to F5 reset and re-allocate one show (`NE Show 4` by default, or set `E2E_SHOW`), which erases every assignment in it. Each F6 run orders a badge for one demo volunteer, and that volunteer's design stays locked for good (the app never deletes orders), so each run uses up one of the 400 demo volunteers. F5 leaves incidents behind (their notes start with "E2E"). Use a local or test database only. **Never run these tests against the deployed database.**
 
 ## Deploy

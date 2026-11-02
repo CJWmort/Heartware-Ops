@@ -57,8 +57,9 @@ async function fillRegisterForm(page, v, { consent = true } = {}) {
   if (consent) await page.getByTestId('reg-consent').check()
 }
 
-// F1 tests - the 5 browser tests for Home, Login and Register: home buttons lead to the right pages,
-// login errors, successful login, register checks and so on.
+// F1 tests - the 5 browser tests for Home, Login, Register and Logout: home buttons lead to the right
+// pages, bad logins are refused, a guest returns to the page they asked for after login, the Register
+// form checks, and logging out locks the protected pages again.
 test.describe('F1 Home, Login & Register', () => {
   // TEST 1 – Home page: the two big buttons lead to the right pages
   test('home page buttons lead a guest to Register and Login', async ({ page }) => {

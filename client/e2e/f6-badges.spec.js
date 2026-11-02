@@ -43,7 +43,8 @@ function ourOrderRow(page) {
 test.describe('F6 Badges', () => {
   test.describe.configure({ mode: 'serial' })
 
-  // SETUP (not a test): find a demo volunteer who has not ordered a badge yet.
+  // SETUP (not a test): find a demo volunteer who has not ordered a badge yet, can log in, and whose
+  // design is not locked. Each candidate is checked in its own logged-in session.
   test.beforeAll(async ({ playwright }, testInfo) => {
     const admin = await playwright.request.newContext({ baseURL: testInfo.project.use.baseURL })
     const login = await admin.post('/api/users/login', {
@@ -71,7 +72,8 @@ test.describe('F6 Badges', () => {
     await admin.dispose()
   })
 
-  // TEST 1 – The live preview follows every change
+  // TEST 1 – The live preview follows every change (the ribbon is emptied first, whatever design was
+  // saved before)
   test('the Badge Studio preview updates live and the ribbon text stops at 20 characters', async ({ page }) => {
     await openStudio(page)
     const preview = page.getByTestId('studio-preview')
@@ -86,7 +88,7 @@ test.describe('F6 Badges', () => {
     await expect(preview.locator('[data-part="secondary"]')).toHaveAttribute('fill', '#112233')
 
     const ribbon = page.getByTestId('studio-ribbon')
-    await ribbon.fill('')   // start from empty, whatever design was saved before
+    await ribbon.fill('')
     await ribbon.pressSequentially('ABCDEFGHIJKLMNOPQRSTUVWXY')
     await expect(ribbon).toHaveValue('ABCDEFGHIJKLMNOPQRST')
     await expect(page.getByTestId('studio-ribbon-count')).toHaveText('20/20')

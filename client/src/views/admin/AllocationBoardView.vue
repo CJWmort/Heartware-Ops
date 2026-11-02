@@ -203,7 +203,8 @@ function toggleStatus(key) {
 }
 
 // isChipActive(chip) - whether a card shows as pressed. Schools is pressed when no card filter is on;
-// the others are pressed when their own filter is on. Search no longer hides this: filters combine.
+// the others are pressed when their own filter is on. Search, zone and time do not change which card
+// is pressed, because all the filters combine.
 function isChipActive(chip) {
   if (chip.key === 'all') return !statusFilter.value && !needsOnly.value
   if (chip.key === 'needs') return needsOnly.value
@@ -272,12 +273,14 @@ watch(timeOptions, (opts) => {
 })
 
 // activeFilterCount (computed) - how many of ALL five filters are on (search, zone, time, the status
-// card and the needs card). filtersActive is true when any is on; used by Clear all and the results line.
+// card and the needs card).
 const activeFilterCount = computed(
   () =>
     [searchbar.value.trim(), zoneFilter.value, timeFilter.value, statusFilter.value, needsOnly.value]
       .filter(Boolean).length,
 )
+// filtersActive (computed) - true when any filter is on; used by the Clear all button and the results
+// line.
 const filtersActive = computed(() => activeFilterCount.value > 0)
 // clearSchoolFilters() - the Clear all button: reset every filter.
 function clearSchoolFilters() {
@@ -288,7 +291,8 @@ function clearSchoolFilters() {
   needsOnly.value = false
 }
 
-// needsVolunteers(s) - true when the school still has free places (same rule the old switch used).
+// needsVolunteers(s) - true when the school still has free places (fewer places filled than P5
+// classes).
 const needsVolunteers = (s) => filledCount(s) < s.p5Classes
 // hasStatus(s, status) - true when the school has at least one volunteer with that status.
 const hasStatus = (s, status) => s.volunteers.some((v) => v.status === status)
@@ -320,10 +324,11 @@ const visibleSchools = computed(() =>
       (!statusFilter.value || hasStatus(s, statusFilter.value)),
   ),
 )
-// watch(selectedShow) - on a new show: unfocus the school and clear every filter.
+// watch(selectedShow) - on a new show: unfocus the school and clear every filter, including the
+// pressed cards.
 watch(selectedShow, () => {
   focusedSchoolId.value = null
-  clearSchoolFilters() // also resets the pressed cards
+  clearSchoolFilters()
 })
 // capacityPercent(school) - width of the capacity bar: filled divided by places, capped at 100; 0 when
 // the school needs no places (avoids dividing by zero).

@@ -2,7 +2,8 @@
      badge orders forward. -->
 
 <script setup>
-// Loads all orders and moves an order to its next status (placed, in production, delivered).
+// Loads all orders, keeps them up to date live (socket "orders:updated") and moves an order to its
+// next status (placed, in production, shipped, delivered).
 
 import { ref, onMounted, onUnmounted } from 'vue'
 import PageLoading from '@/components/common/PageLoading.vue'
@@ -22,8 +23,9 @@ const error = ref('')
 const actionError = ref('')
 const savingId = ref(null)
 
-// loadOrders() - 1) show loading and clear the error 2) fetch every order (admin endpoint) 3) store
-// them 4) on failure show a friendly message and log it 5) always stop loading.
+// loadOrders(quiet) - 1) unless quiet, show the loading screen 2) fetch every order (admin endpoint)
+// 3) store them and clear the error 4) on failure log it, and show a friendly message only when not
+// quiet 5) always stop loading. quiet = true is used by the live refresh so the page does not flash.
 async function loadOrders(quiet = false) {
     if (!quiet) loading.value = true
     try {
@@ -66,12 +68,16 @@ async function advance(order) {
   }
 }
 
-// Load the orders when the page opens. (The two cards above load their own data.)
 let socket = null
+// refreshQuietly() - reloads the orders in the background (no loading screen) when the server says an
+// order changed, the connection comes back, or the tab becomes visible again. 1) skip while the tab is
+// hidden or an order is being saved 2) otherwise call loadOrders(true).
 function refreshQuietly() {
     if (document.visibilityState !== 'visible' || savingId.value) return
     loadOrders(true)
 }
+// onMounted - 1) load the orders (the two cards above load their own data) 2) connect the socket 3)
+// refresh quietly on "orders:updated", on reconnect and when the tab becomes visible.
 onMounted(() => {
     loadOrders()
     socket = connectSocket()
@@ -79,6 +85,7 @@ onMounted(() => {
     socket.io.on('reconnect', refreshQuietly)
     document.addEventListener('visibilitychange', refreshQuietly)
 })
+// onUnmounted - stop all three listeners so a closed page no longer refreshes.
 onUnmounted(() => {
     socket?.off('orders:updated', refreshQuietly)
     socket?.io.off('reconnect', refreshQuietly)

@@ -3,7 +3,8 @@
 
 <script setup>
 // Holds the design choices, saves the design, checks the delivery address against OneMap using the
-// postal code, places the order and locks the page, and warns about unsaved changes.
+// postal code, places the order and locks the page, warns about unsaved changes, and updates the
+// order status live when HQ moves an order (socket "orders:updated").
 
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import axios from 'axios'
@@ -278,6 +279,9 @@ function warnBeforeUnload(event) {
   event.returnValue = ''
 }
 let socket = null
+// refreshOrders() - reloads my orders in the background when HQ changes an order (socket
+// "orders:updated"), the connection comes back or the tab becomes visible. 1) skip while the tab is
+// hidden or an order is being placed 2) fetch my orders 3) on failure only log it.
 async function refreshOrders() {
   if (document.visibilityState !== 'visible' || submitting.value) return
   try {
@@ -286,7 +290,8 @@ async function refreshOrders() {
     console.error(error)
   }
 }
-// onMounted - start warning the user before they close the tab with unsaved changes.
+// onMounted - 1) start warning the user before they close the tab with unsaved changes 2) connect the
+// socket 3) refresh my orders on "orders:updated", on reconnect and when the tab becomes visible.
 onMounted(() => {
   window.addEventListener('beforeunload', warnBeforeUnload)
   socket = connectSocket()
@@ -294,7 +299,8 @@ onMounted(() => {
   socket.io.on('reconnect', refreshOrders)
   document.addEventListener('visibilitychange', refreshOrders)
 })
-// onBeforeUnmount - stop that warning and cancel the success and postal timers.
+// onBeforeUnmount - stop that warning, cancel the success and postal timers, and remove the live
+// order listeners.
 onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', warnBeforeUnload)
   clearTimeout(successTimer)

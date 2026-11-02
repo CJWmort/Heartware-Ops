@@ -1,7 +1,8 @@
 <!-- The volunteer's My Badges page (F6): the badges earned and the ones still locked. -->
 
 <script setup>
-// Loads the badge list and the volunteer's awards, and splits them into earned and locked.
+// Loads the badge list and the volunteer's awards, splits them into earned and locked, and refreshes
+// the awards live when HQ gives a badge (socket "badges:updated").
 
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import PageLoading from '@/components/common/PageLoading.vue'
@@ -42,6 +43,9 @@ onMounted(async () => {
 })
 
 let socket = null
+// refreshAwards() - reloads my awards in the background when HQ gives me a badge (socket
+// "badges:updated"), the connection comes back or the tab becomes visible. 1) skip while the tab is
+// hidden 2) fetch my awards 3) on failure only log it.
 async function refreshAwards() {
   if (document.visibilityState !== 'visible') return
   try {
@@ -50,12 +54,15 @@ async function refreshAwards() {
     console.error(e)
   }
 }
+// onMounted (second) - connect the socket and refresh my awards on "badges:updated", on reconnect and
+// when the tab becomes visible.
 onMounted(() => {
   socket = connectSocket()
   socket.on('badges:updated', refreshAwards)
   socket.io.on('reconnect', refreshAwards)
   document.addEventListener('visibilitychange', refreshAwards)
 })
+// onUnmounted - remove the three live listeners so a closed page no longer refreshes.
 onUnmounted(() => {
   socket?.off('badges:updated', refreshAwards)
   socket?.io.off('reconnect', refreshAwards)

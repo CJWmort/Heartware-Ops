@@ -69,7 +69,8 @@ test.describe('F5 Incidents', () => {
     await admin.dispose()
   })
 
-  // TEST 1 – A volunteer sends an incident report from the Event day page
+  // TEST 1 – A volunteer sends an incident report from the Event day page (on a phone-sized screen the
+  // bottom sheet is pulled up first; wider screens have no handle)
   test('a volunteer can report a delayed bus and sees that HQ was notified', async ({ page }) => {
     await page.route('**/api/incidents/where*', (route) =>
       route.fulfill({ json: { address: 'E2E test address, Singapore' } }),
@@ -77,7 +78,6 @@ test.describe('F5 Incidents', () => {
 
     await loginWithCredentials(page, { email: volunteer.email, password: DEMO_PASSWORD })
     await page.goto('/volunteer/tracking')
-    // the handle only exists below 992px wide (phone layout); wider screens have no handle
     if (page.viewportSize().width < 992) await page.getByTestId('sheet-toggle').click()
     await page.getByTestId('incident-open').click()
 
@@ -139,7 +139,8 @@ test.describe('F5 Incidents', () => {
   })
 
   // TEST 5 – A report that arrives while HQ has the page open shows up by itself (live update, no
-  // reload)
+  // reload). HQ first searches for the note of the report about to be sent (nothing matches), then the
+  // volunteer sends it and the matching card must appear without reloading.
   test('a new report appears on an open HQ page without reloading', async ({ page, playwright }, testInfo) => {
     await loginWithCredentials(page, ACCOUNTS.admin)
     const listLoaded = page.waitForResponse(
@@ -148,7 +149,6 @@ test.describe('F5 Incidents', () => {
     await page.goto('/admin/incidents')
     await listLoaded
     await expect(page.getByTestId('stat-new')).toBeVisible()
-    // search for the report we are about to send: nothing matches yet
     await page.getByTestId('inc-search').fill(LIVE_NOTE)
     await expect(page.locator(CARDS)).toHaveCount(0)
 
@@ -160,7 +160,6 @@ test.describe('F5 Incidents', () => {
     expect(sent.ok(), 'could not send the second report').toBeTruthy()
     await volunteerApi.dispose()
 
-    // the new report must appear by itself, without reloading the page
     await expect(page.locator(CARDS)).toHaveCount(1, { timeout: 15 * 1000 })
   })
 })

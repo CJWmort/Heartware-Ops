@@ -20,7 +20,6 @@ let volunteerB = { email: '', name: '', school: '' }
 async function openTrackingPage(page, volunteer) {
   await loginWithCredentials(page, { email: volunteer.email, password: DEMO_PASSWORD })
   await page.goto('/volunteer/tracking')
-  // the handle only exists below 992px wide (phone layout); wider screens have no handle
   if (page.viewportSize().width < 992) await page.getByTestId('sheet-toggle').click()
   await expect(page.getByTestId('journey-count')).toBeVisible()
 }

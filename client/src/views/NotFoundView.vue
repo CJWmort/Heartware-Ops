@@ -1,6 +1,8 @@
 <!-- The page shown for any unknown address (404). -->
 
 <script setup>
+// Reads who is logged in so the "Back to home" button goes to the right start page for their role.
+
 import { useAuthStore } from '@/services/auth'
 import { landingFor } from '@/router/landing'
 
