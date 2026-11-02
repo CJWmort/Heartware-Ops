@@ -57,7 +57,7 @@ test.describe('F2 Allocation', () => {
 
     await page.getByTestId('alloc-run').click()
     await page.getByTestId('confirm-ok').click()
-    await expect(page.getByTestId('notice')).toContainText(/allocation done/i, { timeout: 45 * 1000 })
+    await expect(page.getByTestId('notice').filter({ hasText: /allocation done/i })).toBeVisible({ timeout: 45 * 1000 })
     await expect(page.getByTestId('alloc-draft-count')).toHaveText(/^[1-9]\d*$/)
 
     const response = await page.request.get('/api/assignments')
@@ -83,7 +83,7 @@ test.describe('F2 Allocation', () => {
 
     await page.getByTestId('alloc-publish').click()
     await page.getByTestId('confirm-ok').click()
-    await expect(page.getByTestId('notice')).toContainText(/is now visible to volunteers/i)
+    await expect(page.getByTestId('notice').filter({ hasText: /is now visible to volunteers/i })).toBeVisible()
     await expect(page.getByTestId('alloc-publish')).toBeDisabled()
   })
 

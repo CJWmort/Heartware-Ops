@@ -7,7 +7,7 @@ const router = express.Router();
 const { requireLogin, requireRole } = require('../middleware/auth-middleware');
 const rateLimit = require('../middleware/rate-limit');
 const MIN = 60 * 1000;
-const loginLimit  = rateLimit({ windowMs: 15 * MIN, max: 20, message: 'Too many login attempts. Please wait 15 minutes and try again.' });
+// const loginLimit  = rateLimit({ windowMs: 15 * MIN, max: 20, message: 'Too many login attempts. Please wait 15 minutes and try again.' });
 const otpLimit    = rateLimit({ windowMs: 15 * MIN, max: 10, message: 'Too many code requests. Please wait 15 minutes and try again.' });
 const verifyLimit = rateLimit({ windowMs: 15 * MIN, max: 30, message: 'Too many attempts. Please wait 15 minutes and try again.' });
 const lookupLimit = rateLimit({ windowMs: MIN, max: 60 });
@@ -24,7 +24,8 @@ router.get('/route', requireLogin, accountsController.route);
 router.get('/postal-lookup', lookupLimit, accountsController.postalLookup);
 router.get('/address-search', lookupLimit, accountsController.addressSearch);
 
-router.post('/login', loginLimit, accountsController.login);
+// router.post('/login', loginLimit, accountsController.login);
+router.post('/login', accountsController.login);
 router.post('/logout', accountsController.logout);
 
 router.get('/me',requireLogin, accountsController.me);

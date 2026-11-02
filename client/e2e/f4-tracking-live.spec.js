@@ -14,12 +14,14 @@ test.use({ geolocation: TAMPINES, permissions: ['geolocation'] })
 let volunteerA = { email: '', name: '', school: '' }
 let volunteerB = { email: '', name: '', school: '' }
 
-// Opens the volunteer's Event day page and pulls up the bottom sheet. The checkpoint buttons live
-// inside that sheet, and it starts collapsed (only a thin handle shows).
+// Opens the volunteer's Event day page. On a phone the checkpoint buttons live inside a bottom sheet
+// that starts collapsed, so we pull it up; on a desktop screen the sheet is a side panel that is
+// always open and has no handle to click (width 992px or more).
 async function openTrackingPage(page, volunteer) {
   await loginWithCredentials(page, { email: volunteer.email, password: DEMO_PASSWORD })
   await page.goto('/volunteer/tracking')
-  await page.getByTestId('sheet-toggle').click()
+  // the handle only exists below 992px wide (phone layout); wider screens have no handle
+  if (page.viewportSize().width < 992) await page.getByTestId('sheet-toggle').click()
   await expect(page.getByTestId('journey-count')).toBeVisible()
 }
 
