@@ -65,8 +65,8 @@ test.describe('F6 Badges', () => {
     await openStudio(page)
     const preview = page.getByTestId('studio-preview')
 
-    await page.getByTestId('studio-shape-hexagon').check({ force: true })
-    await page.getByTestId('studio-emblem-star').check({ force: true })
+    await page.locator('label[for="shape-hexagon"]').click()
+    await page.locator('label[for="emblem-star"]').click()
     await expect(preview).toHaveAttribute('aria-label', /hexagon badge with a star emblem/)
 
     await page.getByTestId('studio-primary-color').fill('#00aa55')
@@ -83,8 +83,8 @@ test.describe('F6 Badges', () => {
   // TEST 2 – Save keeps the design, even after a reload
   test('saving the design keeps it after a reload', async ({ page }) => {
     await openStudio(page)
-    await page.getByTestId(`studio-shape-${DESIGN.shape}`).check({ force: true })
-    await page.getByTestId(`studio-emblem-${DESIGN.emblem}`).check({ force: true })
+    await page.locator(`label[for="shape-${DESIGN.shape}"]`).click()
+    await page.locator(`label[for="emblem-${DESIGN.emblem}"]`).click()
     await page.getByTestId('studio-primary-color').fill(DESIGN.primary)
     await page.getByTestId('studio-secondary-color').fill(DESIGN.secondary)
     await page.getByTestId('studio-ribbon').fill(DESIGN.ribbon)
