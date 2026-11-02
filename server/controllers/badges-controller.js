@@ -10,6 +10,7 @@ const Assignments = require('../models/assignments-model')
 const mongoose = require("mongoose");
 const sendServerError = require('../utils/send-server-error')
 const onemap = require('../services/onemap')
+const { emit } = require("../sockets");
 const SCHEDULE = require("../data/schedule.json");
 
 // reportingMinutes(text) - turns a school reporting time such as "1:30pm" into minutes since midnight.
@@ -101,6 +102,7 @@ exports.awardBadge = async (req, res) => {
       }
     }
 
+    for (const award of given) emit("badges:updated", null, `user:${award.volunteer}`);
     res.status(201).json({ given, skipped });
   } catch (error) {
     res.status(400).json({ message: error.message });
@@ -188,6 +190,7 @@ exports.placeOrder = async (req, res) => {
               postalCode,
           },
         })
+    emit("orders:updated", null, "hq")
     res.status(201).json(order)
   } catch (error) {
     if (lockedByMe) await BadgeDesign.unlock(req.session.userId)
@@ -246,6 +249,8 @@ exports.updateOrderStatus = async (req, res) => {
 
     order.status = newStatus
     await order.save()
+    emit("orders:updated", null, "hq")
+    emit("orders:updated", null, `user:${order.volunteer}`)
     res.status(200).json(order)
   } catch (error) {
     if (error.name === 'CastError'){
@@ -299,12 +304,14 @@ exports.autoAward = async (req, res) => {
 
     const given = { FULL_ROUTE: 0, EARLY_BIRD: 0, SUPER_SUB: 0 }
     let skipped = 0
+    const awarded = new Set()
 
     for (const code of Object.keys(winners)) {
       for (const volunteerId of winners[code]) {
         try {
           await BadgeAward.create({ badge: code, volunteer: volunteerId, event, awardedBy: req.session.userId })
           given[code] += 1
+          awarded.add(String(volunteerId))
         } catch (error) {
           if (error.code === 11000) skipped += 1
           else throw error
@@ -312,6 +319,7 @@ exports.autoAward = async (req, res) => {
       }
     }
 
+    for (const id of awarded) emit("badges:updated", null, `user:${id}`)
     res.status(200).json({ given, skipped })
   } catch (error) {
     sendServerError(res, error)

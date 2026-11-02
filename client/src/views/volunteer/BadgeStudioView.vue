@@ -12,6 +12,7 @@ import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import PageLoading from '@/components/common/PageLoading.vue'
 import { getMyDesign, getMyOrders, saveMyDesign, placeOrder } from '@/services/badges.js'
 import { timeAgo } from '@/utils/time.js'
+import { connectSocket } from '@/services/socket'
 
 const colour = ref('#d6001c')
 const shape = ref('circle')
@@ -276,13 +277,31 @@ function warnBeforeUnload(event) {
   event.preventDefault()
   event.returnValue = ''
 }
+let socket = null
+async function refreshOrders() {
+  if (document.visibilityState !== 'visible' || submitting.value) return
+  try {
+    orders.value = await getMyOrders()
+  } catch (error) {
+    console.error(error)
+  }
+}
 // onMounted - start warning the user before they close the tab with unsaved changes.
-onMounted(() => window.addEventListener('beforeunload', warnBeforeUnload))
+onMounted(() => {
+  window.addEventListener('beforeunload', warnBeforeUnload)
+  socket = connectSocket()
+  socket.on('orders:updated', refreshOrders)
+  socket.io.on('reconnect', refreshOrders)
+  document.addEventListener('visibilitychange', refreshOrders)
+})
 // onBeforeUnmount - stop that warning and cancel the success and postal timers.
 onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', warnBeforeUnload)
   clearTimeout(successTimer)
   clearTimeout(postalTimer)
+  socket?.off('orders:updated', refreshOrders)
+  socket?.io.off('reconnect', refreshOrders)
+  document.removeEventListener('visibilitychange', refreshOrders)
 })
 </script>
 
