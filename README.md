@@ -140,8 +140,10 @@ What it does:
 
 How to try it:
 
-1. As a volunteer, open _Badge Studio_, change the emblem, shape, colours and ribbon. Press **Save** ("Design saved!") and reload to see it kept.
-2. Enter the postal code and unit number and place the order ("Order placed!"). The design now shows as locked.
+1. As a volunteer, open _Badge Studio_ and change the shape, colours, emblem and ribbon text. The badge preview changes live. Press **Save design** ("Design saved!") and reload to see it kept.
+2. Change the design again without saving, then click another page in the navbar or press the browser's back button. A **Leave without saving?** dialog appears: **Stay** keeps the changes, **Leave** discards them. Refreshing or closing the tab shows the browser's own warning instead. **Log Out** does not ask.
+3. Press **Continue to order** to open the order form. Enter the 6-digit postal code and the unit number. The address is filled in automatically from the postal code and cannot be edited.
+4. **Place order** stays grey and disabled until every field is filled in and valid. Pressing it places the order ("Order placed!"). **Cancel** closes the order form. Once ordered, the design shows as locked.
 3. As admin, open _Badges & orders_, find the order and advance it step by step to **Delivered**. The volunteer sees the update under _My orders_.
 4. As admin, use **Give badge** to award _Heart of Gold_ with a note. The volunteer's _My badges_ page shows "1 badge earned" and the note.
 
