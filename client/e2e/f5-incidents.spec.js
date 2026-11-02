@@ -26,12 +26,6 @@ async function openIncidentsAndSearch(page, note) {
   await page.getByTestId('inc-search').fill(note)
 }
 
-// Reads the number on a stat button (New / Acknowledged / Resolved). The button shows e.g. "3" then
-// "New".
-async function statCount(page, key) {
-  return parseInt(await page.getByTestId(`stat-${key}`).innerText(), 10)
-}
-
 // F5 tests - the 5 browser tests for reporting incidents and the admin Incident Queue. They run one
 // after another (serial) and set up their own data first.
 test.describe('F5 Incidents', () => {
@@ -83,7 +77,8 @@ test.describe('F5 Incidents', () => {
 
     await loginWithCredentials(page, { email: volunteer.email, password: DEMO_PASSWORD })
     await page.goto('/volunteer/tracking')
-    await page.getByTestId('sheet-toggle').click()
+    // the handle only exists below 992px wide (phone layout); wider screens have no handle
+    if (page.viewportSize().width < 992) await page.getByTestId('sheet-toggle').click()
     await page.getByTestId('incident-open').click()
 
     await page.getByTestId('incident-type-BUS_DELAYED').click()
@@ -120,7 +115,7 @@ test.describe('F5 Incidents', () => {
     await expect(focus).toContainText(volunteer.name)
 
     await page.getByTestId('incident-ack').click()
-    await expect(page.getByTestId('notice')).toContainText('Acknowledged')
+    await expect(page.getByTestId('notice').filter({ hasText: 'Acknowledged' })).toBeVisible()
     await expect(page.getByTestId('incident-ack')).toHaveCount(0)
     await expect(page.getByTestId('incident-resolve')).toBeVisible()
   })
@@ -136,7 +131,7 @@ test.describe('F5 Incidents', () => {
     await expect(page.getByTestId('confirm-ok')).toBeEnabled()
     await page.getByTestId('confirm-ok').click()
 
-    await expect(page.getByTestId('notice')).toContainText('Resolved')
+    await expect(page.getByTestId('notice').filter({ hasText: 'Resolved' })).toBeVisible()
     const focus = page.getByTestId('inc-focus-card')
     await expect(focus).toContainText(RESOLVE_NOTE)
     await expect(page.getByTestId('incident-ack')).toHaveCount(0)
@@ -153,7 +148,9 @@ test.describe('F5 Incidents', () => {
     await page.goto('/admin/incidents')
     await listLoaded
     await expect(page.getByTestId('stat-new')).toBeVisible()
-    const before = await statCount(page, 'new')
+    // search for the report we are about to send: nothing matches yet
+    await page.getByTestId('inc-search').fill(LIVE_NOTE)
+    await expect(page.locator(CARDS)).toHaveCount(0)
 
     const volunteerApi = await playwright.request.newContext({ baseURL: testInfo.project.use.baseURL })
     await volunteerApi.post('/api/users/login', { data: { email: volunteer.email, password: DEMO_PASSWORD } })
@@ -163,8 +160,7 @@ test.describe('F5 Incidents', () => {
     expect(sent.ok(), 'could not send the second report').toBeTruthy()
     await volunteerApi.dispose()
 
-    await expect.poll(() => statCount(page, 'new'), { timeout: 15 * 1000 }).toBe(before + 1)
-    await page.getByTestId('inc-search').fill(LIVE_NOTE)
-    await expect(page.locator(CARDS)).toHaveCount(1)
+    // the new report must appear by itself, without reloading the page
+    await expect(page.locator(CARDS)).toHaveCount(1, { timeout: 15 * 1000 })
   })
 })

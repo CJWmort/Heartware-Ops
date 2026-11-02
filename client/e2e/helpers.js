@@ -6,8 +6,8 @@ export const DEMO_PASSWORD = process.env.E2E_DEMO_PASSWORD || 'DemoPass123!'
 
 export const ACCOUNTS = {
   admin: {
-    email: process.env.E2E_ADMIN_EMAIL || 'admin@heartware.sg',
-    password: process.env.E2E_ADMIN_PASSWORD || 'ChangeMe123!',
+    email: process.env.E2E_ADMIN_EMAIL || 'admin@gmail.com',
+    password: process.env.E2E_ADMIN_PASSWORD || 'admin123',
   },
   volunteer: { email: 'demo.volunteer001@demo.sg', password: DEMO_PASSWORD },
 }
