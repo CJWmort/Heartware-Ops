@@ -3,9 +3,10 @@
 <script setup>
 // Loads the badge list and the volunteer's awards, and splits them into earned and locked.
 
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import PageLoading from '@/components/common/PageLoading.vue'
 import { listBadges, getMyBadges } from '@/services/badges'
+import { connectSocket } from '@/services/socket'
 
 const badges = ref([])
 const myAwards = ref([])
@@ -38,6 +39,27 @@ onMounted(async () => {
     console.error(failed.reason)
   }
   loading.value = false
+})
+
+let socket = null
+async function refreshAwards() {
+  if (document.visibilityState !== 'visible') return
+  try {
+    myAwards.value = await getMyBadges()
+  } catch (e) {
+    console.error(e)
+  }
+}
+onMounted(() => {
+  socket = connectSocket()
+  socket.on('badges:updated', refreshAwards)
+  socket.io.on('reconnect', refreshAwards)
+  document.addEventListener('visibilitychange', refreshAwards)
+})
+onUnmounted(() => {
+  socket?.off('badges:updated', refreshAwards)
+  socket?.io.off('reconnect', refreshAwards)
+  document.removeEventListener('visibilitychange', refreshAwards)
 })
 </script>
 

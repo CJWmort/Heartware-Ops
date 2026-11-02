@@ -4,9 +4,10 @@
 <script setup>
 // Loads all orders and moves an order to its next status (placed, in production, delivered).
 
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import PageLoading from '@/components/common/PageLoading.vue'
 import { listAllOrders, updateOrderStatus } from '@/services/badges.js'
+import { connectSocket } from '@/services/socket'
 import { timeAgo } from '@/utils/time.js'
 import BadgeAwardForm from '@/components/badges/BadgeAwardForm.vue'
 import BadgeAutoAwards from '@/components/badges/BadgeAutoAwards.vue'
@@ -23,14 +24,14 @@ const savingId = ref(null)
 
 // loadOrders() - 1) show loading and clear the error 2) fetch every order (admin endpoint) 3) store
 // them 4) on failure show a friendly message and log it 5) always stop loading.
-async function loadOrders() {
-    loading.value = true
-    error.value = ''
+async function loadOrders(quiet = false) {
+    if (!quiet) loading.value = true
     try {
        const order = await listAllOrders()
        orders.value = order
+       error.value = ''
     } catch (e) {
-        error.value = e.friendlyMessage || 'Something went wrong. Please try again.'
+        if (!quiet) error.value = e.friendlyMessage || 'Something went wrong. Please try again.'
         console.error(e)
     } finally {
         loading.value = false
@@ -66,7 +67,23 @@ async function advance(order) {
 }
 
 // Load the orders when the page opens. (The two cards above load their own data.)
-onMounted(loadOrders)
+let socket = null
+function refreshQuietly() {
+    if (document.visibilityState !== 'visible' || savingId.value) return
+    loadOrders(true)
+}
+onMounted(() => {
+    loadOrders()
+    socket = connectSocket()
+    socket.on('orders:updated', refreshQuietly)
+    socket.io.on('reconnect', refreshQuietly)
+    document.addEventListener('visibilitychange', refreshQuietly)
+})
+onUnmounted(() => {
+    socket?.off('orders:updated', refreshQuietly)
+    socket?.io.off('reconnect', refreshQuietly)
+    document.removeEventListener('visibilitychange', refreshQuietly)
+})
 </script>
 
 <template>
