@@ -110,7 +110,7 @@ onUnmounted(() => {
             <div class="small text-muted-hw">Move each order on as the badge is made, posted and received.</div>
           </div>
         </div>
-        <button type="button" class="btn btn-sm btn-quiet" :disabled="loading" data-testid="orders-refresh" @click="loadOrders">
+        <button type="button" class="btn btn-sm btn-quiet" :disabled="loading" data-testid="orders-refresh" @click="loadOrders()">
           <i class="bi bi-arrow-clockwise me-1" aria-hidden="true"></i>Refresh
         </button>
       </div>
