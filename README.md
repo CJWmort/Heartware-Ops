@@ -215,9 +215,6 @@ inside `server/`.
    ```bash
    cd server
    pnpm install
-   pnpm run seed:shows
-   pnpm run seed:schools
-   ADMIN_EMAIL=you@example.com ADMIN_PASSWORD='at-least-8-chars' pnpm run seed:admin
    pnpm run dev        # http://localhost:8000
    ```
    On Windows PowerShell, set the admin details like this instead: `$env:ADMIN_EMAIL="you@example.com"; $env:ADMIN_PASSWORD="at-least-8-chars"; pnpm run seed:admin`. Running it again with the same email resets that admin's password.
@@ -232,7 +229,7 @@ inside `server/`.
 
 ### Optional demo data
 
-Run these in `server/`. The `--` before a flag is needed so pnpm passes the flag to the script.
+Run these in `server/`. The `--` before a flag is needed so pnpm passes the flag to the script. As part of production, database already has seeded information.
 
 | Command | What it does |
 | ------- | ------------ |
