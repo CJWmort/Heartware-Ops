@@ -1,4 +1,4 @@
-# Heartware Volunteer Ops (IS216 G5T1)
+# Heartware Ops (IS216 G5T1)
 
 A web app that helps Heartware run the **NDP show volunteer programme**. Volunteers register and say when they are free, the app **automatically assigns each volunteer to a nearby primary school**, volunteers follow their route on show day, and the HQ team watches everything live.
 
