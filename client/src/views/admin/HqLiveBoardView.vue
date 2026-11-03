@@ -54,6 +54,7 @@ const shows = ref([])
 // showOptions (computed) - the shows in the shape AppDropdown expects: a list of { value, label }.
 const showOptions = computed(() => shows.value.map((s) => ({ value: s, label: s })))
 const selectedShow = ref('')
+const activeZone = ref('outside')
 // watch(selectedShow) - remember the chosen show.
 watch(selectedShow, (s) => s && saveShow(s))
 const volunteers = ref([])
@@ -183,8 +184,18 @@ const rows = computed(() =>
 const results = computed(() => {
   const q = query.value.trim().toLowerCase()
   const sel = selected.value
-  if (!q || (sel && q === sel.name.toLowerCase())) return rows.value
-  return rows.value.filter((v) => v.name.toLowerCase().includes(q))
+  const seenAt = (v) => (v.updatedAt ? new Date(v.updatedAt).getTime() : -Infinity)
+  const bySeen = (a, b) => {
+    const x = seenAt(a)
+    const y = seenAt(b)
+    if (x === y) return 0
+    return x < y ? 1 : -1
+  }
+  const list =
+    !q || (sel && q === sel.name.toLowerCase())
+      ? rows.value
+      : rows.value.filter((v) => v.name.toLowerCase().includes(q))
+  return [...list].sort(bySeen)
 })
 
 // selected, liveCount, locatedCount (computed) - the selected volunteer's row, how many are live, and
@@ -222,6 +233,8 @@ const markers = new Map()
 
 let needFit = false
 let boardLoaded = false
+let outsideView = null
+let userMoved = false
 let hasFitted = false
 let requestId = 0
 let pollTimer = null
@@ -247,7 +260,11 @@ function onMapReady(m, leaflet) {
 
   map.zoomControl?.setPosition('bottomright')
   // map dragstart - when the admin drags the map, stop following the selected volunteer.
-  map.on('dragstart', () => (following.value = false))
+  map.on('dragstart', () => {
+    following.value = false
+    userMoved = true
+    activeZone.value = null
+  })
   // map click - clicking empty map stops following, closes the bell panel and clears the selection.
   map.on('click', () => {
     following.value = false
@@ -270,6 +287,7 @@ function drawZones() {
     dashArray: '8 6',
     fillColor: '#2563eb',
     fillOpacity: 0.14,
+    className: 'zone-outer',
   }).addTo(zoneLayer)
 
   L.polygon(INNER_RING, {
@@ -277,6 +295,7 @@ function drawZones() {
     weight: 3,
     fillColor: '#7c3aed',
     fillOpacity: 0.22,
+    className: 'zone-inner',
   }).addTo(zoneLayer)
 }
 
@@ -375,6 +394,7 @@ function followZoomIn() {
 
 // toggleFollow() - the crosshair button: turn follow mode on (and zoom in) or off.
 function toggleFollow() {
+  activeZone.value = null
   following.value = !following.value
   if (following.value) followZoomIn()
 }
@@ -423,6 +443,9 @@ function glideTo(entry, lat, lng) {
 watch(rows, drawMarkers)
 // watch(selectedId) - when a volunteer is selected or cleared, apply the map focus.
 watch(selectedId, applyFocus)
+watch(selectedId, (id) => {
+  if (id) activeZone.value = null
+})
 
 // fitAll(mode) - fit the camera to every volunteer who has a location. fly = animated arc, smooth =
 // straight move, jump = no animation. With nobody located it shows Singapore.
@@ -443,7 +466,15 @@ function fitAll(mode = 'fly') {
 function applyFit() {
   if (!map || !boardLoaded || !needFit) return
   needFit = false
-  fitAll(hasFitted ? 'smooth' : 'jump')
+  const rememberView = () => (outsideView = { center: map.getCenter(), zoom: map.getZoom() })
+  userMoved = false
+  const smooth = hasFitted
+  fitAll(smooth ? 'smooth' : 'jump')
+  limitView()
+  if (!smooth) rememberView()
+  setTimeout(() => {
+    if (map && !userMoved) rememberView()
+  }, 900)
   hasFitted = true
 }
 
@@ -546,6 +577,25 @@ function viewRing(ring) {
   const camera = cameraFor(ring, padTL, padBR, map.getMaxZoom())
   limitView(camera.zoom)
   flyIfMoved(camera, 0.6)
+}
+
+function viewOutside() {
+  if (!map) return
+  if (!outsideView) {
+    fitAll('fly')
+    return
+  }
+  limitView()
+  flyIfMoved({ zoom: outsideView.zoom, target: outsideView.center }, 0.8)
+}
+
+function viewZone(key) {
+  if (key === 'none') return
+  userMoved = true
+  activeZone.value = key
+  if (key === 'inner') viewRing(INNER_RING)
+  else if (key === 'outer') viewRing(OUTER_RING)
+  else if (key === 'outside') viewOutside()
 }
 
 // showSchool(v) - pins tooltips on the volunteer and their school marker. The marker further north
@@ -683,6 +733,7 @@ function onShowMenuOpen() {
 function chooseShow(s) {
   if (s === selectedShow.value) return
   selectedShow.value = s
+  activeZone.value = 'outside'
   onShowChange()
 }
 
@@ -950,15 +1001,6 @@ onUnmounted(() => {
     <div class="map-stage" :style="{ '--map-inset-bottom': cardH + 'px', '--notice-top': '96px' }">
       <BaseMap :center="SINGAPORE_CENTER" :zoom="11" testid="hq-map" @ready="onMapReady" />
 
-      <div class="ring-views" role="group" aria-label="Quick map views">
-        <button type="button" class="ring-btn" @click="viewRing(INNER_RING)">
-          <i class="bi bi-bullseye" aria-hidden="true"></i> Inner
-        </button>
-        <button type="button" class="ring-btn" @click="viewRing(OUTER_RING)">
-          <i class="bi bi-record-circle" aria-hidden="true"></i> Outer
-        </button>
-      </div>
-
       <div ref="barEl" class="board-bar">
         <div class="bar-row">
           <AppDropdown
@@ -1014,10 +1056,24 @@ onUnmounted(() => {
         </div>
 
         <div v-if="rows.length" class="zone-row" aria-label="Volunteers by zone">
-          <span v-for="z in ZONES" :key="z.key" class="zone-chip" :title="z.hint">
-            <span class="zone-dot" :class="z.key"></span>{{ z.label }}
+          <component
+            :is="z.key === 'none' ? 'span' : 'button'"
+            v-for="z in ZONES"
+            :key="z.key"
+            :type="z.key === 'none' ? null : 'button'"
+            class="zone-chip"
+            :class="{
+              'zone-chip-btn': z.key !== 'none',
+              'zone-chip-info': z.key === 'none',
+              active: z.key === activeZone,
+            }"
+            :aria-pressed="z.key === 'none' ? null : z.key === activeZone"
+            :title="z.hint"
+            @click="viewZone(z.key)"
+          >
+            <span v-if="z.key !== 'none'" class="zone-dot" :class="z.key"></span>{{ z.label }}
             <strong :data-testid="'hq-zone-count-' + z.key">{{ zoneCounts[z.key] }}</strong>
-          </span>
+          </component>
         </div>
 
         <div v-if="searchOpen" class="results" role="listbox">
@@ -1622,10 +1678,107 @@ onUnmounted(() => {
   padding: 0 8px;
   background: #fff;
   border-radius: 14px;
-  box-shadow: 0 1px 6px rgb(0 0 0 / 0.2);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.1);
   font-size: 0.78rem;
   color: #555;
   white-space: nowrap;
+  border: 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.zone-chip-btn {
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    box-shadow 0.15s;
+}
+.zone-chip-btn:hover {
+  background: #f1f3f6;
+  box-shadow: 0 2px 6px rgb(0 0 0 / 0.14);
+}
+.zone-chip-info {
+  background: #e9ecf1;
+  box-shadow: none;
+  color: #6b7280;
+  cursor: default;
+  font-weight: 700;
+}
+.zone-chip-info strong {
+  color: #6b7280;
+  font-weight: 700;
+}
+.zone-chip.active,
+.zone-chip-btn.active:hover {
+  background: #e7f0ff;
+  color: #0a58ca;
+  font-weight: 600;
+  box-shadow: 0 0 0 2px #2563eb inset;
+}
+.zone-chip.active strong {
+  color: #0a58ca;
+}
+.zone-chip-btn:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .zone-chip-btn {
+    transition: none;
+  }
+}
+
+.map-stage :deep(.zone-outer) {
+  animation: zone-march 1s linear infinite;
+}
+.map-stage :deep(.zone-inner) {
+  animation: zone-pulse 1s ease-in-out infinite;
+}
+@keyframes zone-march {
+  to {
+    stroke-dashoffset: -14;
+  }
+}
+@keyframes zone-pulse {
+  0%,
+  100% {
+    fill-opacity: 0.22;
+  }
+  50% {
+    fill-opacity: 0.32;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .map-stage :deep(.zone-outer),
+  .map-stage :deep(.zone-inner) {
+    animation: none;
+  }
+}
+
+.bar-row :deep(.show-btn) {
+  background: #eef1f6;
+  color: #555;
+}
+.bar-row :deep(.show-btn:hover) {
+  background: #e3e7ee;
+}
+.bar-row :deep(.show-name) {
+  color: #222;
+}
+.bar-row :deep(.show-name.is-placeholder) {
+  color: #888;
+}
+.bar-row :deep(.show-menu) {
+  background: #fff;
+  color: #1f2430;
+  border-color: #dee2e6;
+}
+.bar-row :deep(.show-option:hover) {
+  background: #f5f7fa;
+}
+.bar-row :deep(.show-option.active) {
+  background: #e7f0ff;
+  color: #0a58ca;
 }
 
 .zone-chip strong {
@@ -1641,11 +1794,12 @@ onUnmounted(() => {
   background: #d3d6da;
 }
 .zone-dot.inner {
-  background: #0d6efd;
+  background: rgb(124 58 237 / 0.22);
+  border: 2px solid #7c3aed;
 }
 .zone-dot.outer {
-  background: #cfe0fb;
-  border: 2px solid #6c757d;
+  background: rgb(37 99 235 / 0.14);
+  border: 2px dashed #2563eb;
 }
 .zone-dot.outside {
   background: #fff;
@@ -1927,29 +2081,5 @@ onUnmounted(() => {
   .zone-dot {
     display: none;
   }
-}
-
-.ring-views {
-  position: absolute;
-  right: 10px;
-  bottom: calc(
-    var(--map-inset-bottom) + 120px
-  );
-  z-index: 1000;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.ring-btn {
-  padding: 6px 12px;
-  border: 0;
-  border-radius: 10px;
-  background: #fff;
-  color: var(--hw-navy);
-  font-size: 0.85rem;
-  box-shadow: 0 1px 4px rgb(0 0 0 / 0.3);
-}
-.ring-btn:hover {
-  background: #f1f3f5;
 }
 </style>

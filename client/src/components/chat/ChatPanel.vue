@@ -85,6 +85,12 @@ function onKeydown(e) {
   z-index: 1190;
 }
 
+@media (min-width: 992px) {
+  .chat-panel {
+    right: calc((100vw - min(100vw, var(--hw-content-w) + 24px)) / 2 + 12px);
+  }
+}
+
 @media (max-width: 575.98px) {
   .chat-panel {
     top: 3.5rem;

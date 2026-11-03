@@ -33,6 +33,7 @@ const label = computed(() => (chat.unreadTotal > 0 ? `Chat, ${chat.unreadTotal} 
       <span
         v-if="chat.unreadTotal > 0"
         class="chat-badge position-absolute top-0 start-100 badge rounded-pill bg-danger"
+        :class="{ 'chat-badge-sm': showLabel }"
       >
         {{ badge }}
       </span>
@@ -47,6 +48,12 @@ const label = computed(() => (chat.unreadTotal > 0 ? `Chat, ${chat.unreadTotal} 
 
 .chat-badge {
   transform: translate(-50%, -35%);
+}
+.chat-badge-sm {
+  transform: translate(-60%, -30%);
+  font-size: 0.6rem;
+  padding: 0.2em 0.4em;
+  line-height: 1;
 }
 .chat-btn:hover,
 .chat-btn:focus-visible {
