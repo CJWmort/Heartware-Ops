@@ -873,39 +873,43 @@ loadData()
               </div>
             </div>
 
+            <!-- Search row: the search box on a row of its own, so it gets the full width of the panel. v-model keeps
+                 searchbar in the script in sync, and the card list filters itself (see visibleSchools). -->
             <div class="alloc-search-row d-flex flex-wrap align-items-center gap-2 mb-0">
-              <div class="alloc-filter-row d-flex flex-wrap align-items-center gap-2 mt-2">
-                <AppDropdown
-                  v-model="zoneFilter"
-                  :options="zoneDropdownOptions"
-                  icon="bi-geo-alt"
-                  aria-label="Filter by zone"
-                  testid="alloc-zone-filter"
-                />
-
-                <AppDropdown
-                  v-model="timeFilter"
-                  :options="timeDropdownOptions"
-                  icon="bi-clock"
-                  aria-label="Filter by reporting time"
-                  testid="alloc-time-filter"
-                />
-
-                <button
-                  v-if="filtersActive"
-                  type="button"
-                  class="btn btn-sm btn-outline-secondary text-nowrap"
-                  @click="clearSchoolFilters"
-                >
-                  Clear all ({{ activeFilterCount }})
-                </button>
-              </div>
               <input
                 type="search"
                 class="form-control search-box"
                 placeholder="Search school or volunteer"
                 v-model="searchbar"
               />
+            </div>
+            <!-- Filter row: the zone and reporting time dropdowns, plus "Clear all" while any filter is on, on a
+                 separate row below the search box (layout suggested by fwyyn). -->
+            <div class="alloc-filter-row d-flex flex-wrap align-items-center gap-2 mt-2">
+              <AppDropdown
+                v-model="zoneFilter"
+                :options="zoneDropdownOptions"
+                icon="bi-geo-alt"
+                aria-label="Filter by zone"
+                testid="alloc-zone-filter"
+              />
+
+              <AppDropdown
+                v-model="timeFilter"
+                :options="timeDropdownOptions"
+                icon="bi-clock"
+                aria-label="Filter by reporting time"
+                testid="alloc-time-filter"
+              />
+
+              <button
+                v-if="filtersActive"
+                type="button"
+                class="btn btn-sm btn-outline-secondary text-nowrap"
+                @click="clearSchoolFilters"
+              >
+                Clear all ({{ activeFilterCount }})
+              </button>
             </div>
             <!-- results line: only shown while something is filtering, so you can see how many schools are hidden -->
             <p v-if="filtersActive" class="small text-muted-hw mb-0 mt-2">
