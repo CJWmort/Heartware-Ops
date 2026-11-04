@@ -32,16 +32,23 @@ watch(open, (isOpen) => {
 const rootEl = ref(null)
 
 // allOptions (computed) - every option as one flat list (the groups are merged if grouped).
-const allOptions = computed(() => (props.groups ? props.groups.flatMap((g) => g.options) : props.options))
+const allOptions = computed(() =>
+  props.groups ? props.groups.flatMap((g) => g.options) : props.options,
+)
 // currentLabel (computed) - the label of the chosen option, or empty if none matches.
-const currentLabel = computed(() => allOptions.value.find((o) => o.value === props.modelValue)?.label ?? '')
+const currentLabel = computed(
+  () => allOptions.value.find((o) => o.value === props.modelValue)?.label ?? '',
+)
 
 // rows (computed) - the rows to draw in the list: group headings and options, each option with its
 // position index (used by the keyboard).
 const rows = computed(() => {
   if (!props.groups) return props.options.map((opt, i) => ({ opt, i }))
   let i = 0
-  return props.groups.flatMap((g) => [{ heading: g.label }, ...g.options.map((opt) => ({ opt, i: i++ }))])
+  return props.groups.flatMap((g) => [
+    { heading: g.label },
+    ...g.options.map((opt) => ({ opt, i: i++ })),
+  ])
 })
 
 // choose(value) - an option was picked: close the list and tell the parent the new value.
@@ -80,12 +87,19 @@ onUnmounted(() => document.removeEventListener('pointerdown', onDocPointerDown, 
       @click="open = !open"
     >
       <i v-if="icon" class="bi" :class="icon" aria-hidden="true"></i>
-      <span class="show-name" :class="{ 'is-placeholder': !currentLabel }">{{ currentLabel || placeholder }}</span>
+      <span class="show-name" :class="{ 'is-placeholder': !currentLabel }">{{
+        currentLabel || placeholder
+      }}</span>
       <i class="bi bi-chevron-down show-chevron" :class="{ open }" aria-hidden="true"></i>
     </button>
 
     <Transition name="menu">
-      <div v-if="open" class="show-menu filter-menu" :class="{ 'menu-end': menuEnd }" role="listbox">
+      <div
+        v-if="open"
+        class="show-menu filter-menu"
+        :class="{ 'menu-end': menuEnd }"
+        role="listbox"
+      >
         <template
           v-for="row in rows"
           :key="row.heading ? 'g-' + row.heading : row.opt.value === '' ? 'all' : row.opt.value"
@@ -234,8 +248,6 @@ onUnmounted(() => document.removeEventListener('pointerdown', onDocPointerDown, 
   opacity: 0;
   transform: translateY(-6px) scale(0.95);
 }
-/* Hover colours only on devices with a real mouse, so on phones a tapped dropdown doesn't stay
-   stuck in the darker hover colour. */
 @media (hover: hover) {
   .show-btn:hover {
     background: var(--bs-secondary-bg);

@@ -808,11 +808,6 @@ onUnmounted(() => {
   }
 }
 
-/* Phone filter layout (below 768px): the filters become a three-column grid -
-   [Show][Sort][School], then the search box across the full width, then [Type][Severity][Clear].
-   The two filter rows "dissolve" (display: contents) so all controls share one grid, every dropdown
-   fills its cell so the edges line up, and the leading icons are hidden so the labels fit.
-   Desktop keeps the original layout. */
 @media (max-width: 767.98px) {
   .inc-filters {
     display: grid;
