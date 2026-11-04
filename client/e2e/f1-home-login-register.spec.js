@@ -10,7 +10,11 @@ const TAMPINES_ADDRESS = 'BLK 201 TAMPINES STREET 21 SINGAPORE 520201'
 // postal-lookup request and answer it ourselves.
 async function mockPostalLookup(page) {
   await page.route('**/api/users/postal-lookup**', (route) =>
-    route.fulfill({ status: 200, contentType: 'application/json', json: { address: TAMPINES_ADDRESS } }),
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      json: { address: TAMPINES_ADDRESS },
+    }),
   )
 }
 
@@ -24,10 +28,19 @@ async function submitLogin(page, { email, password }) {
 // Proves we are logged in: the navbar shows a Logout button. On a phone the navbar is collapsed, so we
 // open the menu first.
 async function expectLoggedIn(page) {
-  await expect(page.getByTestId('navbar')).toBeVisible()
-  const toggle = page.getByTestId('nav-toggle')
-  if (await toggle.isVisible()) await toggle.click()
-  await expect(page.getByTestId('nav-logout')).toBeVisible()
+  await expect(page.getByTestId('nav-user-name')).toBeAttached()
+  const logout = page.getByTestId('nav-logout')
+
+  if (page.viewportSize().width < 992) {
+    const menu = page.locator('#mainNav')
+    await expect(async () => {
+      const isOpen = await menu.evaluate((el) => el.classList.contains('show'))
+      if (!isOpen) await page.getByTestId('nav-toggle').click()
+      await expect(logout).toBeVisible({ timeout: 1000 })
+    }).toPass({ timeout: 10000 })
+  }
+
+  await expect(logout).toBeVisible()
 }
 
 // Makes details for a brand-new volunteer. The server rejects an email or phone that is already
@@ -79,7 +92,10 @@ test.describe('F1 Home, Login & Register', () => {
     await page.goto('/login')
 
     await test.step('wrong password is rejected by the server', async () => {
-      await submitLogin(page, { email: ACCOUNTS.volunteer.email, password: 'definitely-not-the-password' })
+      await submitLogin(page, {
+        email: ACCOUNTS.volunteer.email,
+        password: 'definitely-not-the-password',
+      })
       await expect(page.getByTestId('notice')).toContainText(/unable to log in/i)
       await expect(page).toHaveURL(/\/login$/)
     })
@@ -106,7 +122,9 @@ test.describe('F1 Home, Login & Register', () => {
   })
 
   // TEST 4 – Register: the form refuses bad input and will not let you sign up until it is all valid
-  test('register form shows field errors and keeps Sign up disabled until consent is given', async ({ page }) => {
+  test('register form shows field errors and keeps Sign up disabled until consent is given', async ({
+    page,
+  }) => {
     await mockPostalLookup(page)
     await page.goto('/register')
 
@@ -147,7 +165,9 @@ test.describe('F1 Home, Login & Register', () => {
   })
 
   // TEST 5 – Logout: Log Out takes you back to the login page and the protected pages need a login again
-  test('logging out returns to the login page and locks the admin pages again', async ({ page }) => {
+  test('logging out returns to the login page and locks the admin pages again', async ({
+    page,
+  }) => {
     await page.goto('/login')
     await submitLogin(page, ACCOUNTS.admin)
     await expectLoggedIn(page)

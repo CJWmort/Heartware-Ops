@@ -16,8 +16,8 @@ const sendServerError = require('../utils/send-server-error')
 // logged-in user).
 exports.listTemplates = (req, res) => res.json(TEMPLATES);
 
-// createIncident - a volunteer files an incident. 1) read the form fields (slot, school, bus, type,
-// severity, note, position and typed address), 2) the note is required (trimmed) else 400, 3) use the
+// createIncident - a volunteer files an incident. 1) read the form fields (slot, school, show, bus,
+// type, severity, note, position and typed address), 2) the note is required (trimmed) else 400, 3) use the
 // typed address, or if none and a GPS position was sent, ask OneMap for the address, 4) save the
 // incident, 5) send a live "incident:new" event to HQ and reply with the saved incident.
 exports.createIncident = async (req, res) => {
@@ -25,6 +25,7 @@ exports.createIncident = async (req, res) => {
     const {
       slotId,
       school,
+      show,
       busNo,
       type,
       severity,
@@ -40,7 +41,7 @@ exports.createIncident = async (req, res) => {
     if (cleanNote.length > 500) {
       return res.status(400).json({ message: "The description can be at most 500 characters." });
     }
-    const tooLong = [school, busNo, slotId, typedAddress].some((v) => typeof v === "string" && v.length > 200);
+    const tooLong = [school, show, busNo, slotId, typedAddress].some((v) => typeof v === "string" && v.length > 200);
     if (tooLong) {
       return res.status(400).json({ message: "One of the fields is too long." });
     }
@@ -56,6 +57,7 @@ exports.createIncident = async (req, res) => {
     const incident = await Incident.create({
       slotId,
       school,
+      show,
       busNo,
       type,
       severity,
@@ -72,12 +74,14 @@ exports.createIncident = async (req, res) => {
   }
 };
 
-// listIncidents (admin) - the queue. 1) optional ?status= filter 2) load incidents (newest first) 3)
-// sort by status (new, acknowledged, resolved), then severity (high, medium, low), then newest first
-// 4) reply with the list.
+// listIncidents (admin) - the queue. 1) optional ?status= and ?show= filters 2) load incidents
+// (newest first) 3) sort by status (new, acknowledged, resolved), then severity (high, medium,
+// low), then newest first 4) reply with the list.
 exports.listIncidents = async (req, res) => {
   try {
-    const filter = req.query.status ? { status: req.query.status } : {};
+    const filter = {};
+    if (req.query.status) filter.status = req.query.status;
+    if (req.query.show) filter.show = req.query.show;
     const list = await Incident.retrieveAll(filter);
     list.sort((a, b) => {
       const byStatus = STATUS_ORDER[a.status] - STATUS_ORDER[b.status];

@@ -1,6 +1,6 @@
-// Script that creates demo incidents for testing the queue.
+// Script that creates demo incidents for testing the queue: 15 per NE Show (1 to 4), 60 in total.
 // HOW TO RUN (from the server folder):
-//   pnpm run seed:incidents               -> adds 60 demo incidents (replaces old demo ones)
+//   pnpm run seed:incidents               -> adds 15 demo incidents per NE Show (60 total; replaces old demo ones)
 //   pnpm run seed:incidents -- --remove   -> deletes the demo incidents
 // Before this: volunteers must already be assigned to schools (Run Allocations on the admin board).
 
@@ -13,7 +13,8 @@ require("../models/schools-model");
 require("../models/shows-model");
 require("../models/incidents-model");
 
-const COUNT = 60;
+const COUNT_PER_SHOW = 15;
+const SHOWS = ["NE Show 1", "NE Show 2", "NE Show 3", "NE Show 4"];
 const PADANG = { lat: 1.2905591, lng: 103.8529176 };
 
 const KINDS = [
@@ -165,11 +166,13 @@ function clockMinutes(text) {
     : 14 * 60;
 }
 
-// main() - 1) connect 2) --remove deletes the incidents whose slotId starts with "seed-" 3) load show
-// dates, schools and assigned volunteers 4) give every assignment a bus number inside its school and
-// show 5) pick up to 60 random buses and for each choose an incident kind, a place (school / road /
-// padang), a realistic time and position, and a status history 6) delete old demo incidents then
-// insert the new ones directly into the collection (keeps the custom dates).
+// main() - 1) connect 2) --remove deletes the incidents whose slotId starts with "seed-" 3) load
+// show dates, schools and assigned volunteers 4) give every assignment a bus number inside its
+// school and show 5) for each NE Show pick up to COUNT_PER_SHOW random buses (a show with nobody
+// assigned prints a warning and is skipped) 6) for each bus choose an incident kind, a place
+// (school / road / padang), a realistic time and position, and a status history, and save its
+// show 7) delete old demo incidents then insert the new ones directly into the collection (keeps
+// the custom dates).
 async function main() {
   await connect();
   const Incident = mongoose.model("Incident");
@@ -208,10 +211,17 @@ async function main() {
   }
 
   const docs = [];
-  const chosen = buses
-    .slice()
-    .sort(() => Math.random() - 0.5)
-    .slice(0, COUNT);
+  const chosen = [];
+  for (const show of SHOWS) {
+    const showBuses = buses.filter((b) => b.row.show === show);
+    if (showBuses.length === 0) {
+      console.log(`${show}: nobody is assigned to a school, so no incidents. Run Allocations for ${show} first.`);
+      continue;
+    }
+    const picked = showBuses.sort(() => Math.random() - 0.5).slice(0, COUNT_PER_SHOW);
+    chosen.push(...picked);
+    console.log(`${show}: ${picked.length} incidents.`);
+  }
   for (const bus of chosen) {
     const kind = pickKind();
     // text(t) - fills the {school} and {bus} placeholders in a message with this bus's school name and
@@ -269,6 +279,7 @@ async function main() {
       note: text(pick(kind.notes[place])),
       slotId: `seed-${bus.row._id}`,
       school: bus.school.name,
+      show: bus.row.show,
       busNo: bus.busNo,
       volunteer: bus.row.volunteer,
       location: { lat: +lat.toFixed(6), lng: +lng.toFixed(6) },

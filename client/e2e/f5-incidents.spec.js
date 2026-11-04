@@ -18,11 +18,22 @@ let volunteer = { email: '', name: '', school: '' }
 
 const CARDS = '[data-testid^="incident-card-"]'
 
-// Opens the admin Incidents page and searches for one incident by its note. The page is a map with a
-// list ("menu") on top; the search box filters that list.
+// pickIncidentShow(page) - picks the test show (SHOW) in the Incidents page's show dropdown and
+// checks it is selected. The page only lists one NE Show's incidents at a time and a fresh browser
+// starts on NE Show 1, so without this the test's incident would not be in the list. Same steps as
+// F4 uses for the Live board's show dropdown.
+async function pickIncidentShow(page) {
+  await page.getByTestId('inc-show-select').click()
+  await page.getByRole('option', { name: SHOW }).click()
+  await expect(page.getByTestId('inc-show-select')).toContainText(SHOW)
+}
+
+// Opens the admin Incidents page, picks the test show (see pickIncidentShow) and searches for one
+// incident by its note. The page is a map with a list ("menu") on top; the search box filters that list.
 async function openIncidentsAndSearch(page, note) {
   await loginWithCredentials(page, ACCOUNTS.admin)
   await page.goto('/admin/incidents')
+  await pickIncidentShow(page)
   await page.getByTestId('inc-search').fill(note)
 }
 
@@ -139,14 +150,19 @@ test.describe('F5 Incidents', () => {
   })
 
   // TEST 5 – A report that arrives while HQ has the page open shows up by itself (live update, no
-  // reload). HQ first searches for the note of the report about to be sent (nothing matches), then the
-  // volunteer sends it and the matching card must appear without reloading.
+  // reload). HQ picks the test show and waits for its list, then searches for the note of the report
+  // about to be sent (nothing matches); the volunteer sends it for the same show and the matching card
+  // must appear without reloading.
   test('a new report appears on an open HQ page without reloading', async ({ page, playwright }, testInfo) => {
     await loginWithCredentials(page, ACCOUNTS.admin)
     const listLoaded = page.waitForResponse(
-      (r) => /\/api\/incidents(\?|$)/.test(r.url()) && r.request().method() === 'GET',
+      (r) =>
+        /\/api\/incidents(\?|$)/.test(r.url()) &&
+        r.request().method() === 'GET' &&
+        new URL(r.url()).searchParams.get('show') === SHOW,
     )
     await page.goto('/admin/incidents')
+    await pickIncidentShow(page)
     await listLoaded
     await expect(page.getByTestId('stat-new')).toBeVisible()
     await page.getByTestId('inc-search').fill(LIVE_NOTE)
@@ -155,7 +171,7 @@ test.describe('F5 Incidents', () => {
     const volunteerApi = await playwright.request.newContext({ baseURL: testInfo.project.use.baseURL })
     await volunteerApi.post('/api/users/login', { data: { email: volunteer.email, password: DEMO_PASSWORD } })
     const sent = await volunteerApi.post('/api/incidents', {
-      data: { type: 'BUS_DELAYED', severity: 'medium', note: LIVE_NOTE, school: volunteer.school, lat: TAMPINES.latitude, lng: TAMPINES.longitude },
+      data: { type: 'BUS_DELAYED', severity: 'medium', note: LIVE_NOTE, school: volunteer.school, show: SHOW, lat: TAMPINES.latitude, lng: TAMPINES.longitude },
     })
     expect(sent.ok(), 'could not send the second report').toBeTruthy()
     await volunteerApi.dispose()

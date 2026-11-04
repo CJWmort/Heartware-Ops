@@ -1,4 +1,4 @@
-// The incident database model (type, severity, school, note, location, status and history).
+// The incident database model (type, severity, school, NE Show, note, location, status and history).
 
 const mongoose = require("mongoose");
 
@@ -20,6 +20,7 @@ const IncidentSchema = new mongoose.Schema(
     note: { type: String, maxlength: 500 },
     slotId: String,
     school: String,
+    show: String,
     busNo: String,
     volunteer: { type: mongoose.Schema.Types.ObjectId, ref: "Account" },
     location: { lat: Number, lng: Number },

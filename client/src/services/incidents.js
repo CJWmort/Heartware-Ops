@@ -43,10 +43,11 @@ export async function reportIncident(payload) {
   }
 }
 
-// listIncidents(status) - GET incidents, optionally only one status (admin).
-export async function listIncidents(status) {
+// listIncidents(status, show) - GET incidents (admin), optionally only one status and/or one NE
+// Show; a filter left undefined is not sent.
+export async function listIncidents(status, show) {
   try {
-    const { data } = await axios.get(BASE_URL, { params: { status }, timeout: 15000 })
+    const { data } = await axios.get(BASE_URL, { params: { status, show }, timeout: 15000 })
     return data
   } catch (error) {
     throw addFriendlyMessage(error)

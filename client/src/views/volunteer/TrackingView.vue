@@ -1191,6 +1191,7 @@ onUnmounted(() => {
         v-if="showIncidentReport"
         :location="location"
         :school="currentAssignment?.school?.name"
+        :show="currentAssignment?.show"
         @close="showIncidentReport = false"
       />
 

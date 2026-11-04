@@ -11,6 +11,7 @@ import ConfirmDialog from '../common/ConfirmDialog.vue'
 const props = defineProps({
   location: { type: Object, default: null },
   school: { type: String, default: '' },
+  show: { type: String, default: '' },
 })
 const emit = defineEmits(['close'])
 
@@ -99,7 +100,7 @@ function answerConfirm(ok, text) {
 
 // submitReport() - 1) stop if no type, already submitting or already submitted 2) show busy and clear
 // the error 3) find the template 4) build the payload: type, severity (template default or "medium"),
-// note, trimmed address, school 5) add lat and lng only if the GPS position is known 6) POST it 7)
+// note, trimmed address, school and the NE Show being tracked 5) add lat and lng only if the GPS position is known 6) POST it 7)
 // mark submitted and open the "Report sent!" popup with a green tick and only an OK button 8) on error
 // show the message 9) always clear busy.
 async function submitReport() {
@@ -116,6 +117,7 @@ async function submitReport() {
       note: note.value,
       address: address.value.trim(),
       school: props.school,
+      show: props.show,
     }
 
     if (props.location) {

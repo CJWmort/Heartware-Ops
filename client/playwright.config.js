@@ -27,9 +27,13 @@ export default defineConfig({
     },
   ],
 
+  // webServer - starts the client for the tests. PLAYWRIGHT=1 tells vite.config.js to leave out the
+  // Vue DevTools pill, which otherwise sits over buttons at the bottom of phone-sized screens and
+  // blocks the tests' clicks.
   webServer: {
     command: process.env.CI ? 'npm run preview' : 'npm run dev',
     port: process.env.CI ? 4173 : 5173,
     reuseExistingServer: !process.env.CI,
+    env: { PLAYWRIGHT: '1' },
   },
 })

@@ -1,5 +1,6 @@
-<!-- The admin Incident Queue (F5): all reported incidents sorted by status and severity, shown as
-     a list and as pins on a map, with Acknowledge and Resolve actions. -->
+<!-- The admin Incident Queue (F5): the reported incidents of one NE Show (picked in the show
+     dropdown), sorted by status and severity, shown as a list and as pins on a map, with
+     Acknowledge and Resolve actions. -->
 
 <script setup>
 // Loads incidents, updates live over the socket, filters and sorts them, plots the pins and handles
@@ -15,10 +16,13 @@ import MapLoading from '@/components/map/MapLoading.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import AppDropdown from '@/components/common/AppDropdown.vue'
 import { connectSocket } from '@/services/socket'
-import { getSavedFilter, saveFilter } from '@/services/selected-show'
+import { getSavedShow, saveShow, getSavedFilter, saveFilter } from '@/services/selected-show'
 import { tipCard, bindTip, createIncidentIcon } from '@/utils/map-icons'
 
 const incidents = ref([])
+const shows = ['NE Show 1', 'NE Show 2', 'NE Show 3', 'NE Show 4']
+const selectedShow = ref(shows.includes(getSavedShow()) ? getSavedShow() : 'NE Show 1')
+const showDropdownOptions = shows.map((show) => ({ value: show, label: show }))
 const templatesByType = ref({})
 const selectedId = ref(null)
 const searchbar = ref('')
@@ -149,13 +153,18 @@ watch(schoolFilter, (v) => saveFilter('inc-school', v))
 // typeOptions, schoolOptions and the three filter option lists (computed) - the choices in the
 // dropdowns; schools are the distinct names in the data, A to Z.
 const typeOptions = computed(() =>
-  Object.entries(templatesByType.value).map(([code, t]) => ({ value: code, label: t.label || code })),
+  Object.entries(templatesByType.value).map(([code, t]) => ({
+    value: code,
+    label: t.label || code,
+  })),
 )
 
 // Options for the School dropdown: every distinct school in the incident list, A–Z. A Set keeps each
 // name only once; filter(Boolean) drops empty/missing names.
 const schoolOptions = computed(() =>
-  [...new Set(incidents.value.map((i) => i.school).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
+  [...new Set(incidents.value.map((i) => i.school).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b),
+  ),
 )
 
 // typeFilterOptions (computed) - the type dropdown list: "All types" plus each type.
@@ -355,11 +364,12 @@ function clearSelection() {
   resetMapView()
 }
 
-// loadIncidents() - reload the whole list (the server does the sorting) and redraw the pins; used
-// after every change and every live event. A failure shows an error popup.
+// loadIncidents() - reload the selected show's incidents (the server filters by show and does the
+// sorting) and redraw the pins; used after every change, every live event and every show change.
+// A failure shows an error popup.
 async function loadIncidents() {
   try {
-    incidents.value = await listIncidents()
+    incidents.value = await listIncidents(undefined, selectedShow.value)
     plotIncidents()
   } catch (error) {
     showPopup('error', 'Could not load', error.friendlyMessage || 'Something went wrong.')
@@ -370,13 +380,12 @@ async function loadIncidents() {
 // changed; errors are ignored.
 async function refreshQuietly() {
   try {
-    const fresh = await listIncidents()
+    const fresh = await listIncidents(undefined, selectedShow.value)
     if (JSON.stringify(fresh) !== JSON.stringify(incidents.value)) {
       incidents.value = fresh
       plotIncidents()
     }
-  } catch {
-  }
+  } catch {}
 }
 
 const SAFETY_POLL_MS = 30000
@@ -449,6 +458,17 @@ watch(selectedId, plotIncidents)
 // The "Resolved" pill was toggled: show or hide the green pins.
 watch(showResolved, plotIncidents)
 
+// watch(selectedShow) - another NE Show was picked: 1) remember it (shared with the Allocation
+// board) 2) unselect the open incident 3) clear the School filter (each show has different schools)
+// 4) let the map re-fit to the new pins 5) reload the list.
+watch(selectedShow, (show) => {
+  saveShow(show)
+  selectedId.value = null
+  schoolFilter.value = ''
+  hasFitted = false
+  loadIncidents()
+})
+
 let socket = null
 // onMounted - connect the socket, listen for new and updated incidents and reconnects, start the
 // safety refresh timer and tab-visible listener, then load incidents and templates together and set up
@@ -463,13 +483,17 @@ onMounted(async () => {
   }, SAFETY_POLL_MS)
   document.addEventListener('visibilitychange', onTabVisible)
   try {
-    const [list, templates] = await Promise.all([listIncidents(), listTemplates()])
+    const [list, templates] = await Promise.all([
+      listIncidents(undefined, selectedShow.value),
+      listTemplates(),
+    ])
     templatesByType.value = Object.fromEntries(
       templates.map((template) => [template.type, template]),
     )
     incidents.value = list
     if (typeFilter.value && !templatesByType.value[typeFilter.value]) typeFilter.value = ''
-    if (schoolFilter.value && !schoolOptions.value.includes(schoolFilter.value)) schoolFilter.value = ''
+    if (schoolFilter.value && !schoolOptions.value.includes(schoolFilter.value))
+      schoolFilter.value = ''
     plotIncidents()
   } catch (error) {
     showPopup('error', 'Could not load', error.friendlyMessage || 'Something went wrong.')
@@ -525,7 +549,9 @@ onUnmounted(() => {
         <aside v-show="panelOpen" class="inc-panel">
           <div class="inc-panel-head">
             <div class="d-flex align-items-center justify-content-between gap-2 mb-2">
-              <h1 class="h4 mb-0">Incidents</h1>
+              <div class="d-flex flex-wrap align-items-center gap-2">
+                <h1 class="h4 mb-0">Incidents</h1>
+              </div>
               <button
                 type="button"
                 class="btn btn-outline-primary"
@@ -554,6 +580,14 @@ onUnmounted(() => {
             </div>
 
             <div class="d-flex flex-wrap align-items-center gap-2 mb-0">
+              <AppDropdown
+                v-model="selectedShow"
+                :options="showDropdownOptions"
+                icon="bi-calendar-event"
+                aria-label="Show"
+                testid="inc-show-select"
+                option-testid-prefix="inc-show-option-"
+              />
               <input
                 type="search"
                 class="form-control search-box"
@@ -597,7 +631,12 @@ onUnmounted(() => {
                 grow
               />
 
-              <button v-if="activeFilterCount" type="button" class="btn btn-sm btn-outline-secondary" @click="clearFilters">
+              <button
+                v-if="activeFilterCount"
+                type="button"
+                class="btn btn-sm btn-outline-secondary"
+                @click="clearFilters"
+              >
                 Clear ({{ activeFilterCount }})
               </button>
             </div>
@@ -607,7 +646,7 @@ onUnmounted(() => {
             <p v-if="visibleIncidents.length === 0" class="text-muted-hw">
               {{
                 incidents.length === 0
-                  ? 'No incidents have been reported yet.'
+                  ? `No incidents have been reported for ${selectedShow}.`
                   : statusFilter && !searchbar.trim()
                     ? `No ${statusFilter} incidents.`
                     : 'No incidents match.'
