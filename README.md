@@ -5,6 +5,7 @@ A web app that helps Heartware run the **NDP show volunteer programme**. Volunte
 **The problem.** Every year, Heartware volunteers escort Primary 5 classes from their schools to the Padang for the National Day NE Shows: one volunteer per class, one bus per class. Our data covers **182 primary schools and about 1,058 P5 classes across 4 NE Shows** (about 275 classes per show). Today, volunteers are matched to schools **by hand**. When someone drops out on medical leave or does not turn up, staff search for a replacement by hand, close to or on the event day. During the event, HQ has no live picture of where the groups are: updates arrive as unstructured Telegram messages that HQ must piece together. Heartware Ops replaces these steps with automatic matching, reserve-list replacement, checkpoint tracking on a live map, and structured incident reports.
 
 - **Live app:** https://heartware-ops.vercel.app
+- **Presentation:** https://youtu.be/YJvNLSugh_Q
 - **Hero videos on the home page** (about volunteering for NDP Show Management):
   - Video 1: https://youtu.be/pSg-DubiZK0
   - Video 2: https://youtube.com/shorts/UxlLOv2rBpM
