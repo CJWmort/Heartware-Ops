@@ -579,66 +579,74 @@ onUnmounted(() => {
               </div>
             </div>
 
-            <div class="d-flex flex-wrap align-items-center gap-2 mb-0">
-              <AppDropdown
-                v-model="selectedShow"
-                :options="showDropdownOptions"
-                icon="bi-calendar-event"
-                aria-label="Show"
-                testid="inc-show-select"
-                option-testid-prefix="inc-show-option-"
-              />
-              <input
-                type="search"
-                class="form-control search-box"
-                placeholder="Search school, name, type or note"
-                data-testid="inc-search"
-                v-model="searchbar"
-              />
-              <AppDropdown
-                v-model="sortBy"
-                :options="sortOptions"
-                icon="bi-sort-down"
-                aria-label="Sort incidents"
-                testid="inc-sort"
-                menu-end
-              />
-            </div>
+            <div class="inc-filters">
+              <div class="inc-filter-row d-flex flex-wrap align-items-center gap-2 mb-0">
+                <AppDropdown
+                  class="f-show"
+                  v-model="selectedShow"
+                  :options="showDropdownOptions"
+                  icon="bi-calendar-event"
+                  aria-label="Show"
+                  testid="inc-show-select"
+                  option-testid-prefix="inc-show-option-"
+                />
+                <input
+                  type="search"
+                  class="form-control search-box f-search"
+                  placeholder="Search school, name, type or note"
+                  data-testid="inc-search"
+                  v-model="searchbar"
+                />
+                <AppDropdown
+                  class="f-sort"
+                  v-model="sortBy"
+                  :options="sortOptions"
+                  icon="bi-sort-down"
+                  aria-label="Sort incidents"
+                  testid="inc-sort"
+                  menu-end
+                />
+              </div>
 
-            <div class="d-flex flex-wrap align-items-center gap-2 mt-2">
-              <AppDropdown
-                v-model="typeFilter"
-                :options="typeFilterOptions"
-                icon="bi-tag"
-                aria-label="Filter by incident type"
-                testid="filter-type"
-              />
+              <div class="inc-filter-row d-flex flex-wrap align-items-center gap-2 mt-2">
+                <AppDropdown
+                  class="f-type"
+                  v-model="typeFilter"
+                  :options="typeFilterOptions"
+                  icon="bi-tag"
+                  aria-label="Filter by incident type"
+                  testid="filter-type"
+                />
 
-              <AppDropdown
-                v-model="severityFilter"
-                :options="severityFilterOptions"
-                icon="bi-exclamation-triangle"
-                aria-label="Filter by severity"
-                testid="filter-severity"
-              />
+                <AppDropdown
+                  class="f-severity"
+                  v-model="severityFilter"
+                  :options="severityFilterOptions"
+                  icon="bi-exclamation-triangle"
+                  aria-label="Filter by severity"
+                  testid="filter-severity"
+                />
 
-              <AppDropdown
-                v-model="schoolFilter"
-                :options="schoolFilterOptions"
-                icon="bi-building"
-                aria-label="Filter by school"
-                testid="filter-school"
-                grow
-              />
+                <AppDropdown
+                  class="f-school"
+                  v-model="schoolFilter"
+                  :options="schoolFilterOptions"
+                  icon="bi-building"
+                  aria-label="Filter by school"
+                  testid="filter-school"
+                  grow
+                  menu-end
+                />
 
-              <button
-                v-if="activeFilterCount"
-                type="button"
-                class="btn btn-sm btn-outline-secondary"
-                @click="clearFilters"
-              >
-                Clear ({{ activeFilterCount }})
-              </button>
+                <button
+                  v-if="activeFilterCount"
+                  type="button"
+                  class="btn btn-sm btn-outline-secondary f-clear"
+                  @click="clearFilters"
+                >
+                  Clear ({{ activeFilterCount }})
+                </button>
+              </div>
             </div>
           </div>
 
@@ -797,6 +805,59 @@ onUnmounted(() => {
   .inc-panel-fade-enter-active,
   .inc-panel-fade-leave-active {
     transition: none;
+  }
+}
+
+/* Phone filter layout (below 768px): the filters become a three-column grid -
+   [Show][Sort][School], then the search box across the full width, then [Type][Severity][Clear].
+   The two filter rows "dissolve" (display: contents) so all controls share one grid, every dropdown
+   fills its cell so the edges line up, and the leading icons are hidden so the labels fit.
+   Desktop keeps the original layout. */
+@media (max-width: 767.98px) {
+  .inc-filters {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-areas:
+      'show sort school'
+      'search search search'
+      'type severity clear';
+    gap: 8px;
+  }
+  .inc-filter-row {
+    display: contents !important;
+  }
+  .f-show {
+    grid-area: show;
+  }
+  .f-sort {
+    grid-area: sort;
+  }
+  .f-school {
+    grid-area: school;
+  }
+  .f-search {
+    grid-area: search;
+    height: 40px;
+  }
+  .f-type {
+    grid-area: type;
+  }
+  .f-severity {
+    grid-area: severity;
+  }
+  .f-clear {
+    grid-area: clear;
+    height: 40px;
+  }
+  .inc-filters :deep(.show-btn) {
+    width: 100%;
+    height: 40px;
+  }
+  .inc-filters :deep(.show-btn > .bi:first-child:not(.show-chevron)) {
+    display: none;
+  }
+  .inc-filters :deep(.show-menu) {
+    min-width: 100%;
   }
 }
 </style>

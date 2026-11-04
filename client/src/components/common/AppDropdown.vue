@@ -147,9 +147,6 @@ onUnmounted(() => document.removeEventListener('pointerdown', onDocPointerDown, 
   text-align: left;
   transition: background-color 0.15s;
 }
-.show-btn:hover {
-  background: var(--bs-secondary-bg);
-}
 .show-btn:focus-visible {
   outline: 2px solid var(--bs-primary);
   outline-offset: 2px;
@@ -220,9 +217,6 @@ onUnmounted(() => document.removeEventListener('pointerdown', onDocPointerDown, 
   animation: option-in 0.2s ease both;
   animation-delay: calc(var(--i) * 30ms);
 }
-.show-option:hover {
-  background: var(--hw-bg);
-}
 .show-option.active {
   background: var(--bs-primary-bg-subtle);
   color: var(--bs-primary-text-emphasis);
@@ -239,6 +233,16 @@ onUnmounted(() => document.removeEventListener('pointerdown', onDocPointerDown, 
 .menu-leave-to {
   opacity: 0;
   transform: translateY(-6px) scale(0.95);
+}
+/* Hover colours only on devices with a real mouse, so on phones a tapped dropdown doesn't stay
+   stuck in the darker hover colour. */
+@media (hover: hover) {
+  .show-btn:hover {
+    background: var(--bs-secondary-bg);
+  }
+  .show-option:hover {
+    background: var(--hw-bg);
+  }
 }
 @keyframes option-in {
   from {
