@@ -10,7 +10,7 @@
 
 [**Live demo**](https://heartware-ops.vercel.app) · [Feature guide](docs/USAGE.md) · [Testing](docs/TESTING.md)
 
-[**Youtube Video Demo**](https://youtu.be/Y-HXuXgWsjM)
+[![YouTube](https://img.shields.io/badge/YouTube-Video_Demo-FF0000?logo=youtube&logoColor=white)](https://youtu.be/Y-HXuXgWsjM)
 
 ![Allocation board](docs/images/allocation.png)
 
