@@ -95,8 +95,6 @@ With `BREVO_API_KEY` empty, the 6-digit sign-up code is shown on the page instea
 
 ## Team
 
-Built by Group 5 Team 1. Each member owned one feature end to end.
-
 | Member | Feature |
 | --- | --- |
 | Kuah Kuay Zen | Smart Registration |
