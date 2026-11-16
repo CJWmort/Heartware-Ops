@@ -74,7 +74,7 @@ The client and API share one origin through Vercel rewrites, so the session cook
 Needs **Node 22.18+** and **pnpm** (`npm install -g pnpm`), plus a free [MongoDB Atlas](https://www.mongodb.com/atlas) cluster.
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/heartware-ops.git
+git clone https://github.com/CJWmort/heartware-ops.git
 cd heartware-ops
 
 # Server
@@ -104,7 +104,7 @@ Built by Group 5 Team 1. Each member owned one feature end to end.
 | Kuah Kuay Zen | Smart Registration |
 | Fanny Lin | Smart Allocation |
 | Yap Wei-Jian | Automated Assignment |
-| Chin Jun Wen (ME) | Map Live Monitoring |
+| **Chin Jun Wen** | **Live Tracking** |
 | Tan Wei Ming | Incident Reports |
 | Hanafi Sani | Badge Studio |
 
