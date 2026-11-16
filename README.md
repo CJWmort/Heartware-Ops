@@ -10,6 +10,8 @@
 
 [**Live demo**](https://heartware-ops.vercel.app) · [Feature guide](docs/USAGE.md) · [Testing](docs/TESTING.md)
 
+[**Youtube Video Demo**](https://youtu.be/Y-HXuXgWsjM)
+
 ![Allocation board](docs/images/allocation.png)
 
 ## The problem
