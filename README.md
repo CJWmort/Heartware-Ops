@@ -2,7 +2,6 @@
 
 **Volunteer allocation and live operations platform for the NDP show, built for Heartware.**
 
-[![CI](https://github.com/CJWmort/heartware-ops/actions/workflows/ci.yml/badge.svg)]
 ![Node](https://img.shields.io/badge/node-%E2%89%A522-339933?logo=node.js&logoColor=white)
 ![Vue](https://img.shields.io/badge/Vue-3-42b883?logo=vue.js&logoColor=white)
 ![Express](https://img.shields.io/badge/Express-5-000000?logo=express&logoColor=white)
