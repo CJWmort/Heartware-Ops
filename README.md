@@ -11,8 +11,6 @@
 
 [**Live demo**](https://heartware-ops.vercel.app) · [Feature guide](docs/USAGE.md) · [Testing](docs/TESTING.md)
 
-<sub>Built by a team of six. Originally developed at [weimingtan2025-source/wad2-project](https://github.com/weimingtan2025-source/wad2-project).</sub>
-
 ![Allocation board](docs/images/allocation.png)
 
 ## The problem
