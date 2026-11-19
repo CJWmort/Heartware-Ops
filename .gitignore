@@ -1,7 +1,7 @@
 # Dependencies
 node_modules/
 
-# Secrets – NEVER commit these
+# Secrets
 config.env
 .env
 .env.*
